@@ -4,14 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "types.h"
-#include "memory/engine.h"
+#include "types/id.h"
+#include "memory/working.h"
 #include "reasoning/engine.h"
 #include "reasoning/analogy.h"
-#include "storage/db.h"
-#include "storage/node.h"
-#include "storage/string_pool.h"
-#include "storage/graph.h"
+#include "storage/db/db.h"
+#include "storage/node/node.h"
+#include "storage/string_pool/string_pool.h"
+#include "storage/graph/graph.h"
 #include "math/hash.h"
 // =========================================================================
 // ПЛАНИРОВЩИК (Целеполагание и разбиение задач)
@@ -44,17 +44,17 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
 
             // 2. ОБРАТНЫЙ ВЫВОД (Backward Chaining)
             // Ищем в памяти, ЧТО приводит к этой цели. Мы ищем ребра ВХОДЯЩИЕ в цель.
-            if (get_edges_to_node(txn, node->node_id, &incoming_edges) == MDB_SUCCESS && incoming_edges.edges) {
+            if (get_edges_to_node(txn, node->node_id, &incoming_edges) == MDB_SUCCESS && incoming_edges.items) {
 
                 for (int j = 0; j < incoming_edges.count; j++) {
-                    const char *relation_name = get_string_from_pool(txn, incoming_edges.edges[j].triple.relation);
+                    const char *relation_name = get_string_from_pool(txn, incoming_edges.items[j].key.relation);
 
                     // Эвристика: ищем причинно-следственные связи (CAUSES, LEADS_TO, ACHIVES)
                     // В будущем семантический процессор будет сам определять смысл связи
                     if (relation_name && (strcasestr(relation_name, "cause") || strcasestr(relation_name, "achieve") || strcasestr(relation_name, "приводит"))) {
 
-                        uint64_t required_step_id = incoming_edges.edges[j].triple.source;
-                        float step_weight = incoming_edges.edges[j].evidence_count;
+                        uint64_t required_step_id = incoming_edges.items[j].key.source;
+                        float step_weight = incoming_edges.items[j].evidence_count;
 
                         const char *step_name = get_string_from_pool(txn, required_step_id);
 
@@ -67,12 +67,9 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
                         // Если это абстракция, Планировщик разобьет её еще глубже.
                         wm_activate(wm, required_step_id, node->activation * 0.9f, node->state.usefulness * 0.9f);
                         action_found = 1;
-
-                        if (step_name) free(step_name);
                     }
-                    if (relation_name) free(relation_name);
                 }
-                free(incoming_edges.edges);
+                free(incoming_edges.items);
             }
 
             // 4. РЕАКЦИЯ НА НЕХВАТКУ ЗНАНИЙ (Обучение / Изменение модели мира)
@@ -92,7 +89,7 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
                         uint64_t hyp_id = djb2_hash(hypothesis_label);
                         Node hyp_node = {
                             .id = hyp_id,
-                            .name_hash = add_string_to_pool(txn, candidates[k].analogous_node),
+                            .name_hash = add_string_to_pool(txn, hypothesis_label),
                             .simhash = 0
                         };
                         create_node(txn, &hyp_node);
@@ -103,7 +100,7 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
 
                         // Добавляем задачу на проверку в очередь (можно через файл или IPC)
                         // Пока просто выводим
-                        printf("  -> [ГИПОТЕЗА] %s (сходство %.2f)\n", candidates[k].analogous_node, candidates[k].similarity);
+                        printf("  -> [ГИПОТЕЗА] %s (сходство %.2f)\n", hypothesis_label, candidates[k].score.total);
                     }
                     free(candidates);
                 }

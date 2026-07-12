@@ -3,4 +3,4 @@
 //     resolve_entities()
 #include <stdbool.h>
 
-void *p;
+void *p453473;

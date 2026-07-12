@@ -5,7 +5,8 @@
 #include <lmdb.h>
 
 #include "storage/db/db.h"
-#include "storage/vector_store/vector_store.h"
+#include "vector_store.h"
+#include "runtime/logging/logging.h"
 
 const char *config_key = "proj_matrix";
 static float proj_matrix[HASH_BITS][EMBEDDING_DIM];
@@ -22,16 +23,16 @@ int init_simhash(MDB_txn *txn) {
     if (rc == MDB_SUCCESS) {
         // Matrix exists in DB, load it
         if (data.mv_size != sizeof(proj_matrix)) {
-            fprintf(stderr, "Invalid projection matrix size in DB\n");
+            LOG_ERROR("[init_simhash] Invalid projection matrix size in DB");
             return -1;
         }
         memcpy(proj_matrix, data.mv_data, sizeof(proj_matrix));
-        printf("Loaded projection matrix from DB\n");
+        LOG_DATABASE("[init_simhash] Loaded projection matrix from DB");
         return 0;
     }
 
     // Matrix doesn't exist, generate new one
-    printf("Generating new projection matrix...\n");
+    LOG_DATABASE("[init_simhash] Generating new projection matrix...");
     srand(42); // Fixed seed for reproducibility
     for (int i = 0; i < HASH_BITS; i++) {
         for (int j = 0; j < EMBEDDING_DIM; j++) {
@@ -44,7 +45,7 @@ int init_simhash(MDB_txn *txn) {
     data.mv_data = proj_matrix;
     rc = mdb_put(txn, db.vectors.simhash_config, &key, &data, 0);
     if (rc != MDB_SUCCESS) {
-        fprintf(stderr, "Failed to save projection matrix: %s\n", mdb_strerror(rc));
+        LOG_ERROR("[init_simhash] Failed to save projection matrix: %s\n", mdb_strerror(rc));
         return rc;
     }
 

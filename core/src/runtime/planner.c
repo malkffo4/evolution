@@ -60,8 +60,8 @@ static const Operator *default_policy_choose(VMContext *ctx, CapabilityMask cap)
             for (int j = 0; j < groups[i].count; j++) {
                 Operator *op = groups[i].ops[j];
                 VMProfile *p = &ctx->profile[op->id];
-                double avg_cycles = p->calls ? (double)p->cycles / p->calls : 1000.0;
-                double penalty = p->failures * 500.0;
+                double avg_cycles = p->calls ? (double)p->cycles / (double)p->calls : 1000.0;
+                double penalty = (double)p->failures * 500.0;
                 double score = avg_cycles + penalty;
                 if (score < best_score) {
                     best_score = score;

@@ -33,7 +33,7 @@ typedef struct VMTrace {
     uint64_t begin;
     uint64_t end;
 
-    uint16_t depth;
+    uint32_t depth;
     uint32_t ip;
 
     uint32_t flags;

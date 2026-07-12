@@ -1,7 +1,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "runtime/compiler.h"
+#include "runtime/compiler/pipeline.h"
+#include "runtime/operator/operator.h"
+
+// Временные определения для компиляции
+typedef struct GraphNode {
+    OperatorID operator_id;
+    uint32_t arg[6];
+} GraphNode;
+
+typedef struct ExecutionGraph {
+    GraphNode *nodes;
+    uint32_t node_count;
+} ExecutionGraph;
 
 // Простейший компилятор, который создаёт Pipeline с заготовленным кодом.
 // В реальности он должен обходить граф операций и генерировать байткод.
@@ -27,7 +39,7 @@ Pipeline *compiler_compile(const ExecutionGraph *graph) {
 
         memcpy(ins.arg, node->arg, sizeof(ins.arg));
 
-        pipeline_add_instruction(p, ins);
+        pipeline_add_instruction(p, &ins);
     }
 
     return p;

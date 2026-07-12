@@ -4,7 +4,7 @@
 
 #include <lmdb.h>
 
-// #include "runtime/vm/vm_fwd.h"
+#include "runtime/vm/vm_fwd.h"
 #include "runtime/arena/arena.h"
 #include "memory/working.h"
 #include "runtime/operator/operator_types.h"

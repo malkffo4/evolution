@@ -1,10 +1,10 @@
+# models/local_embedding.py
 from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('all-MiniLM-L6-v2') # "multilingual-e5-small"
 
-@request("embedding")
-def handle(payload):
-    model = SentenceTransformer("all-MiniLM-L6-v2") # "multilingual-e5-small"
+def get_embedding(text):
+    return model.encode(text).tolist()
 
-    text = payload["text"]
 
     vector = model.encode(text)
 

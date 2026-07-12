@@ -12,7 +12,7 @@ typedef struct {
 } Triple; // EdgeKey
 
 typedef struct {
-    Triple triple;
+    Triple key;
     context_id_t context;
     episode_id_t episode;
     node_id_t author;

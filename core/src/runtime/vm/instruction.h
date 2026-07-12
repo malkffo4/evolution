@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include "runtime/capability/capability_types.h"
+#include "runtime/operator/operator_types.h"
 
 /*
  * Универсальная инструкция VM.

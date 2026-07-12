@@ -5,30 +5,30 @@
 #include "storage/edge/edge.h"
 
 int create_edge(MDB_txn *txn, const Edge *edge) {
-    MDB_val key = { sizeof(edge->triple), (void*)&edge->triple };
+    MDB_val key = { sizeof(edge->key), (void*)&edge->key };
     MDB_val data = { sizeof(*edge), (void*)edge };
     int rc = mdb_put(txn, db.graph.edges, &key, &data, MDB_NOOVERWRITE);
     if (rc != MDB_SUCCESS)
         return rc;
 
     // индекс по источнику
-    MDB_val src_key = { sizeof(node_id_t), (void*)&edge->triple.source };
-    MDB_val src_data = { sizeof(Triple), (void*)&edge->triple };
+    MDB_val src_key = { sizeof(node_id_t), (void*)&edge->key.source };
+    MDB_val src_data = { sizeof(Triple), (void*)&edge->key };
     rc = mdb_put(txn, db.graph.index.edges_by_source, &src_key, &src_data, 0);
     if (rc != MDB_SUCCESS)
         return rc;
 
     // индекс по цели
-    MDB_val tgt_key = { sizeof(node_id_t), (void*)&edge->triple.target };
-    MDB_val tgt_data = { sizeof(Triple), (void*)&edge->triple };
+    MDB_val tgt_key = { sizeof(node_id_t), (void*)&edge->key.target };
+    MDB_val tgt_data = { sizeof(Triple), (void*)&edge->key };
     rc = mdb_put(txn, db.graph.index.edges_by_target, &tgt_key, &tgt_data, 0);
     return rc; // точка с запятой обязательна
 }
 
 int update_edge(MDB_txn *txn, const Edge *edge) {
     MDB_val key = {
-        sizeof(edge->triple),
-        (void *)&edge->triple
+        sizeof(edge->key),
+        (void *)&edge->key
     };
 
     MDB_val data = {

@@ -15,13 +15,13 @@ int vm_op_store(VMContext *, const Instruction *);
 
 int vm_op_clear(VMContext *, const Instruction *);
 
-int vm_op_get_in_edges(VMContext *, const Instruction *);
+// int vm_op_get_in_edges(VMContext *, const Instruction *);
 
-int vm_op_get_out_edges(VMContext *, const Instruction *);
+// int vm_op_get_out_edges(VMContext *, const Instruction *);
 
-int vm_op_match_greedy(VMContext *, const Instruction *);
+// int vm_op_match_greedy(VMContext *, const Instruction *);
 
-int vm_op_score(VMContext *, const Instruction *);
+// int vm_op_score(VMContext *, const Instruction *);
 
 int vm_op_branch(VMContext *, const Instruction *);
 

@@ -29,8 +29,8 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn)
             cJSON *danger_json = cJSON_GetObjectItemCaseSensitive(node, "danger");
             cJSON *utility_json = cJSON_GetObjectItemCaseSensitive(node, "utility");
 
-            float danger = cJSON_IsNumber(danger_json) ? danger_json->valuedouble : 0.1f;
-            float utility = cJSON_IsNumber(utility_json) ? utility_json->valuedouble : 0.1f;
+            float danger = (float)cJSON_IsNumber(danger_json) ? danger_json->valuedouble : 0.1f;
+            float utility = (float)cJSON_IsNumber(utility_json) ? utility_json->valuedouble : 0.1f;
 
             if (cJSON_IsString(id) && cJSON_IsString(label)) {
                 uint64_t node_id = djb2_hash(id->valuestring);
@@ -68,9 +68,9 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn)
 
             if (cJSON_IsString(source) && cJSON_IsString(target) && cJSON_IsString(relation)) {
                 Edge logic_edge;
-                logic_edge.triple.source = djb2_hash(source->valuestring);
-                logic_edge.triple.target = djb2_hash(target->valuestring);
-                logic_edge.triple.relation = add_string_to_pool(txn, relation->valuestring);
+                logic_edge.key.source = djb2_hash(source->valuestring);
+                logic_edge.key.target = djb2_hash(target->valuestring);
+                logic_edge.key.relation = add_string_to_pool(txn, relation->valuestring);
                 logic_edge.confidence = 0.5f; // Стартовая гипотеза
                 logic_edge.context = 0;
                 upsert_edge(txn, &logic_edge);

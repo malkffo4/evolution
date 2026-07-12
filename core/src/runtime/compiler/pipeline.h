@@ -4,10 +4,12 @@
 
 #include <stdint.h>
 
+#include "runtime/vm/vm_status.h"
 #include "runtime/vm/instruction.h"
 #include "pipline_types.h"
 
-#define MAX_OPERATORS_IN_PIPELINE 200
+#define MAX_OPERATORS_IN_PIPELINE   200
+#define MAX_PIPELINE_CODE           1024
 
 /* Строковое представление */
 typedef struct {
@@ -29,6 +31,7 @@ typedef struct {
 typedef struct Pipeline {
     PipelineID      id;
     Instruction     *code;          // байткод
+    uint32_t        capacity; // WHY?
     uint32_t        code_len;
     ConstantPool    constants;    // пул констант
     // const Operator *resolved[MAX_OPERATORS_IN_PIPELINE];
@@ -36,7 +39,7 @@ typedef struct Pipeline {
 } Pipeline;
 
 Pipeline* pipeline_create(void);
-void pipeline_add_instruction(Pipeline *p, const Instruction ins);
+VMStatus pipeline_add_instruction(Pipeline *p, const Instruction *ins);
 void pipeline_free(Pipeline *p);
 
 #endif // PIPELINE_H

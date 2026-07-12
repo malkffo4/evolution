@@ -254,3 +254,23 @@
 
 ## Вердикт
 Архитектура рабочая, прогресс есть. Код больше не «дно», но ещё не готов к практическому применению. Основные компоненты на месте, осталось доделать интеграцию и добавить интеллектуальные модули на Python. Система способна эволюционировать в инструмент, который в узкой области пентеста будет полезнее универсальных LLM, потому что опирается на структурированный граф конкретных знаний.
+
+- [x] `area.c` (готовый allocator + retain/release + resize)
+- [x] `trace.c` (полный лог выполнения)
+- [x] `object.c` (destroy/clone/memory_usage)
+- [ ] `call.c` (нормальный стек вызовов Pipeline)
+- [ ] `compiler.c` (Pipeline → ExecutionPlan)
+- [ ] executor_native.c
+- [ ] executor_pipeline.c
+- [ ] executor_jit.c (потом)
+- [ ] optimizer.c
+- [ ] critic.c
+- [ ] Compiler
+- [ ] ExecutionPlan
+- [ ] Capability planner
+- [ ] Critic
+- [ ] Optimizer
+- [ ] DAG
+- [ ] SSA
+
+---

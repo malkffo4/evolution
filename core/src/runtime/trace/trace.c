@@ -1,8 +1,10 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "runtime/time/time.h"
 #include "runtime/trace/trace.h"
+#include "runtime/vm/vm_context.h"
 
 static int vm_trace_grow(VMContext *ctx) {
     uint32_t cap =
@@ -46,8 +48,7 @@ VMTrace *vm_trace_begin(VMContext *ctx, OperatorID id) {
             return NULL;
     }
 
-    VMTrace *t =
-        &ctx->trace[ctx->trace_count++];
+    VMTrace *t = &ctx->trace[ctx->trace_count++];
 
     memset(t,0,sizeof(*t));
 
@@ -58,8 +59,7 @@ VMTrace *vm_trace_begin(VMContext *ctx, OperatorID id) {
     return t;
 }
 
-void vm_trace_end(VMContext *ctx, VMTrace *trace, VMStatus result)
-{
+void vm_trace_end(VMContext *ctx, VMTrace *trace, VMStatus result) {
     (void)ctx;
 
     if(!trace)

@@ -12,5 +12,6 @@ typedef struct VMContext    VMContext;
 typedef struct VMFrame      VMFrame;
 typedef struct VMProfile    VMProfile;
 typedef struct VMMemory     VMMemory;
+typedef struct VMHandle     VMHandle;
 
 #endif // VM_FWD_H

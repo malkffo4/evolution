@@ -11,7 +11,7 @@
 #define VERSION "0.4.0"
 
 static volatile sig_atomic_t g_running = 1;
-static WorkingMemory wm;
+WorkingMemory global_wm;
 
 static void signal_handler(int sig) {
     (void)sig;
@@ -74,10 +74,10 @@ int main(void) {
     if (init_everything() != 0)
         return EXIT_FAILURE;
 
-    // if (wm_init(&wm,0,0) != 0)
-    //     return EXIT_FAILURE;
+    if (wm_init(&global_wm,0,0) != 0)
+        return EXIT_FAILURE;
 
-    start_subconscious_daemon(&wm);
+    start_subconscious_daemon(&global_wm);
 
     while (g_running) {
         IPCPacket packet;

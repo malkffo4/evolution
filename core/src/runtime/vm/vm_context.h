@@ -31,5 +31,13 @@ typedef struct VMContext {
     const Operator  *current_operator;
 } VMContext;
 
+// inline обёртки для удобства
+static inline VMHandle vm_ctx_object_new(VMContext *ctx, ObjectType type) {
+    return vm_object_new(&ctx->arena, type);
+}
+
+static inline VMObject *vm_ctx_object_get(VMContext *ctx, VMHandle handle) {
+    return vm_object_get(&ctx->arena, handle);
+}
 
 #endif // VM_CONTEXTVM_CONTEXT

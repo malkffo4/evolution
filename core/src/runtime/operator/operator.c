@@ -117,7 +117,7 @@ void operator_registry_init(void) {
     // ... остальные базовые
 
     // 2. Операторы с возможностями
-    ObjectType in_node[] = { REG_NODE };
+    // ObjectType in_node[] = { REG_NODE };
     // operator_register_native(OP_GET_OUT_EDGES, "get_out_edges", CAP_GET_OUT_EDGES, vm_op_get_out_edges, in_node, 1, REG_EDGESET);
     // альтернативные реализации той же возможности
     // operator_register_native(OP_GET_OUT_EDGES_FAST, "get_out_edges_fast", CAP_GET_OUT_EDGES, vm_op_get_out_edges, in_node, 1, REG_EDGESET);   // пока тот же обработчик

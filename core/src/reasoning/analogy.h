@@ -3,8 +3,8 @@
 #define ANALOGY_H
 
 #include <lmdb.h>
-#include "types.h"
-#include "storage/edge.h"
+#include "types/id.h"
+#include "storage/edge/edge.h"
 
 typedef struct {
     Triple query;

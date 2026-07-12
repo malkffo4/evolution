@@ -15,7 +15,8 @@ typedef enum {
     REG_GRAPH,
     REG_STRING,
     REG_POINTER,
-    REG_OBJECT
+    REG_OBJECT,
+    REG_HANDLE
 } RegisterType;
 
 #endif // REGISTER_TYPES_H

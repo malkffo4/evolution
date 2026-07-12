@@ -89,4 +89,4 @@
 
 //     // ... Сохраняем структуру LexiconEntry в LMDB (dbi_lexicon) ...
 // }
-void *p;
+void *p3457437;

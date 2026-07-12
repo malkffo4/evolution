@@ -3,11 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "storage/db.h"
-#include "storage/node.h"
-#include "storage/edge.h"
-#include "storage/graph.h"
-#include "storage/string_pool.h"
+#include "storage/db/db.h"
+#include "storage/node/node.h"
+#include "storage/edge/edge.h"
+#include "storage/graph/graph.h"
+#include "storage/string_pool/string_pool.h"
 #include "math/hash.h"
 
 void analyze_error(const char *error_log, uint64_t task_target_id, MDB_txn *txn) {
@@ -21,9 +21,9 @@ void analyze_error(const char *error_log, uint64_t task_target_id, MDB_txn *txn)
 
     // 2. Создаем связь "Приводит к ошибке" от целевого узла к провалу
     Edge penalty_edge;
-    penalty_edge.triple.source = task_target_id;
-    penalty_edge.triple.target = fail_id;
-    penalty_edge.triple.relation = add_string_to_pool(txn, "LEADS_TO_ERROR");
+    penalty_edge.key.source = task_target_id;
+    penalty_edge.key.target = fail_id;
+    penalty_edge.key.relation = add_string_to_pool(txn, "LEADS_TO_ERROR");
     // penalty_edge.weight = 0.9f; // Высокая уверенность ИИ, что это действие сломано
     // penalty_edge.context = 0;
     // penalty_edge.occurrences = 1;

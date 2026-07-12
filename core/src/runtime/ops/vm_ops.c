@@ -19,4 +19,4 @@
 // void vm_register_clear(VMRegister *reg) {
 //     reg->type = VM_EMPTY;
 // }
-void *p;
+void *p4272457;

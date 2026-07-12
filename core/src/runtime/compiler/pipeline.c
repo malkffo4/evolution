@@ -1,5 +1,6 @@
 #include <stdlib.h>
 
+#include "runtime/vm/vm_status.h"
 #include "runtime/compiler/pipeline.h"
 
 Pipeline *pipeline_create(void) {
@@ -21,7 +22,7 @@ Pipeline *pipeline_create(void) {
     return p;
 }
 
-int pipeline_add_instruction(Pipeline *p, const Instruction *ins) {
+VMStatus pipeline_add_instruction(Pipeline *p, const Instruction *ins) {
     if (p->code_len >= p->capacity)
         return VM_OUT_OF_MEMORY;
 

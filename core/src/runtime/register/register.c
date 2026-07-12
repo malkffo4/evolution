@@ -1,19 +1,28 @@
 #include <string.h>
-
+#include <stdbool.h>
 #include "runtime/vm/vm_fwd.h"
+#include "runtime/object/object.h"
 #include "runtime/arena/arena.h"
+#include "runtime/register/register.h"
+#include "runtime/register/register_types.h"
+#include "runtime/ops/opcode.h"
+#include "runtime/ops/vm_ops.h"
+#include "types/id.h"
+
+// ===== ФУНКЦИИ РАБОТЫ С РЕГИСТРАМИ =====
 
 VMObject *vm_register_object(VMContext *ctx, const Register *reg) {
     if (reg->type != REG_HANDLE)
         return NULL;
-
-    return vm_object_get(ctx, reg->handle);
+    // Используем ctx->arena
+    return vm_object_get(&ctx->arena, reg->handle);
 }
 
 void vm_register_clear(VMContext *ctx, Register *reg) {
     if (reg->type == REG_OBJECT) {
-        VMObject *obj = vm_object_get(ctx, reg->handle);
-        if (obj) vm_object_release(ctx, reg->handle);
+        // У объекта уже нет поля handle, мы его убрали из VMObject
+        // Теперь handle хранится в регистре, а не в объекте
+        vm_object_release(&ctx->arena, reg->handle);
     }
     memset(reg, 0, sizeof(*reg));
 }
@@ -28,8 +37,7 @@ void vm_register_copy(VMContext *ctx, Register *dst, const Register *src) {
     vm_register_clear(ctx, dst);
     *dst = *src;
     if (src->type == REG_OBJECT) {
-        VMObject *obj = vm_object_get(ctx, src->handle);
-        if (obj) vm_object_retain(ctx, src->handle);
+        vm_object_retain(&ctx->arena, src->handle);
     }
 }
 
@@ -60,7 +68,17 @@ void vm_register_set_node(VMContext *ctx, Register *reg, node_id_t node) {
 void vm_register_set_handle(VMContext *ctx, Register *reg, VMObject *obj) {
     vm_register_clear(ctx, reg);
     if (obj) {
-        vm_object_retain(ctx, obj->handle); // объект передан по указателю? нужно уточнить
+        // handle теперь создаётся при создании объекта и возвращается
+        // Но мы не можем получить handle из obj, потому что мы его убрали
+        // Нужно пересмотреть этот подход
+
+        // ВАРИАНТ 1: объект сам знает свой handle (вернуть поле обратно)
+        // ВАРИАНТ 2: регистр хранит handle, а объект получается по handle
+        // ВАРИАНТ 3: при создании объекта возвращается handle, и мы храним его в регистре
+
+        // Пока сделаем так: предполагаем, что obj->handle существует
+        // Нужно вернуть поле handle в VMObject
+        vm_object_retain(&ctx->arena, obj->handle);
         reg->type = REG_OBJECT;
         reg->handle = obj->handle;
     }
@@ -68,16 +86,18 @@ void vm_register_set_handle(VMContext *ctx, Register *reg, VMObject *obj) {
 
 VMObject *vm_register_get_object(VMContext *ctx, Register *reg) {
     if (reg->type != REG_OBJECT) return NULL;
-    return vm_object_get(ctx, reg->handle);
+    return vm_object_get(&ctx->arena, reg->handle);
 }
 
 void vm_register_swap(VMContext *ctx, Register *a, Register *b) {
+    (void)ctx;
     Register tmp;
     memcpy(&tmp, a, sizeof(Register));
     memcpy(a, b, sizeof(Register));
     memcpy(b, &tmp, sizeof(Register));
 }
 
+// ===== РЕГИСТРАЦИЯ ОПЕРАЦИЙ =====
 
 VMHandler vm_handlers[VM_OPCODE_COUNT];
 
@@ -87,14 +107,13 @@ void vm_registry_init(void) {
     vm_handlers[OP_MOVE]           = vm_op_move;
     vm_handlers[OP_STORE]          = vm_op_store;
     vm_handlers[OP_CLEAR]          = vm_op_clear;
-    vm_handlers[OP_GET_IN_EDGES]   = vm_op_get_in_edges;
-    vm_handlers[OP_GET_OUT_EDGES]  = vm_op_get_out_edges;
-    vm_handlers[OP_MATCH_GREEDY]   = vm_op_match_greedy;
-    vm_handlers[OP_SCORE]          = vm_op_score;
+    // vm_handlers[OP_GET_IN_EDGES]   = vm_op_get_in_edges;
+    // vm_handlers[OP_GET_OUT_EDGES]  = vm_op_get_out_edges;
+    // vm_handlers[OP_MATCH_GREEDY]   = vm_op_match_greedy;
+    // vm_handlers[OP_SCORE]          = vm_op_score;
     vm_handlers[OP_BRANCH]         = vm_op_branch;
     vm_handlers[OP_BRANCH_IF_EMPTY]= vm_op_branch_if_empty;
     vm_handlers[OP_CALL]           = vm_op_call;
     vm_handlers[OP_RETURN]         = vm_op_return;
     vm_handlers[OP_HALT]           = vm_op_halt;
-    // Остальные (FILTER, SORT, INTERSECTION...) пока можно оставить NULL
 }

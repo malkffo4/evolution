@@ -4,6 +4,7 @@
 #define ACTIVATION_THRESHOLD 0.4f
 #define DECAY_RATE 0.15f  // Как быстро ИИ забывает прошлый шаг (для экономии памяти i3)
 
+#include "storage/node/node_type.h"
 
 typedef struct {
     float curiosity;

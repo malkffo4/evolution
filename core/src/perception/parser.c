@@ -1,2 +1,2 @@
 #include <stdbool.h>
-void *p;
+void *p7653;
