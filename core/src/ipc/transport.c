@@ -88,10 +88,7 @@ static int recv_line(int fd, char *buffer, size_t size) {
     return IPC_OK;
 }
 
-IPCStatus transport_send_fd(
-    int fd,
-    const IPCPacket *packet)
-{
+IPCStatus transport_send_fd(int fd, const IPCPacket *packet) {
     char json[IPC_PAYLOAD_SIZE + 1024];
 
     if (ipc_packet_to_json(packet, json, sizeof(json)) != IPC_OK)
@@ -115,12 +112,9 @@ IPCStatus transport_recv_fd(int fd, IPCPacket *packet) {
     return ipc_packet_from_json(json, packet);
 }
 
-static IPCClient *alloc_client(void)
-{
-    for (int i = 0; i < MAX_CLIENTS; ++i)
-    {
-        if (!clients[i].alive)
-        {
+static IPCClient *alloc_client(void) {
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (!clients[i].alive) {
             memset(&clients[i], 0, sizeof(clients[i]));
             clients[i].alive = 1;
             return &clients[i];
@@ -135,8 +129,7 @@ static void *client_rx_loop(void *arg) {
 
     IPCPacket packet;
 
-    while (client->alive)
-    {
+    while (client->alive) {
         if (transport_recv_fd(client->fd, &packet) != IPC_OK)
             break;
 
@@ -152,8 +145,7 @@ static void *client_rx_loop(void *arg) {
     return NULL;
 }
 
-static void *accept_loop(void *arg)
-{
+static void *accept_loop(void *arg) {
     (void)arg;
 
     while (running) {
@@ -188,8 +180,7 @@ static void *accept_loop(void *arg)
     return NULL;
 }
 
-IPCStatus transport_server_start(void)
-{
+IPCStatus transport_server_start(void) {
     struct sockaddr_un addr;
 
     unlink(SOCKET_PATH);
@@ -239,25 +230,33 @@ IPCStatus transport_server_start(void)
     return IPC_OK;
 }
 
-void transport_server_stop(void)
-{
+void transport_server_stop(void) {
     running = 0;
 
-    close(listen_fd);
+    // Закрываем слушающий сокет, чтобы accept() вернул ошибку
+    if (listen_fd >= 0) {
+        close(listen_fd);
+        listen_fd = -1;
+    }
 
+    // Ждём завершения accept-потока
     pthread_join(accept_thread, NULL);
 
-    for (int i = 0; i < MAX_CLIENTS; ++i)
-    {
+    // Закрываем все клиентские соединения и ждём их потоки
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (!clients[i].alive)
             continue;
 
+        // Отключаем сокет, чтобы recv() вернул ошибку
         shutdown(clients[i].fd, SHUT_RDWR);
+        close(clients[i].fd);
+        clients[i].fd = -1;
 
+        // Ждём завершения потока клиента
         pthread_join(clients[i].thread, NULL);
+        clients[i].alive = 0;
     }
 
     unlink(SOCKET_PATH);
-
     LOG_IPC("IPC server stopped");
 }

@@ -1,15 +1,19 @@
 // subconscious_daemon.c
+#define _POSIX_C_SOURCE 200809L
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include "main.h"
 
 #include "reasoning/engine.h"
 #include "storage/db/db.h"
 #include "subconscious.h"
 #include "storage/string_pool/string_pool.h"
 #include "memory/working.h"
+#include "runtime/logging/logging.h"
 
 static ResearchTask task_queue[MAX_PENDING_TASKS];
 static int task_count = 0;
@@ -49,12 +53,17 @@ static WorkingMemory *global_wm;
 void* dmn_loop(void* arg) {
     (void)arg;
 
-    while(dmn_running) {
+    while(dmn_running && g_running) {
         sleep(2); // Тик каждые 2 секунды
 
+        if (!dmn_running || !g_running) break;
         MDB_txn *txn = NULL;
         if (mdb_txn_begin(db.env, NULL, 0, &txn) != MDB_SUCCESS) continue;
 
+        if (!dmn_running) {
+            mdb_txn_abort(txn);
+            break;
+        }
         // 1. Когнитивный цикл
         engine_spread_activation(global_wm, txn);
         // hypothesis_engine(global_wm, txn);
@@ -90,6 +99,8 @@ void* dmn_loop(void* arg) {
 
         mdb_txn_commit(txn);
     }
+    LOG_MEMORY("Subconscious daemon stopped.");
+
     return NULL;
 }
 
@@ -102,6 +113,9 @@ void start_subconscious_daemon(WorkingMemory *wm) {
 
 void stop_subconscious_daemon(void) {
     if (!dmn_running) return;
+
+    LOG_MEMORY("Stopping subconscious daemon...");
     dmn_running = 0;
     pthread_join(dmn_thread, NULL);
+    LOG_MEMORY("Subconscious daemon stopped.");
 }

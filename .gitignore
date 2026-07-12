@@ -58,3 +58,4 @@ plugins/__pycache__
 __pycache__/
 *.pyc
 *.log
+/evolution_core

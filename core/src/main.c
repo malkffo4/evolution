@@ -1,29 +1,49 @@
+// main.c
 #include <signal.h>
 #include <stdlib.h>
-
+#include <unistd.h>
 #include "memory/working.h"
 #include "memory/subconscious.h"
 #include "storage/db/db.h"
 #include "ipc/ipc.h"
 #include "core/message_bus.h"
 #include "runtime/logging/logging.h"
+#include "runtime/operator/operator.h"
+#include "main.h"
 
 #define VERSION "0.4.0"
 
-static volatile sig_atomic_t g_running = 1;
+volatile sig_atomic_t g_running = 1;
 WorkingMemory global_wm;
 
 static void signal_handler(int sig) {
     (void)sig;
+    static int already = 0;
+    if (already) _exit(0);
+    already = 1;
     g_running = 0;
-    bus_wakeup_all(); // Будим ipc_receive, чтобы выйти из цикла
+    LOG_INFO("Shutdown signal received, stopping...");
+    stop_subconscious_daemon();
+    bus_wakeup_all();
+}
+
+static void shutdown_everything(void) {
+    LOG_INFO("Shutting down...");
+    stop_subconscious_daemon();  // на всякий случай
+    wm_clear(&global_wm);
+    ipc_shutdown();
+    close_lmdb();
+    log_shutdown();
 }
 
 static int init_everything(void) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    log_init("logs");
+    if (log_init("logs") != 0) {
+        fprintf(stderr, "Failed to initialize logging\n");
+        return -1;
+    }
 
     LOG_INFO("Evolution Core %s starting...", VERSION);
 
@@ -31,57 +51,40 @@ static int init_everything(void) {
         LOG_ERROR("Cannot initialize database.");
         return -1;
     }
-
     LOG_GRAPH("Graph database initialized.");
+
+    // Инициализируем операторы VM
+    operator_registry_init();
+    LOG_DEBUG("Operator registry initialized.");
 
     if (ipc_init() != IPC_OK) {
         LOG_ERROR("IPC initialization failed.");
         return -1;
     }
-
     LOG_IPC("IPC initialized.");
 
     return 0;
 }
 
-static void shutdown_everything(void)
-{
-    LOG_INFO("Shutting down...");
-
-    ipc_shutdown();
-    close_lmdb();
-
-    log_shutdown();
-}
-// TODO
-// Pipeline* load_pipeline_from_db(pipeline_id)
-
-// void TODO(void) {
-//     // Где-то при загрузке модели:
-//     void *neural_policy_model = load_model("policy_v1.onnx");
-//     operator_register_compiled(POLICY_NEURAL_V1, "neural_policy_v1", 0, neural_policy_model, NULL, 0, 0);
-
-//     // Создаём обёртку PlannerPolicy, которая вызывает модель
-//     static const Operator *neural_policy_choose(VMContext *ctx, CapabilityMask cap) {
-//         // используем neural_policy_model для предсказания лучшего оператора
-//         // ...
-//     }
-//     PlannerPolicy neural_policy = { neural_policy_choose };
-//     planner_set_policy(&neural_policy);
-// }
-
 int main(void) {
-    if (init_everything() != 0)
+    // Инициализация WM с размерами
+    if (wm_init(&global_wm, 256, 512) != 0) {
+        fprintf(stderr, "Failed to initialize Working Memory\n");
         return EXIT_FAILURE;
+    }
 
-    if (wm_init(&global_wm,0,0) != 0)
+    if (init_everything() != 0) {
         return EXIT_FAILURE;
+    }
 
+    // Запускаем демон подсознания
     start_subconscious_daemon(&global_wm);
 
+    LOG_INFO("System ready, waiting for IPC messages...");
+
+    // Основной цикл с таймаутом для проверки флага
     while (g_running) {
         IPCPacket packet;
-
         IPCStatus st = ipc_receive(&packet);
 
         if (st == IPC_DISCONNECTED) {
@@ -89,13 +92,16 @@ int main(void) {
             break;
         }
 
-        if (st != IPC_OK)
+        if (st != IPC_OK) {
+            // Небольшая задержка чтобы не спамить CPU
+            usleep(10000);
             continue;
+        }
 
         ipc_dispatch(&packet);
     }
 
     shutdown_everything();
-
+    LOG_INFO("Evolution Core stopped.");
     return EXIT_SUCCESS;
 }
