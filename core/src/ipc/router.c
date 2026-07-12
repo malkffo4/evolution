@@ -1,4 +1,3 @@
-// ipc/router.c
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -7,9 +6,7 @@
 #include "ipc/router.h"
 #include "ipc/router_handlers.h"
 
-
-static const Route request_routes[] =
-{
+static const Route request_routes[] = {
     { "ping",           req_ping },
     { "generate_reply", req_generate_reply },
     { "embedding",      req_embedding },
@@ -17,23 +14,20 @@ static const Route request_routes[] =
     { NULL, NULL }
 };
 
-static const Route response_routes[] =
-{
+static const Route response_routes[] = {
     { "generate_reply", resp_generate_reply },
     { "embedding",      resp_embedding },
     { "rerank",         resp_rerank },
     { NULL, NULL }
 };
 
-static const Route command_routes[] =
-{
+static const Route command_routes[] = {
     { "learn",          cmd_learn },
     { "shutdown",       cmd_shutdown },
     { NULL, NULL }
 };
 
-static const Route event_routes[] =
-{
+static const Route event_routes[] = {
     { "generate_reply", evt_generate_reply },
     { "embedding",      evt_embedding },
     { "rerank",         evt_rerank },
@@ -47,53 +41,47 @@ static const Route *routes[] = {
     [IPC_EVENT]    = event_routes
 };
 
-static void ipc_send_error(IPCPacket *, const char *);
-static int dispatch_table(const Route *, IPCPacket *);
+static void ipc_send_error(IPCPacket *req, IPCPacket *resp, const char *message);
+static int dispatch_table(const Route *table, IPCPacket *req, IPCPacket *resp);
 
 static Handler find_handler(const Route *table, const char *name) {
     for (; table->name; ++table) {
         if (strcmp(table->name, name) == 0)
             return table->handler;
     }
-
     return NULL;
 }
 
-int ipc_dispatch(IPCPacket *p) {
-    if (!p)
+int ipc_dispatch(IPCPacket *req, IPCPacket *resp) {
+    if (!req || !resp)
         return IPC_ERROR;
 
-    if (p->type >= sizeof(routes)/sizeof(routes[0]))
+    if (req->type >= sizeof(routes)/sizeof(routes[0]))
         return IPC_ERROR;
 
-    return dispatch_table(routes[p->type], p);
+    return dispatch_table(routes[req->type], req, resp);
 }
 
-static int dispatch_table(const Route *table, IPCPacket *p) {
-    if (!table)
-        return IPC_ERROR;
-
-    Handler h = find_handler(table, p->name);
-
-    if (!h) {
-        ipc_send_error(p, "Unknown route");
+static int dispatch_table(const Route *table, IPCPacket *req, IPCPacket *resp) {
+    if (!table) {
+        ipc_send_error(req, resp, "Invalid route table");
         return IPC_ERROR;
     }
 
-    h(p);
+    Handler h = find_handler(table, req->name);
+    if (!h) {
+        ipc_send_error(req, resp, "Unknown route");
+        return IPC_ERROR;
+    }
 
+    h(req, resp);
     return IPC_OK;
 }
 
-void ipc_send_error(IPCPacket *request, const char *message) {
-    IPCPacket response = {0};
-
-    response.id = request->id;
-    response.type = IPC_RESPONSE;
-
-    snprintf(response.name, sizeof(response.name), "error");
-    snprintf(response.payload, sizeof(response.payload), "%s", message);
-    response.payload_size = (uint32_t)strlen(response.payload);
-
-    ipc_send(&response);
+void ipc_send_error(IPCPacket *req, IPCPacket *resp, const char *message) {
+    (void)req;
+    resp->type = IPC_RESPONSE;
+    snprintf(resp->name, sizeof(resp->name), "error");
+    snprintf(resp->payload, sizeof(resp->payload), "%s", message);
+    resp->payload_size = (uint32_t)strlen(resp->payload);
 }

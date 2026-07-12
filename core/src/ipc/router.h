@@ -1,19 +1,16 @@
-// ipc/router.h
 #ifndef ROUTER_H
 #define ROUTER_H
 
 #include "ipc/transport.h"
 
-typedef void (*Handler)(IPCPacket *);
+typedef void (*Handler)(IPCPacket *req, IPCPacket *resp);
 
-typedef struct
-{
+typedef struct {
     const char *name;
     Handler handler;
 } Route;
 
-typedef struct
-{
+typedef struct {
     uint64_t request_id;
     IPCClient *client;
 } RequestRoute;

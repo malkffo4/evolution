@@ -41,7 +41,7 @@ static int init_everything(void) {
     signal(SIGTERM, signal_handler);
 
     if (log_init("logs") != 0) {
-        fprintf(stderr, "Failed to initialize logging\n");
+        LOG_ERROR("Failed to initialize logging.");
         return -1;
     }
 
@@ -69,7 +69,7 @@ static int init_everything(void) {
 int main(void) {
     // Инициализация WM с размерами
     if (wm_init(&global_wm, 256, 512) != 0) {
-        fprintf(stderr, "Failed to initialize Working Memory\n");
+        LOG_ERROR("Failed to initialize Working Memory");
         return EXIT_FAILURE;
     }
 
@@ -84,8 +84,8 @@ int main(void) {
 
     // Основной цикл с таймаутом для проверки флага
     while (g_running) {
-        IPCPacket packet;
-        IPCStatus st = ipc_receive(&packet);
+        IPCPacket request, response;
+        IPCStatus st = ipc_receive(&request);
 
         if (st == IPC_DISCONNECTED) {
             LOG_IPC("IPC disconnected.");
@@ -98,7 +98,7 @@ int main(void) {
             continue;
         }
 
-        ipc_dispatch(&packet);
+        ipc_dispatch(&request, &response);
     }
 
     shutdown_everything();

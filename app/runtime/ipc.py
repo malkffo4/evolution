@@ -3,13 +3,13 @@ import socket
 import itertools
 
 DEFAULT_SOCKET = "/tmp/evolution.sock"
-DEFAULT_TIMEOUT = 0.5  # таймаут на операции с сокетом
+DEFAULT_TIMEOUT = 1.0  # было 0.5
 
 class IPCError(Exception):
     pass
 
 class IPCClient:
-    def __init__(self, socket_path=DEFAULT_SOCKET, timeout=DEFAULT_TIMEOUT):
+    def __init__(self, socket_path=DEFAULT_SOCKET, timeout=2.0):
         self.socket_path = socket_path
         self.timeout = timeout
         self.sock = None
@@ -20,7 +20,7 @@ class IPCClient:
         if self.sock:
             return
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(self.timeout)   # устанавливаем таймаут
+        self.sock.settimeout(self.timeout)   # таймаут 2 секунды
         self.sock.connect(self.socket_path)
         self.file = self.sock.makefile("rwb", buffering=0)
 
@@ -64,20 +64,19 @@ class IPCClient:
     def ping(self):
         try:
             r = self.request("ping")
-            return r.get("ok", False)
+            import json
+            payload = json.loads(r.get("payload", "{}"))
+            return payload.get("ok", False)
         except Exception:
             return False
 
     def ping_with_timeout(self, timeout=None):
+        if timeout is not None:
+            old_timeout = self.sock.gettimeout() if self.sock else None
+            if self.sock:
+                self.sock.settimeout(timeout)
         try:
-            if timeout is not None:
-                # Создаём временный клиент с этим таймаутом
-                client = IPCClient(socket_path=self.socket_path, timeout=timeout)
-                client.connect()
-                result = client.ping()
-                client.close()
-                return result
-            else:
-                return self.ping()
-        except Exception:
-            return False
+            return self.ping()
+        finally:
+            if timeout is not None and old_timeout is not None:
+                self.sock.settimeout(old_timeout)

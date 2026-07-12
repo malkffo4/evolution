@@ -126,22 +126,40 @@ static IPCClient *alloc_client(void) {
 
 static void *client_rx_loop(void *arg) {
     IPCClient *client = arg;
-
-    IPCPacket packet;
+    IPCPacket request;
+    IPCPacket response;
 
     while (client->alive) {
-        if (transport_recv_fd(client->fd, &packet) != IPC_OK)
+        if (transport_recv_fd(client->fd, &request) != IPC_OK)
             break;
 
-        bus_rx_publish(&packet);
+        memset(&response, 0, sizeof(response));
+        response.id = request.id;
+        response.type = IPC_RESPONSE;
+
+        // Обрабатываем запрос и формируем ответ
+        int rc = ipc_dispatch(&request, &response);
+        if (rc != IPC_OK) {
+            // Если диспетчер вернул ошибку, но response не заполнен – заполняем сами
+            if (response.payload[0] == '\0') {
+                response.type = IPC_RESPONSE;
+                snprintf(response.name, sizeof(response.name), "error");
+                snprintf(response.payload, sizeof(response.payload), "Internal dispatch error");
+                response.payload_size = (uint32_t)strlen(response.payload);
+            }
+        }
+
+        // Отправляем ответ
+        IPCStatus st = transport_send_fd(client->fd, &response);
+        if (st != IPC_OK) {
+            LOG_WARN("Failed to send response to fd=%d: %d", client->fd, st);
+            break;
+        }
     }
 
     LOG_IPC("client disconnected fd=%d", client->fd);
-
     close(client->fd);
-
     client->alive = 0;
-
     return NULL;
 }
 
@@ -170,7 +188,7 @@ static void *accept_loop(void *arg) {
 
         int rc = pthread_create(&client->thread, NULL, client_rx_loop, client);
         if (rc != 0) {
-            LOG_ERROR("[accept_loop] pthread_create(): %s", strerror(errno));
+            LOG_ERROR("pthread_create(): %s", strerror(errno));
             close(fd);
             // return IPC_ERROR;
         }

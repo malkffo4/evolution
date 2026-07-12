@@ -59,7 +59,7 @@ IPCStatus ipc_receive(IPCPacket *packet);
 
 /* ===== Routing ===== */
 
-int ipc_dispatch(IPCPacket *env);
+int ipc_dispatch(IPCPacket *req, IPCPacket *resp);
 
 /* ===== Serialization ===== */
 

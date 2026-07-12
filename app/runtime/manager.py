@@ -100,13 +100,12 @@ class EvolutionManager:
     def wait_core(self, attempts=20, interval=0.5):
         print("[Manager] Waiting IPC...")
         for attempt in range(attempts):
-            # Проверяем, не умерло ли ядро
             if self.core_process and self.core_process.poll() is not None:
                 stdout, stderr = self.core_process.communicate()
                 raise RuntimeError(f"Core died with code {self.core_process.returncode}. stderr: {stderr.decode()}")
 
             if os.path.exists(DEFAULT_SOCKET):
-                if self.ipc.ping_with_timeout(0.5):
+                if self.ipc.ping():  # <-- используем обычный ping
                     print("[Manager] IPC connected.")
                     return
             else:

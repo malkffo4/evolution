@@ -23,16 +23,16 @@ int init_simhash(MDB_txn *txn) {
     if (rc == MDB_SUCCESS) {
         // Matrix exists in DB, load it
         if (data.mv_size != sizeof(proj_matrix)) {
-            LOG_ERROR("[init_simhash] Invalid projection matrix size in DB");
+            LOG_ERROR("Invalid projection matrix size in DB");
             return -1;
         }
         memcpy(proj_matrix, data.mv_data, sizeof(proj_matrix));
-        LOG_DATABASE("[init_simhash] Loaded projection matrix from DB");
+        LOG_DATABASE("Loaded projection matrix from DB");
         return 0;
     }
 
     // Matrix doesn't exist, generate new one
-    LOG_DATABASE("[init_simhash] Generating new projection matrix...");
+    LOG_DATABASE("Generating new projection matrix...");
     srand(42); // Fixed seed for reproducibility
     for (int i = 0; i < HASH_BITS; i++) {
         for (int j = 0; j < EMBEDDING_DIM; j++) {
@@ -45,7 +45,7 @@ int init_simhash(MDB_txn *txn) {
     data.mv_data = proj_matrix;
     rc = mdb_put(txn, db.vectors.simhash_config, &key, &data, 0);
     if (rc != MDB_SUCCESS) {
-        LOG_ERROR("[init_simhash] Failed to save projection matrix: %s\n", mdb_strerror(rc));
+        LOG_ERROR("Failed to save projection matrix: %s\n", mdb_strerror(rc));
         return rc;
     }
 

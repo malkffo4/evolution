@@ -82,15 +82,7 @@ static const char *short_file(const char *path)
     return p ? p + 1 : path;
 }
 
-void log_write(
-    FILE *fp,
-    const char *level,
-    const char *file,
-    const char *func,
-    int line,
-    const char *fmt,
-    ...)
-{
+void log_write(FILE *fp, const char *level, const char *file, const char *func, int line, const char *fmt, ...) {
     if (!fp)
         return;
 
@@ -104,10 +96,7 @@ void log_write(
     localtime_r(&now, &tm_now);
 #endif
 
-    fprintf(fp,
-        "[%04d-%02d-%02d %02d:%02d:%02d] "
-        "[%-11s] "
-        "[%s:%s:%d] ",
+    fprintf(fp, "[%04d-%02d-%02d %02d:%02d:%02d] " "[%-5s] " "[%s:%s:%d] ",
         tm_now.tm_year + 1900,
         tm_now.tm_mon + 1,
         tm_now.tm_mday,
