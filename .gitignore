@@ -1,0 +1,60 @@
+# Object files
+*.o
+*.obj
+
+# Static libraries
+*.a
+*.lib
+
+# Shared libraries
+*.so
+*.dll
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug symbols
+*.pdb
+*.dSYM/
+
+# Dependency files
+*.d
+
+# Build directories
+build/
+bin/
+Debug/
+Release/
+cmake-build-*/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Autotools
+autom4te.cache/
+aclocal.m4
+config.log
+config.status
+configure
+libtool
+m4/
+
+# Other
+tree.txt
+tree.md
+*.mdb
+data/*
+venv
+venv/
+plugins/venv
+plugins/__pycache__
+__pycache__/
+*.pyc
+*.log
