@@ -2,6 +2,9 @@
 #define IPC_HANDLERS_H
 
 #include "ipc/ipc.h"
+#include "memory/working.h"
+
+extern WorkingMemory global_wm;
 
 /* requests */
 void req_ping(IPCPacket *req, IPCPacket *resp);

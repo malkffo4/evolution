@@ -1,3 +1,4 @@
+# app/runtime/router.py
 @request("ping")
 def ping(_):
     return {"ok": True}
@@ -5,15 +6,15 @@ def ping(_):
 class Registry:
     def __init__(self):
         self._tables = {
-            "request": {}, 
-            "command": {}, 
+            "request": {},
+            "command": {},
             "event": {},
             }
 
     def handler(self, packet_type: str, name: str):
         if packet_type not in self._tables:
             raise ValueError(f"Unknown packet type: {packet_type}")
-        
+
         table = self._tables[packet_type]
 
         if name in table:
@@ -22,7 +23,7 @@ class Registry:
         def wrapper(func):
             self._tables[packet_type][name] = func
             return func
-        
+
         return wrapper
 
     def get(self, packet_type: str, name: str):

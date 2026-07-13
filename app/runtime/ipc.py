@@ -3,7 +3,12 @@ import socket
 import itertools
 
 DEFAULT_SOCKET = "/tmp/evolution.sock"
-DEFAULT_TIMEOUT = 1.0  # было 0.5
+DEFAULT_TIMEOUT = 1.0
+
+TYPE_REQUEST = 0
+TYPE_RESPONSE = 1
+TYPE_COMMAND = 2
+TYPE_EVENT = 3
 
 class IPCError(Exception):
     pass
@@ -20,7 +25,7 @@ class IPCClient:
         if self.sock:
             return
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(self.timeout)   # таймаут 2 секунды
+        self.sock.settimeout(self.timeout)
         self.sock.connect(self.socket_path)
         self.file = self.sock.makefile("rwb", buffering=0)
 
@@ -35,6 +40,12 @@ class IPCClient:
     def _send(self, packet):
         if not self.file:
             raise IPCError("Not connected")
+        # data = (json.dumps(packet) + "\n").encode()
+        # self.file.write(data)
+        # self.file.flush()
+        if "payload" in packet and isinstance(packet["payload"], dict):
+            packet["payload"] = json.dumps(packet["payload"])
+
         data = (json.dumps(packet) + "\n").encode()
         self.file.write(data)
         self.file.flush()
@@ -47,18 +58,18 @@ class IPCClient:
             raise IPCError("Connection closed")
         return json.loads(line.decode())
 
-    def request(self, name, **kwargs):
-        packet = {"id": next(self.ids), "type": "request", "name": name, "payload": kwargs or {}}
+    def request(self, name, payload=None):
+        packet = {"id": next(self.ids), "type": TYPE_REQUEST, "name": name, "payload": payload or {}}
         self._send(packet)
         return self._recv()
 
-    def command(self, name, **kwargs):
-        packet = {"id": next(self.ids), "type": "command", "name": name, "payload": kwargs or {}}
+    def command(self, name, payload=None):
+        packet = {"id": next(self.ids), "type": TYPE_COMMAND, "name": name, "payload": payload or {}}
         self._send(packet)
         return self._recv()
 
     def event(self, name, **kwargs):
-        packet = {"type": "event", "name": name, "payload": kwargs or {}}
+        packet = {"type": TYPE_EVENT, "name": name, "payload": kwargs or {}}
         self._send(packet)
 
     def ping(self):

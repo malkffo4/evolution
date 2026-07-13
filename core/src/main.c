@@ -9,6 +9,7 @@
 #include "core/message_bus.h"
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
+#include "execution/executor.h"
 #include "main.h"
 
 #define VERSION "0.4.0"
@@ -29,10 +30,17 @@ static void signal_handler(int sig) {
 
 static void shutdown_everything(void) {
     LOG_INFO("Shutting down...");
+
+    executor_stop_daemon();
+
     stop_subconscious_daemon();  // на всякий случай
+
     wm_clear(&global_wm);
+
     ipc_shutdown();
+
     close_lmdb();
+
     log_shutdown();
 }
 
@@ -62,6 +70,8 @@ static int init_everything(void) {
         return -1;
     }
     LOG_IPC("IPC initialized.");
+
+    executor_start_daemon();
 
     return 0;
 }

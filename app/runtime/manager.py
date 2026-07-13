@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-
 import signal
 import subprocess
 import time
-import socket
 import os
 from pathlib import Path
 
-from runtime.ipc import IPCClient, IPCError, DEFAULT_SOCKET
+from runtime.ipc import IPCClient, DEFAULT_SOCKET
 
 
 class EvolutionManager:
@@ -20,6 +18,7 @@ class EvolutionManager:
         self.ipc = IPCClient()
         self.running = True
         self.core_started_by_manager = False
+        self.need_shutdown = False
 
     def initialize(self):
         print("[Manager] Initializing...")
@@ -33,16 +32,12 @@ class EvolutionManager:
             self.start_core()
             self.core_started_by_manager = True
 
-        # Подключаемся к IPC (если ещё не подключены)
         self.connect_ipc()
-
-        # Ждём готовности ядра
         if self.core_started_by_manager:
             self.wait_core()
         else:
             if not self.ipc.ping():
-                raise RuntimeError("Core is not responding despite being running.")
-
+                raise RuntimeError("Core is not responding.")
         print("[Manager] Ready.")
 
     def check_project(self):
@@ -62,18 +57,15 @@ class EvolutionManager:
             raise RuntimeError("Compiled binary not found.")
 
     def start_core(self):
-        # Если сокет существует, но ядро не отвечает — удаляем его
         if os.path.exists(DEFAULT_SOCKET):
             try:
                 test = IPCClient(timeout=0.3)
                 test.connect()
                 test.ping()
                 test.close()
-                # Если ping прошёл, значит ядро уже работает — не удаляем
             except Exception:
                 os.unlink(DEFAULT_SOCKET)
                 print("[Manager] Removed stale socket.")
-
         print("[Manager] Starting C core...")
         self.core_process = subprocess.Popen(
             [str(self.core_bin)],
@@ -81,7 +73,6 @@ class EvolutionManager:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        # Даём ядру время на инициализацию
         time.sleep(1.0)
         self.core_started_by_manager = True
 
@@ -102,40 +93,49 @@ class EvolutionManager:
         for attempt in range(attempts):
             if self.core_process and self.core_process.poll() is not None:
                 stdout, stderr = self.core_process.communicate()
-                raise RuntimeError(f"Core died with code {self.core_process.returncode}. stderr: {stderr.decode()}")
-
-            if os.path.exists(DEFAULT_SOCKET):
-                if self.ipc.ping():  # <-- используем обычный ping
-                    print("[Manager] IPC connected.")
-                    return
-            else:
-                print(f"[Manager] Socket not yet present (attempt {attempt+1}/{attempts})")
+                raise RuntimeError(f"Core died: {stderr.decode()}")
+            if os.path.exists(DEFAULT_SOCKET) and self.ipc.ping():
+                print("[Manager] IPC connected.")
+                return
             time.sleep(interval)
-
-        raise RuntimeError(f"IPC timeout after {attempts} attempts. Socket exists: {os.path.exists(DEFAULT_SOCKET)}")
+        raise RuntimeError("IPC timeout.")
 
     def connect_ipc(self):
         if self.ipc.sock is None:
             self.ipc.connect()
 
     def run(self):
-        print()
-        print("Evolution Runtime")
+        import sys, time
+        print("\nEvolution Runtime")
         print("Type exit to quit.\n")
         while self.running:
             try:
-                text = input("> ").strip()
-            except EOFError:
+                line = sys.stdin.buffer.readline()
+                if not line:
+                    break
+                text = line.decode('utf-8', errors='ignore').strip()
+            except (EOFError, KeyboardInterrupt):
                 break
             if not text:
                 continue
             if text.lower() == "exit":
+                self.need_shutdown = False
                 break
-            try:
-                response = self.ipc.request("chat", {"text": text})
-                print(response)
-            except Exception as e:
-                print(f"[ERROR] {e}")
+            elif text.lower() == "shutdown":
+                try:
+                    resp = self.ipc.command("shutdown")
+                    print(resp)
+                    time.sleep(0.5)
+                except Exception as e:
+                    print(f"[ERROR] {e}")
+                self.need_shutdown = True
+                break
+            else:
+                try:
+                    resp = self.ipc.request("chat", {"text": text})
+                    print(resp)
+                except Exception as e:
+                    print(f"[ERROR] {e}")
 
     def shutdown(self):
         print("\n[Manager] Shutdown...")
@@ -144,11 +144,14 @@ class EvolutionManager:
             self.ipc.close()
         except Exception:
             pass
-
-        if self.core_process and self.core_started_by_manager:
+        if self.core_process and self.core_started_by_manager and self.need_shutdown:
+            print("[Manager] Stopping core...")
             self.core_process.send_signal(signal.SIGTERM)
             try:
                 self.core_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.core_process.kill()
+        else:
+            if self.core_process and self.core_started_by_manager:
+                print("[Manager] Core left running.")
         print("[Manager] Bye.")

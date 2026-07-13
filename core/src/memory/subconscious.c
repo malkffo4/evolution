@@ -1,7 +1,7 @@
 // subconscious_daemon.c
 #define _POSIX_C_SOURCE 200809L
 #include <time.h>
-#include <stdio.h>
+// #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -14,6 +14,7 @@
 #include "storage/string_pool/string_pool.h"
 #include "memory/working.h"
 #include "runtime/logging/logging.h"
+#include "reasoning/planner.h"
 
 static ResearchTask task_queue[MAX_PENDING_TASKS];
 static int task_count = 0;
@@ -69,6 +70,9 @@ void* dmn_loop(void* arg) {
         // hypothesis_engine(global_wm, txn);
         wm_decay(global_wm);
 
+        // --- АКТИВИРУЕМ ПЛАНИРОВЩИК ---
+        planner_evaluate_goals(global_wm, txn);
+
         // 2. Поиск новых знаний (любопытство) → добавляем в очередь задач
         for (uint32_t i = 0; i < global_wm->count; i++) {
             WorkingNode *n = &global_wm->nodes[i];
@@ -88,7 +92,7 @@ void* dmn_loop(void* arg) {
                 if (!already_queued) {
                     const char *word_name = get_string_from_pool(txn, n->node_id);
                     if (word_name) {
-                        printf("\n\033[35m[ПОДСОЗНАНИЕ] Новое понятие '%s' → в очередь на исследование\033[0m\n", word_name);
+                        LOG_MEMORY("[ПОДСОЗНАНИЕ] Новое понятие '%s' → в очередь на исследование", word_name);
                         enqueue_research_task(n->node_id, word_name);
                         // free(word_name);
                         n->state.novelty *= 0.5f; // Чтобы не спамить
