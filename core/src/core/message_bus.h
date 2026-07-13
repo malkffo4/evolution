@@ -22,6 +22,7 @@ typedef struct {
 IPCStatus bus_init(void);
 void bus_shutdown(void);
 void bus_wakeup_all(void);
+void bus_stop(void); // Функция мягкого перевода шины в состояние выключения
 
 IPCStatus bus_tx_publish(const IPCPacket *packet);
 IPCStatus bus_tx_pop(IPCPacket *packet);

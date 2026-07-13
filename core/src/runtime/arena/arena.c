@@ -20,7 +20,7 @@ static int vm_arena_grow(VMArena *arena) {
 
     if (!stack) {
         free(objects);
-        arena->objects = objects;
+        // arena->objects = objects;
         return 0;
     }
 

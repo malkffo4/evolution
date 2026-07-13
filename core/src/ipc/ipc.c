@@ -15,7 +15,8 @@ IPCStatus ipc_init(void) {
 
 void ipc_shutdown(void) {
     transport_server_stop();
-    bus_shutdown();
+    // bus_shutdown();
+    bus_stop();
 }
 
 IPCStatus ipc_send(const IPCPacket *packet) {

@@ -3,22 +3,21 @@ import signal
 import subprocess
 import time
 import os
+import sys
+import json
 from pathlib import Path
-
 from runtime.ipc import IPCClient, DEFAULT_SOCKET
-
 
 class EvolutionManager:
     def __init__(self):
         self.root = Path(__file__).resolve().parents[2]
         self.core_dir = self.root / "core"
-        self.core_bin = self.root / "evolution_core"
+        self.core_bin = self.core_dir / "evolution_core"
         self.makefile = self.core_dir / "Makefile"
         self.core_process = None
         self.ipc = IPCClient()
         self.running = True
         self.core_started_by_manager = False
-        self.need_shutdown = False
 
     def initialize(self):
         print("[Manager] Initializing...")
@@ -33,6 +32,7 @@ class EvolutionManager:
             self.core_started_by_manager = True
 
         self.connect_ipc()
+
         if self.core_started_by_manager:
             self.wait_core()
         else:
@@ -64,8 +64,12 @@ class EvolutionManager:
                 test.ping()
                 test.close()
             except Exception:
-                os.unlink(DEFAULT_SOCKET)
-                print("[Manager] Removed stale socket.")
+                try:
+                    os.unlink(DEFAULT_SOCKET)
+                    print("[Manager] Removed stale socket.")
+                except Exception:
+                    pass
+
         print("[Manager] Starting C core...")
         self.core_process = subprocess.Popen(
             [str(self.core_bin)],
@@ -104,10 +108,39 @@ class EvolutionManager:
         if self.ipc.sock is None:
             self.ipc.connect()
 
+    def format_and_print_response(self, response):
+        """Парсит полученный IPCPacket и красиво выводит его пользователю"""
+        if not response:
+            print("[System] No response received.")
+            return
+
+        # Если ядро вернуло строковый JSON в поле payload
+        payload_raw = response.get("payload", "")
+        if isinstance(payload_raw, str) and payload_raw.strip():
+            try:
+                # Пытаемся распарсить внутренний payload
+                payload = json.loads(payload_raw)
+                if isinstance(payload, dict):
+                    # Если в payload есть поле 'reply' (из чата)
+                    if "reply" in payload:
+                        print(f"\nAI: {payload['reply']}")
+                        return
+                    # Если команда завершилась успешно
+                    if payload.get("ok") is True:
+                        print("\n[OK] Command completed successfully.")
+                        return
+            except json.JSONDecodeError:
+                pass
+
+        # Резервный красивый вывод на случай, если там простой текст
+        if isinstance(payload_raw, str) and payload_raw.strip():
+            print(f"\nAI: {payload_raw}")
+        else:
+            print(f"\nAI (Raw): {response}")
+
     def run(self):
-        import sys, time
         print("\nEvolution Runtime")
-        print("Type exit to quit.\n")
+        print("Type 'exit' or 'shutdown' to quit.\n")
         while self.running:
             try:
                 line = sys.stdin.buffer.readline()
@@ -116,42 +149,57 @@ class EvolutionManager:
                 text = line.decode('utf-8', errors='ignore').strip()
             except (EOFError, KeyboardInterrupt):
                 break
+
             if not text:
                 continue
+
             if text.lower() == "exit":
-                self.need_shutdown = False
                 break
             elif text.lower() == "shutdown":
                 try:
                     resp = self.ipc.command("shutdown")
-                    print(resp)
+                    self.format_and_print_response(resp)
                     time.sleep(0.5)
                 except Exception as e:
                     print(f"[ERROR] {e}")
-                self.need_shutdown = True
                 break
             else:
                 try:
                     resp = self.ipc.request("chat", {"text": text})
-                    print(resp)
+                    self.format_and_print_response(resp)
                 except Exception as e:
                     print(f"[ERROR] {e}")
 
     def shutdown(self):
-        print("\n[Manager] Shutdown...")
+        print("\n[Manager] Shutdown sequence initiated...")
         self.running = False
         try:
             self.ipc.close()
         except Exception:
             pass
-        if self.core_process and self.core_started_by_manager and self.need_shutdown:
-            print("[Manager] Stopping core...")
-            self.core_process.send_signal(signal.SIGTERM)
-            try:
-                self.core_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.core_process.kill()
+
+        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если менеджер САМ запустил ядро, он обязан его убить!
+        if self.core_started_by_manager:
+            if self.core_process and self.core_process.poll() is None:
+                print("[Manager] Stopping core process...")
+                try:
+                    self.core_process.send_signal(signal.SIGTERM)
+                    self.core_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    print("[Manager] Core process ignored SIGTERM. Escalating to SIGKILL...")
+                    self.core_process.kill()
+                    self.core_process.wait()
+            else:
+                print("[Manager] Core process was already terminated.")
         else:
-            if self.core_process and self.core_started_by_manager:
-                print("[Manager] Core left running.")
+            print("[Manager] Core process was not started by this manager instance. Left running.")
+
+        # Удаляем Unix-сокет, чтобы не оставлять мусор
+        if self.core_started_by_manager and os.path.exists(DEFAULT_SOCKET):
+            try:
+                os.unlink(DEFAULT_SOCKET)
+                print("[Manager] Cleaned up socket file.")
+            except Exception:
+                pass
+
         print("[Manager] Bye.")
