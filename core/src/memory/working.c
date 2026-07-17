@@ -1,7 +1,7 @@
 // memory/working.c
 #include <stdlib.h>
 #include <string.h>
-#include "reasoning/engine.h"
+
 #include "working.h"
 #include "storage/db/db.h"
 #include "math/hash.h"

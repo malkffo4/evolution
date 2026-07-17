@@ -9,6 +9,8 @@ extern WorkingMemory global_wm;
 /* requests */
 void req_ping(IPCPacket *req, IPCPacket *resp);
 void req_generate_reply(IPCPacket *req, IPCPacket *resp);
+void req_retrieve(IPCPacket *req, IPCPacket *resp);
+void req_execute_command(IPCPacket *req, IPCPacket *resp);
 void req_embedding(IPCPacket *req, IPCPacket *resp);
 void req_rerank(IPCPacket *req, IPCPacket *resp);
 

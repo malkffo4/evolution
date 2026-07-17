@@ -10,6 +10,8 @@ static const Route request_routes[] = {
     { "ping",           req_ping },
     { "generate_reply", req_generate_reply },
     { "chat",           req_generate_reply },
+    { "retrieve",       req_retrieve },
+    { "execute",        req_execute_command},
     { "embedding",      req_embedding },
     { "rerank",         req_rerank },
     { NULL, NULL }

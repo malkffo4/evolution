@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -93,7 +94,7 @@ IPCStatus ipc_packet_from_json(const char *json, IPCPacket *packet) {
         // packet->payload_size = strlen(packet->payload);
         item = cJSON_GetObjectItem(root, "payload_size");
         if (cJSON_IsNumber(item)) {
-            packet->payload_size = item->valueint;
+            packet->payload_size = (uint32_t)item->valueint;
         }
     }
 

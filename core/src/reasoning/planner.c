@@ -6,7 +6,6 @@
 
 #include "types/id.h"
 #include "memory/working.h"
-#include "reasoning/engine.h"
 #include "reasoning/analogy.h"
 #include "storage/db/db.h"
 #include "storage/node/node.h"
@@ -46,7 +45,7 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
             // Ищем в памяти, ЧТО приводит к этой цели. Мы ищем ребра ВХОДЯЩИЕ в цель.
             if (get_edges_to_node(txn, node->node_id, &incoming_edges) == MDB_SUCCESS && incoming_edges.items) {
 
-                for (int j = 0; j < incoming_edges.count; j++) {
+                for (uint32_t j = 0; j < incoming_edges.count; j++) {
                     const char *relation_name = get_string_from_pool(txn, incoming_edges.items[j].key.relation);
 
                     // Эвристика: ищем причинно-следственные связи (CAUSES, LEADS_TO, ACHIVES)
@@ -54,7 +53,7 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
                     if (relation_name && (strcasestr(relation_name, "cause") || strcasestr(relation_name, "achieve") || strcasestr(relation_name, "приводит"))) {
 
                         uint64_t required_step_id = incoming_edges.items[j].key.source;
-                        float step_weight = incoming_edges.items[j].evidence_count;
+                        uint32_t step_weight = incoming_edges.items[j].evidence_count;
 
                         const char *step_name = get_string_from_pool(txn, required_step_id);
 

@@ -12,7 +12,8 @@ typedef enum {
     VM_STACK_OVERFLOW,
     VM_STACK_UNDERFLOW,
     VM_TIMEOUT,
-    VM_OUT_OF_MEMORY
+    VM_OUT_OF_MEMORY,
+    VM_NOT_FOUND
 } VMStatus;
 
 #endif // VM_STATUS_H

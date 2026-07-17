@@ -94,24 +94,8 @@ class Local_LLM:
     # --- Старый метод для обратной совместимости ---
     def _ask_ollama_for_graph(self, text_chunk:str):
         # ... оставь без изменений
-        prompt = f"""
-        Ты - когнитивный экстрактор. Прочитай текст и извлеки знания в формате JSON.
-        Для каждого узла определи его "эмоциональный" когнитивный заряд (от 0.0 до 1.0):
-        - "danger": насколько это опасно/разрушительно (например, эксплойты, ошибки = 0.9).
-        - "utility": насколько это полезный инструмент (скрипты, утилиты, методы = 0.9).
-        - "novelty": насколько это редкий или новый концепт.
-        Текст: {text_chunk}
+        prompt = open('prompts/ask_ollama_for_graph.txt', 'r').read().format(text_chunk=text_chunk)
 
-        Верни СТРОГО валидный JSON:
-        {{
-        "nodes": [
-            {{"id":"...", "label":"...", "danger": 0.8, "utility": 0.2, "novelty": 0.5}}
-        ],
-        "edges": [
-            {{"source":"...", "target":"...", "relation":"..."}}
-        ]
-        }}
-        """
         payload = {
             "model": self.model,
             "format": "json",
@@ -141,20 +125,8 @@ class Local_LLM:
 
 
     def _analyze_with_llm(self, word, text):
-        prompt = f"""
-        Проанализируй текст и извлеки свойства и связи для понятия '{word}'.
-        Текст: {text}
+        prompt = open('prompts/analyze_with_llm.txt', 'r').read().format(word=word,text=text)
 
-        Верни СТРОГО JSON:
-        {{
-        "tokens": [
-            {{"word": "{word}", "pos": "NOUN", "lemma": "{word}"}}
-        ],
-        "relations": [
-            {{"source": "{word}", "target": "...", "type": "является"}}
-        ]
-        }}
-        """
         payload = {
             "model": "qwen2.5-coder:1.5b",
             "format": "json",

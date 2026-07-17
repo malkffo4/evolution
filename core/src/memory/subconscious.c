@@ -1,4 +1,5 @@
 // subconscious_daemon.c
+#include <stdint.h>
 #define _POSIX_C_SOURCE 200809L
 #include <time.h>
 // #include <stdio.h>
@@ -8,7 +9,6 @@
 #include <pthread.h>
 #include "main.h"
 
-#include "reasoning/engine.h"
 #include "storage/db/db.h"
 #include "subconscious.h"
 #include "storage/string_pool/string_pool.h"
@@ -36,7 +36,7 @@ int get_pending_tasks(ResearchTask *buffer, int max_count) {
     int cnt = 0;
     pthread_mutex_lock(&task_mutex);
     cnt = (task_count < max_count) ? task_count : max_count;
-    memcpy(buffer, task_queue, cnt * sizeof(ResearchTask));
+    memcpy(buffer, task_queue, cnt * (int)sizeof(ResearchTask));
     // Удаляем взятые задачи
     if (cnt > 0) {
         memmove(task_queue, task_queue + cnt, (task_count - cnt) * sizeof(ResearchTask));

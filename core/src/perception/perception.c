@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include "memory/working.h"
-#include "reasoning/engine.h"
 #include "storage/db/db.h"
 #include "storage/graph/graph.h"
 #include "semantic.h"

@@ -17,14 +17,16 @@ typedef struct {
     episode_id_t episode;
     node_id_t author;
     node_id_t evidence;
-    float confidence; // насколько знание считается истинным
-    float activation; // насколько оно сейчас активно
     uint32_t evidence_count;
-    uint32_t access_count; // сколько раз использовалось
+    float confidence;       // насколько знание считается истинным
+    float activation;       // насколько оно сейчас активно
+
     uint16_t flags;
     uint64_t created_at;
     uint64_t updated_at;
     uint64_t last_access;
+    uint32_t access_count;  // сколько раз использовалось
+
     uint32_t success_count;
     uint32_t failure_count;
 } Edge;
