@@ -1,148 +1,435 @@
-```
-sudo dnf install libasan libubsan
-```
+# NeuroCore
 
-## Neuro-Symbolic Architecture (Нейро-символическая архитектура).
-- Граф (Узлы + Ребра/Триплеты): Идеально описывает строгую логику, факты и онтологии (что откуда следует, кто кому подчиняется, какие порты открыты на каком IP). Это символьная часть.
-- Векторы (Embeddings + SimHash): Отвечают за "интуицию", ассоциации и размытый смысл.
-- Свойства (Properties): Позволяют вешать на узлы метрические данные (уровень угрозы, CVSS-оценку, статус).
-
-## Когерентный Нейросимволический Процессор.
-В ядре лежат исключительно чистые ассемблерные примитивы, процесс выдвижения гипотез и рассуждений выстраивается динамически на уровне структуры данных в LMDB.
-
-Пример «программы рассуждения» (пайплайна), хранящейся в нейроне базы данных:
-- OP_NODE_TRAVERSE r1, r0 — вытащить связи текущего узла (например, port_445).
-- OP_PROP_GET r2, r0, "vector_id" — вытащить эмбеддинг-идентификатор.
-- OP_VECTOR_SIM r3, r0, r4 — рассчитать близость с целевой уязвимостью из базы.
-- OP_COND_BRANCH r3, r5, +2 — если близость (r3) больше порога (r5 = 0.75), прыгаем вперед на 2 инструкции.
-- OP_EDGE_WRITE r0, "suggested_exploit", r4 — пишем гипотетическую связь прямо в базу!
-- OP_WM_ACTIVATE r4, r3, 0.5 — активируем уязвимость в Рабочей Памяти, привлекая к ней внимание ИИ-агента.
-
-Такая архитектура прекрасна тем, что:
-- VM полностью универсальна: Мы можем вообще не трогать код Си-ядра годами. Все новые алгоритмы (поиск цепочек атак, анализ логов, планирование) пишутся на Python и компилируются в граф низкоуровневых команд, сохраняемый в LMDB.
-- VM может вычислять что угодно: Хочешь искать закономерности — пишем пайплайн статистического подсчета через OP_PROP_GET и OP_PROP_SET. Хочешь искать котиков — пайплайн пробегается по детекциям свойств изображений, сопоставляя веса.
-- Разметка строго соблюдена: Исходный файл аккуратно структурирован, снабжен прогресс-маркерами и закрыт неколебимым ````eof`.
-
---- 
-
-Проект представляет собой прототип, который закладывает правильные архитектурные принципы:
-
-- графовая долговременная память
-- рабочая память с затуханием
-- эмоциональная окраска фактов
-- непрерывное обучение.
-
-Однако до полноценного не хватает:
-
-- Собственного логического вывода (не только через LLM).
-- Мультимодальности.
-- Надёжного механизма самокоррекции и рефлексии.
-- Масштабируемости.
-
-Тем не менее, если доработать критические места, вы получите:
-**самообучающуюся систему, способную автономно пополнять граф знаний и использовать его в диалоге**.
-Это уже шаг в сторону Artificial General Intelligence.
+> **A modular cognitive architecture written in C.**
+>
+> NeuroCore is not another AI agent.
+> It is an attempt to build a general cognitive core capable of storing knowledge, understanding information, reasoning, planning, learning, and interacting with the outside world through a clean, extensible architecture.
 
 ---
-# C:
-рабочая память;
-долговременная память;
-граф знаний;
-распространение активации;
-поиск;
-планировщик;
-аналогии;
-символические выводы;
-IPC;
-многопоточность.
 
-То есть всё, где важны производительность и детерминированность.
+# Vision
 
-# Python:
-LLM;
-поиск в интернете;
-OCR;
-распознавание речи;
-синтез речи;
-браузер;
-GitHub API;
-Wikipedia;
-ArXiv;
-DuckDuckGo;
-векторные модели;
-любые внешние API.
+Modern LLMs are extremely good at predicting text.
 
-То есть всё, что связано с внешними библиотеками и быстро меняющейся экосистемой.
+Humans do much more.
 
-IPC — единственный способ общения между ними, с единым протоколом сообщений (id, type, name, payload).
-Никаких прямых вызовов Python-функций из логики C и наоборот — только сообщения через шину.
+Humans:
 
+- build internal models of the world;
+- accumulate long-term knowledge;
+- reason using multiple strategies;
+- plan before acting;
+- remember experiences;
+- improve from mistakes;
+- explain decisions;
+- reuse previously acquired skills.
+
+NeuroCore is an attempt to build this missing layer.
+
+Instead of creating another chatbot, the goal is to build a **general-purpose cognitive engine**.
+
+---
+
+# Philosophy
+
+NeuroCore follows several fundamental principles.
+
+## Knowledge First
+
+Everything inside the system is represented as knowledge.
+
+Not text.
+
+Not prompts.
+
+Not embeddings.
+
+Knowledge.
+
+---
+
+## Modular Architecture
+
+Every subsystem has exactly one responsibility.
+
+No module should perform work belonging to another module.
+
+---
+
+## Explainability
+
+Every decision must be explainable.
+
+Every conclusion must have its origin.
+
+Every hypothesis must indicate why it exists.
+
+---
+
+## Long-Term Evolution
+
+The architecture is designed to evolve for many years.
+
+The goal is not to build a prototype.
+
+The goal is to build a cognitive platform.
+
+---
+
+## Technology Independence
+
+The architecture is independent of:
+
+- LLM provider;
+- database implementation;
+- operating system;
+- programming language bindings;
+- external tools.
+
+Everything is replaceable.
+
+---
+
+# Architecture Overview
 
 ```
-Perception
-      │
-      ▼
-Memory
-      │
-      ▼
-Reasoning
-      │
-      ▼
-Planning
-      │
-      ▼
-Execution
-      │
-      ▼
-Tools
-      │
-      ▼
-Environment
-      │
-      ▼
-Perception
+                External World
+                       │
+                       ▼
+               Understanding
+                       │
+                       ▼
+                  Knowledge
+                       │
+                       ▼
+                   Memory
+                       │
+                Activation Engine
+                       │
+                       ▼
+                Working Memory
+                       │
+                       ▼
+                       VM
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+        ▼              ▼              ▼
+   Reasoning      Planner      Execution
+        │              │              │
+        └──────────────┼──────────────┘
+                       │
+                       ▼
+                   Learning
+                       │
+                       ▼
+                    Memory
 ```
 
+This cycle never stops.
+
+Every interaction improves the system.
+
+---
+
+# Core Components
+
+## Memory
+
+Stores all knowledge.
+
+Responsible for:
+
+- knowledge storage;
+- indexing;
+- activation;
+- statistics;
+- history;
+- retrieval.
+
+---
+
+## Understanding
+
+Transforms external information into internal knowledge.
+
+Supports:
+
+- books;
+- documentation;
+- source code;
+- images;
+- speech;
+- APIs;
+- structured data.
+
+---
+
+## Reasoning
+
+Produces new knowledge from existing knowledge.
+
+Implements:
+
+- deduction;
+- induction;
+- abduction;
+- analogy;
+- causal reasoning;
+- constraint reasoning.
+
+---
+
+## Planner
+
+Transforms goals into executable plans.
+
+Responsible for:
+
+- decomposition;
+- optimization;
+- risk analysis;
+- algorithm selection.
+
+---
+
+## Execution
+
+Executes plans.
+
+Responsible for:
+
+- tools;
+- runtime state;
+- observations;
+- episodes;
+- execution results.
+
+---
+
+## Learning
+
+Improves the entire system using experience.
+
+Updates:
+
+- confidence;
+- relation weights;
+- statistics;
+- activation;
+- algorithm ratings.
+
+---
+
+## VM
+
+The cognitive runtime.
+
+Coordinates:
+
+- working memory;
+- context;
+- goals;
+- attention;
+- tasks;
+- thought execution.
+
+---
+
+## Runtime
+
+Controls the lifecycle of every subsystem.
+
+Responsible for:
+
+- initialization;
+- monitoring;
+- shutdown;
+- recovery;
+- configuration.
+
+---
+
+## IPC
+
+Provides communication between all components.
+
+No component communicates directly with another.
+
+---
+
+## Plugins
+
+Allows extending NeuroCore without changing the core.
+
+Everything external is implemented as a plugin.
+
+---
+
+## Tools
+
+Provide access to the outside world.
+
+Examples:
+
+- Python;
+- Git;
+- Browser;
+- Shell;
+- HTTP;
+- OCR;
+- LLM.
+
+---
+
+# Project Goals
+
+NeuroCore aims to become a system capable of:
+
+- understanding arbitrary information;
+- building structured knowledge;
+- reasoning;
+- planning;
+- learning continuously;
+- explaining its conclusions;
+- interacting with external tools;
+- improving over time.
+
+---
+
+# Non-Goals
+
+NeuroCore is **not** intended to be:
+
+- another LLM wrapper;
+- a prompt engineering framework;
+- an autonomous agent built entirely around prompts;
+- a chatbot;
+- an embedding database;
+- a vector search engine.
+
+Those technologies may be used by NeuroCore.
+
+They are not NeuroCore itself.
+
+---
+
+# Technology Stack
+
+Current implementation targets:
+
+- Language: C23
+- Build System: CMake
+- Storage: LMDB
+- Serialization: FlatBuffers / MessagePack (TBD)
+- Testing: CTest
+- Documentation: Markdown
+- Operating System: Linux (primary)
+
+Future support:
+
+- Windows
+- macOS
+- BSD
+
+---
+
+# Development Principles
+
+Architecture first.
+
+Implementation second.
+
+Optimization third.
+
+No feature is accepted if it violates architecture.
+
+---
+
+# Project Status
+
+Current stage:
+
 ```
-| Папка         | Вопрос                      
-| ------------- | -----------------------------------------------------------------------------|
-| Perception    | Что я воспринимаю? как превратить внешний сигнал в внутреннее представление?
-| Memory        | Что я уже знаю? как сохранить и извлечь знания?
-| Knowledge     | Где найти новую информацию? где найти информацию, которой ещё нет в памяти?
-| Reasoning     | Что из этого следует? как сделать выводы на основе известных фактов?
-| Planning      | Что нужно сделать? какую последовательность действий выбрать?
-| Execution     | Как выполнить действие? как инициировать выполнение этих действий?
-| Communication | Как общаться? как обмениваться информацией с пользователем или другими агентами?
-| Tools         | Чем выполнять действия? какими средствами взаимодействовать с внешним миром?
-| Runtime       | Как живёт система? как поддерживать работу всей системы? 
+Architecture Design
+████████████████████ 100%
+
+Implementation
+░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-Retrieval
+The architecture is intentionally designed before implementation.
 
-Это поиск информации.
-Например
-"Кто такой Алан Тьюринг?": LMDB -> Vector DB -> Wikipedia -> DuckDuckGo -> документы
+This minimizes future rewrites.
 
-Он ничего не генерирует.
-Просто возвращает кандидатов.
-Например
-DocumentList retrieve(Query *query);
+---
 
-RAG
-Это уже стратегия: Вопрос -> Retrieval -> контекст -> LLM -> ответ
+# Documentation
 
-То есть
-RAG = Retrieval + Prompt + LLM
-Поэтому RAG — это не поиск.
-Поиск — лишь его часть.
+Project documentation is organized as follows:
 
-ipc/
-    protocol.c          <-- сериализация JSON <-> IPCPacket
-    transport.c         <-- connect/send/recv/socket
-    router.c            <-- dispatch по name/type
+```
+docs/
 
-    message_bus.c       <-- очереди между потоками
+01_Architecture.md
+02_Knowledge.md
+03_Memory.md
+04_Understanding.md
+05_Reasoning.md
+06_Planner.md
+07_Execution.md
+08_Learning.md
+09_VM.md
+10_Runtime.md
+11_IPC.md
+12_Plugins.md
+13_Tools.md
+14_LearningLoop.md
+15_Roadmap.md
+```
 
-    ipc_sender_thread.c <-- единственный поток отправки
+Each document describes one subsystem.
 
-    ipc_receiver_thread.c <-- единственный поток приема
+Together they define the complete architecture.
+
+---
+
+# Long-Term Vision
+
+The long-term objective is not merely to create software.
+
+The objective is to build a reusable cognitive architecture that can serve as the foundation for future intelligent systems.
+
+Every design decision is evaluated against one question:
+
+> "Will this still make sense ten years from now?"
+
+If the answer is no, the design is reconsidered.
+
+---
+
+# License
+
+License has not yet been selected.
+
+---
+
+# Current Priority
+
+Current focus:
+
+1. Finalize architecture.
+2. Review documentation.
+3. Build the project foundation.
+4. Implement the storage layer.
+5. Implement the knowledge model.
+6. Implement the memory subsystem.
+7. Continue according to the roadmap.
+
+---
+
+# Final Statement
+
+NeuroCore is an engineering project focused on building a long-lived cognitive architecture rather than a short-lived AI application.
+
+The objective is to create a modular, explainable, extensible and continuously learning system whose capabilities emerge from the interaction of well-defined components instead of being concentrated inside a single monolithic model.
