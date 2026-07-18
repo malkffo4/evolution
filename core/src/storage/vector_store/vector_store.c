@@ -1,3 +1,4 @@
+// storage/vector_store/vector_store.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,54 @@
 #include "storage/db/db.h"
 #include "vector_store.h"
 #include "runtime/logging/logging.h"
+
+// =========================================================================
+// Xoshiro256** — качественный PRNG с периодом 2^256-1
+// =========================================================================
+static uint64_t xs_state[4];
+
+static inline uint64_t xs_rotl(uint64_t x, int k) {
+    return (x << k) | (x >> (64 - k));
+}
+
+static uint64_t xs_next(void) {
+    uint64_t result = xs_rotl(xs_state[1] * 5, 7) * 9;
+    uint64_t t = xs_state[1] << 17;
+
+    xs_state[2] ^= xs_state[0];
+    xs_state[3] ^= xs_state[1];
+    xs_state[1] ^= xs_state[2];
+    xs_state[0] ^= xs_state[3];
+
+    xs_state[2] ^= t;
+    xs_state[3] = xs_rotl(xs_state[3], 45);
+
+    return result;
+}
+
+static void xs_seed(uint64_t seed) {
+    // SplitMix64 для инициализации состояния
+    for (int i = 0; i < 4; i++) {
+        uint64_t z = (seed += 0x9e3779b97f4a7c15ULL);
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+        xs_state[i] = z ^ (z >> 31);
+    }
+}
+
+// Генерация float в диапазоне [-1, 1) с равномерным распределением
+static inline float xs_float(void) {
+    // Берём старшие 23 бита для мантиссы float (наиболее качественные биты Xoshiro)
+    uint32_t bits = (uint32_t)(xs_next() >> 40);
+    // Преобразуем в float в диапазоне [0, 1)
+    float f = (float)bits / (float)(1ULL << 23);
+    // Масштабируем до [-1, 1)
+    return f * 2.0f - 1.0f;
+}
+
+// =========================================================================
+// Основной код
+// =========================================================================
 
 const char *config_key = "proj_matrix";
 static float proj_matrix[HASH_BITS][EMBEDDING_DIM];
@@ -21,7 +70,6 @@ int init_simhash(MDB_txn *txn) {
     rc = mdb_get(txn, db.vectors.simhash_config, &key, &data);
 
     if (rc == MDB_SUCCESS) {
-        // Matrix exists in DB, load it
         if (data.mv_size != sizeof(proj_matrix)) {
             LOG_ERROR("Invalid projection matrix size in DB");
             return -1;
@@ -32,11 +80,12 @@ int init_simhash(MDB_txn *txn) {
     }
 
     // Matrix doesn't exist, generate new one
-    LOG_DATABASE("Generating new projection matrix...");
-    srand(42); // Fixed seed for reproducibility
+    LOG_DATABASE("Generating new projection matrix with Xoshiro256**...");
+    xs_seed(42); // Детерминированная инициализация
+
     for (int i = 0; i < HASH_BITS; i++) {
         for (int j = 0; j < EMBEDDING_DIM; j++) {
-            proj_matrix[i][j] = ((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f;
+            proj_matrix[i][j] = xs_float();
         }
     }
 
@@ -152,13 +201,12 @@ int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t 
     }
 
     // We'll collect candidates with Hamming distance < 30 (configurable)
-    const int HAMMING_THRESHOLD = 30;
-    uint64_t candidates[1000]; // Max candidates
+    uint64_t candidates[MAX_CANDIDATES]; // Max candidates
     int candidate_count = 0;
 
     // Iterate through all SimHash entries
     rc = mdb_cursor_get(cursor, &key, &data, MDB_FIRST);
-    while (rc == MDB_SUCCESS && candidate_count < 1000) {
+    while (rc == MDB_SUCCESS && candidate_count < MAX_CANDIDATES) {
         if (key.mv_size == sizeof(query_hash)) {
             int dist = hamming_distance((uint64_t *)key.mv_data, query_hash);
             if (dist < HAMMING_THRESHOLD) {
@@ -168,7 +216,7 @@ int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t 
                         candidates[candidate_count++] = *(uint64_t *)data.mv_data;
                     }
                     rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT_DUP);
-                } while (rc == MDB_SUCCESS && candidate_count < 1000);
+                } while (rc == MDB_SUCCESS && candidate_count < MAX_CANDIDATES);
                 rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT_NODUP);
             } else {
                 rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT_NODUP);

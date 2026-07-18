@@ -1,12 +1,12 @@
+// math/hash.c
 #include <stdint.h>
 
 uint64_t djb2_hash(const char *str) {
-    char *ptr = str;
+    const unsigned char *ptr = (const unsigned char *)str;
     uint64_t hash = 5381;
-    uint32_t c;
 
-    while ((c = *ptr++)) {
-        hash = ((hash << 5) + hash) + c;
+    while (*ptr) {
+        hash = ((hash << 5) + hash) + *ptr++;
     }
 
     return hash;

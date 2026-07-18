@@ -53,7 +53,7 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
                     if (relation_name && (strcasestr(relation_name, "cause") || strcasestr(relation_name, "achieve") || strcasestr(relation_name, "приводит"))) {
 
                         uint64_t required_step_id = incoming_edges.items[j].key.source;
-                        uint32_t step_weight = incoming_edges.items[j].evidence_count;
+                        float step_weight = incoming_edges.items[j].confidence;
 
                         const char *step_name = get_string_from_pool(txn, required_step_id);
 
