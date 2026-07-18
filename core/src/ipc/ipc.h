@@ -20,7 +20,8 @@ typedef enum {
     IPC_OK = 0,
     IPC_ERROR = -1,
     IPC_DISCONNECTED = -2,
-    IPC_TIMEOUT = -3
+    IPC_TIMEOUT = -3,
+    IPC_ERR_PAYLOAD_TOO_LARGE = -4
 } IPCStatus;
 
 typedef struct {

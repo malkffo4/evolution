@@ -11,6 +11,8 @@ int vm_op_load_const(VMContext *, const Instruction *);
 
 int vm_op_move(VMContext *, const Instruction *);
 
+int vm_op_add(VMContext *, const Instruction *);
+
 int vm_op_store(VMContext *, const Instruction *);
 
 int vm_op_clear(VMContext *, const Instruction *);

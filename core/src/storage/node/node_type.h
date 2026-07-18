@@ -1,3 +1,4 @@
+// storage/node/node_type.h
 #ifndef NODE_TYPE_H
 #define NODE_TYPE_H
 

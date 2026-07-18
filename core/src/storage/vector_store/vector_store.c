@@ -210,22 +210,87 @@ int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t 
         return 0;
     }
 
-    // Sort by similarity (descending)
-    for (int i = 0; i < valid_count - 1; i++) {
-        for (int j = i + 1; j < valid_count; j++) {
-            if (similarities[i].similarity < similarities[j].similarity) {
-                SimilarityResult temp = similarities[i];
-                similarities[i] = similarities[j];
-                similarities[j] = temp;
+    // ---- Замена: Min-Heap для выбора topK (O(N log K)) ----
+    // Куча хранит не более topK элементов, минимальная similarity – в корне.
+    int heap_capacity = (topK < valid_count) ? topK : valid_count;
+    SimilarityResult *heap = malloc(heap_capacity * sizeof(SimilarityResult));
+    if (!heap) {
+        free(similarities);
+        return -1;
+    }
+    int heap_size = 0;
+
+    // Вспомогательные макросы для работы с кучей (индексация с 0)
+    #define PARENT(i) (((i) - 1) / 2)
+    #define LEFT(i)   (2 * (i) + 1)
+    #define RIGHT(i)  (2 * (i) + 2)
+
+    // Добавление элемента в min-heap (просеивание вверх)
+    for (int i = 0; i < valid_count; i++) {
+        if (heap_size < heap_capacity) {
+            // Место есть – добавляем в конец и просеиваем вверх
+            int idx = heap_size++;
+            heap[idx] = similarities[i];
+            // Sift-up
+            while (idx > 0) {
+                int parent = PARENT(idx);
+                if (heap[idx].similarity < heap[parent].similarity) {
+                    SimilarityResult tmp = heap[idx];
+                    heap[idx] = heap[parent];
+                    heap[parent] = tmp;
+                    idx = parent;
+                } else {
+                    break;
+                }
+            }
+        } else if (similarities[i].similarity > heap[0].similarity) {
+            // Новый элемент больше минимального в куче – заменяем корень и просеиваем вниз
+            heap[0] = similarities[i];
+            int idx = 0;
+            // Sift-down
+            while (1) {
+                int smallest = idx;
+                int left = LEFT(idx);
+                int right = RIGHT(idx);
+                if (left < heap_size && heap[left].similarity < heap[smallest].similarity)
+                    smallest = left;
+                if (right < heap_size && heap[right].similarity < heap[smallest].similarity)
+                    smallest = right;
+                if (smallest != idx) {
+                    SimilarityResult tmp = heap[idx];
+                    heap[idx] = heap[smallest];
+                    heap[smallest] = tmp;
+                    idx = smallest;
+                } else {
+                    break;
+                }
             }
         }
     }
 
-    // Return top K results
-    int count = (topK < valid_count) ? topK : valid_count;
-    for (int i = 0; i < count; i++) {
-        results[i] = similarities[i].node_id;
+    // Теперь в куче – topK элементов (неупорядоченно).
+    // Отсортируем их по убыванию similarity, чтобы первые были самыми похожими.
+    for (int i = 0; i < heap_size - 1; i++) {
+        int best = i;
+        for (int j = i + 1; j < heap_size; j++) {
+            if (heap[j].similarity > heap[best].similarity)
+                best = j;
+        }
+        if (best != i) {
+            SimilarityResult tmp = heap[i];
+            heap[i] = heap[best];
+            heap[best] = tmp;
+        }
     }
+
+    // Копируем итоговые topK идентификаторов в results
+    int count = heap_size; // <= topK
+    for (int i = 0; i < count; i++) {
+        results[i] = heap[i].node_id;
+    }
+
+    free(heap);
+    // ---- Конец замены ----
 
     free(similarities);
     return count;

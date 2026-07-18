@@ -97,6 +97,12 @@ void vm_register_swap(VMContext *ctx, Register *a, Register *b) {
     memcpy(b, &tmp, sizeof(Register));
 }
 
+int64_t vm_register_read_int(VMContext *ctx, uint32_t reg_id) {
+    if (reg_id >= VM_MAX_REGISTERS) return 0;
+    if (ctx->reg[reg_id].type != REG_INT) return 0;
+    return ctx->reg[reg_id].i;
+}
+
 // ===== РЕГИСТРАЦИЯ ОПЕРАЦИЙ =====
 
 VMHandler vm_handlers[VM_OPCODE_COUNT];

@@ -24,6 +24,7 @@
 *.d
 
 # Build directories
+core/build/
 build/
 bin/
 Debug/
@@ -59,3 +60,5 @@ __pycache__/
 *.pyc
 *.log
 /evolution_core
+core/evolution_core
+core/test_vm_env-lock

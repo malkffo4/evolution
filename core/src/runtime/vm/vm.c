@@ -1,4 +1,4 @@
-// runtime/vm.c
+// runtime/vm/vm.c
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -14,12 +14,16 @@
 int vm_init(VMContext *ctx, MDB_txn *txn, WorkingMemory *wm) {
     ctx->memory.txn = txn;
     ctx->memory.wm = wm;
-
     ctx->frame = 0;
     ctx->halted = false;
     ctx->cycles = 0;
     ctx->max_cycles = VM_MAX_CYCLES;
     ctx->status = VM_OK;
+
+    // Инициализация трассировки
+    if (!vm_trace_init(ctx)) {
+        return VM_ERROR; // если не удалось выделить память
+    }
 
     // ARENA
     ctx->arena.capacity = VM_MAX_OBJECTS;
@@ -45,6 +49,8 @@ int vm_init(VMContext *ctx, MDB_txn *txn, WorkingMemory *wm) {
 }
 
 void vm_destroy(VMContext *ctx) {
+    vm_trace_destroy(ctx);
+
     for(uint32_t i=0;i<ctx->arena.capacity;i++) {
         VMObject *obj=&ctx->arena.objects[i];
 

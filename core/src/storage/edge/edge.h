@@ -31,9 +31,17 @@ typedef struct {
     uint32_t failure_count;
 } Edge;
 
+/**
+ * Создаёт ребро и индексы.
+ * При ошибке транзакция автоматически абортируется.
+ * Возвращает MDB_SUCCESS либо код ошибки LMDB.
+ */
 int create_edge(MDB_txn *txn, const Edge *edge);
+
 int update_edge(MDB_txn *txn, const Edge *edge);
+
 int get_edge(MDB_txn *txn, const Triple *key, Edge *edge);
+
 int delete_edge(MDB_txn *txn, const Triple *key);
 
 #endif // EDGE_H

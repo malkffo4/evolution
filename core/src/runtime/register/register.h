@@ -61,4 +61,6 @@ void vm_register_copy(VMContext *ctx, Register *dst, const Register *src);
 
 void vm_register_move(VMContext *ctx, Register *dst, Register *src);
 
+int64_t vm_register_read_int(VMContext *ctx, uint32_t reg_id);
+
 #endif // VM_REGISTER_H

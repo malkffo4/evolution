@@ -12,9 +12,7 @@ static int vm_trace_grow(VMContext *ctx) {
         ctx->trace_capacity * 2 :
         VM_TRACE_INITIAL_CAPACITY;
 
-    VMTrace *trace =
-        realloc(ctx->trace,
-                cap * sizeof(VMTrace));
+    VMTrace *trace = realloc(ctx->trace, cap * sizeof(VMTrace));
 
     if(!trace)
         return 0;
@@ -42,8 +40,7 @@ void vm_trace_destroy(VMContext *ctx) {
 }
 
 VMTrace *vm_trace_begin(VMContext *ctx, OperatorID id) {
-    if(ctx->trace_count >= ctx->trace_capacity)
-    {
+    if(ctx->trace_count >= ctx->trace_capacity) {
         if(!vm_trace_grow(ctx))
             return NULL;
     }

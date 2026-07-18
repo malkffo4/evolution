@@ -51,11 +51,19 @@ IPCStatus ipc_packet_from_json(const char *json, IPCPacket *packet) {
         return IPC_ERROR;
 
     cJSON *root = cJSON_Parse(json);
-
     if (!root)
         return IPC_ERROR;
 
     memset(packet, 0, sizeof(IPCPacket));
+
+    // Макрос для безопасного копирования строки с проверкой обрезки
+    #define SAFE_STRCPY(dest, src, dest_size, err_action) do { \
+        int _ret = snprintf(dest, dest_size, "%s", src); \
+        if (_ret < 0 || (size_t)_ret >= dest_size) { \
+            cJSON_Delete(root); \
+            err_action; \
+        } \
+    } while(0)
 
     cJSON *item;
 
@@ -72,33 +80,36 @@ IPCStatus ipc_packet_from_json(const char *json, IPCPacket *packet) {
         packet->timestamp = (uint64_t)item->valuedouble;
 
     item = cJSON_GetObjectItem(root, "type");
-
-    if(cJSON_IsNumber(item))
+    if (cJSON_IsNumber(item))
         packet->type = item->valueint;
 
     item = cJSON_GetObjectItem(root, "source");
     if (cJSON_IsString(item))
-        strncpy(packet->source, item->valuestring, sizeof(packet->source) - 1);
+        SAFE_STRCPY(packet->source, item->valuestring, sizeof(packet->source), return IPC_ERR_PAYLOAD_TOO_LARGE);
 
     item = cJSON_GetObjectItem(root, "destination");
     if (cJSON_IsString(item))
-        strncpy(packet->destination, item->valuestring, sizeof(packet->destination) - 1);
+        SAFE_STRCPY(packet->destination, item->valuestring, sizeof(packet->destination), return IPC_ERR_PAYLOAD_TOO_LARGE);
 
     item = cJSON_GetObjectItem(root, "name");
     if (cJSON_IsString(item))
-        strncpy(packet->name, item->valuestring, IPC_NAME_SIZE - 1);
+        SAFE_STRCPY(packet->name, item->valuestring, IPC_NAME_SIZE, return IPC_ERR_PAYLOAD_TOO_LARGE);
 
     item = cJSON_GetObjectItem(root, "payload");
     if (cJSON_IsString(item)) {
-        strncpy(packet->payload, item->valuestring, IPC_PAYLOAD_SIZE - 1);
-        // packet->payload_size = strlen(packet->payload);
+        // payload нельзя обрезать – это должен быть целый JSON
+        SAFE_STRCPY(packet->payload, item->valuestring, IPC_PAYLOAD_SIZE, return IPC_ERR_PAYLOAD_TOO_LARGE);
+
         item = cJSON_GetObjectItem(root, "payload_size");
         if (cJSON_IsNumber(item)) {
             packet->payload_size = (uint32_t)item->valueint;
+        } else {
+            packet->payload_size = (uint32_t)strlen(packet->payload);
         }
     }
 
-    cJSON_Delete(root);
+    #undef SAFE_STRCPY
 
+    cJSON_Delete(root);
     return IPC_OK;
 }

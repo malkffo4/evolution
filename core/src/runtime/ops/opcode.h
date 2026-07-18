@@ -13,6 +13,7 @@ typedef enum {
     /* Работа с регистрами */
     OP_LOAD_CONST,
     OP_MOVE,
+    OP_ADD,
     OP_STORE,
     OP_CLEAR,
 

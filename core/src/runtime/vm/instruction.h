@@ -66,4 +66,12 @@ typedef struct Instruction {
     uint32_t        arg[6];           // параметры оператора
 } Instruction;
 
+// Структура инструкции (фиксированный размер для простоты парсинга)
+// typedef struct {
+//     uint8_t opcode;
+//     uint8_t arg0;
+//     uint8_t arg1;
+//     int32_t imm;     // Иммедиат (для констант или адресов переходов)
+// } Instruction;
+
 #endif // INSTRUCTION_H
