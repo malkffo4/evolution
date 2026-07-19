@@ -43,6 +43,7 @@ typedef enum {
     OP_SCORE,
     OP_SORT,
     OP_PUSH_RESULT,
+    OP_EXEC_ALGORITHM,   // выполнить алгоритм по ID из регистра
     /* Количество opcode */
     VM_OPCODE_COUNT,
     /* опкоды для работы с графом */

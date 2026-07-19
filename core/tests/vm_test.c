@@ -91,5 +91,6 @@ int main(void) {
     mdb_env_close(env);
     // Удаляем временную директорию
     system("rm -rf ./test_vm_env");
+    system("rm -f test_vm_env-lock");
     return 0;
 }

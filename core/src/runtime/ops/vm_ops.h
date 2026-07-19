@@ -42,4 +42,6 @@ int vm_op_return(VMContext *, const Instruction *);
 
 int vm_op_check_cached_edge(VMContext *, const Instruction *);
 
+int vm_op_exec_algorithm(VMContext *, const Instruction *);
+
 #endif

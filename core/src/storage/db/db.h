@@ -16,6 +16,7 @@ typedef struct {
         MDB_dbi properties;
         MDB_dbi strings;
         MDB_dbi frames;
+        MDB_dbi algorithms;
         // MDB_dbi ontology;
         // MDB_dbi lexicon;
 

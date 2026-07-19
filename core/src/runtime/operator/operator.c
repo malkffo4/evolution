@@ -116,6 +116,7 @@ void operator_registry_init(void) {
     operator_register_native(OP_MOVE,  "move",   0, vm_op_move,  NULL, 0, 0);
     operator_register_native(OP_ADD,  "add",   0, vm_op_add,  NULL, 0, 0);
     operator_register_native(OP_CHECK_CACHED_EDGE, "check_cached_edge", 0, vm_op_check_cached_edge, NULL, 0, 0);
+    operator_register_native(OP_EXEC_ALGORITHM, "exec_algorithm", 0, vm_op_exec_algorithm, NULL, 0, 0);
     // ... остальные базовые
 
     // 2. Операторы с возможностями
