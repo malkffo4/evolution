@@ -1,4 +1,3 @@
-// planner — решает, каких знаний не хватает, и ставит задачи на их получение.
 // reasoning/learning_planner.c
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,12 +11,7 @@
 #include "storage/string_pool/string_pool.h"
 #include "storage/graph/graph.h"
 #include "math/hash.h"
-// =========================================================================
-// ПЛАНИРОВЩИК (Целеполагание и разбиение задач)
-// =========================================================================
-// Этот модуль реализует слой: Планирование -> Действие
-// Он ищет в Рабочей памяти узлы, которые система "хочет" достичь (высокий usefulness),
-// и разворачивает их в цепочку необходимых действий на основе графа LMDB.
+#include "planner.h"
 
 void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
     if (!wm || !txn) return;
@@ -107,3 +101,39 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
        }
     }
 }
+
+// Функция извлечения алгоритма мышления из LMDB и передачи в VM
+// int evaluate_behavioral_pattern(VMContext* ctx, node_id_t behavior_id) {
+//     // 1. Вытаскиваем граф логики из базы данных (LMDB)
+//     graph_path_t* path = graph_get_execution_path(behavior_id);
+//     if (!path) {
+//         // Логика не найдена, прерываем выполнение
+//         return VM_STATUS_ERROR_NOT_FOUND;
+//     }
+
+//     // 2. Компилятор превращает путь графа в примитивные опкоды VM
+//     // Например: узлы графа превращаются в опкоды LOAD, MATCH, BRANCH
+//     cognitive_chain_t chain;
+//     int compile_status = compiler_build_chain(path, &chain.bytecode, &chain.instruction_count);
+
+//     if (compile_status != SUCCESS) {
+//         return VM_STATUS_ERROR_COMPILE;
+//     }
+
+//     // 3. Загружаем скомпилированную цепочку в рабочую память VM
+//     vm_load_program(ctx, chain.bytecode, chain.instruction_count);
+
+//     // 4. Запускаем выполнение гипотезы/цепочки
+//     int exec_status = vm_execute(ctx);
+
+//     // 5. Оценка результата (например, найдена ли уязвимость в симуляции)
+//     if (exec_status == VM_STATUS_VULNERABILITY_FOUND) {
+//         // Запись нового обнаруженного паттерна обратно в базу (самообучение)
+//         knowledge_record_hypothesis(ctx->memory, behavior_id, "VULN_CONFIRMED");
+//     }
+
+//     // Очистка памяти арены
+//     arena_free(chain.bytecode);
+
+//     return exec_status;
+// }

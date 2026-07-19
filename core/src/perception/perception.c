@@ -5,7 +5,6 @@
 #include "memory/working.h"
 #include "storage/db/db.h"
 #include "storage/graph/graph.h"
-#include "semantic.h"
 #include "storage/string_pool/string_pool.h"
 #include "lib/cJSON.h"
 #include "math/hash.h"

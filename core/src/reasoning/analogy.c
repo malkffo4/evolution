@@ -217,8 +217,8 @@ int find_analogous_patterns(MDB_txn *txn, node_id_t query_node,
     rc = mdb_cursor_open(txn, db.graph.nodes, &cursor);
     if (rc != MDB_SUCCESS) goto cleanup;
 
-#define MAX_CANDIDATES 128
-    AnalogyCandidate temp[MAX_CANDIDATES];
+
+    AnalogyCandidate temp[MAX_CANDIDATES_ANALOGY];
     int count = 0;
     MDB_val key, data;
 
@@ -240,7 +240,7 @@ int find_analogous_patterns(MDB_txn *txn, node_id_t query_node,
                                                     &cand_in, &cand_out,
                                                     NULL);
 
-        if (eval.score.total >= 0.70f && count < MAX_CANDIDATES) {
+        if (eval.score.total >= 0.70f && count < MAX_CANDIDATES_ANALOGY) {
             AnalogyCandidate *c = &temp[count++];
             c->query_node = query_node;
             c->analogous_node = cand_id;
@@ -255,7 +255,7 @@ cleanup_candidate:
         free(cand_in.items);
         free(cand_out.items);
         if (rc != MDB_SUCCESS) goto cleanup;
-        if (count >= MAX_CANDIDATES) break;
+        if (count >= MAX_CANDIDATES_ANALOGY) break;
     }
 
     if (rc == MDB_NOTFOUND) rc = MDB_SUCCESS;

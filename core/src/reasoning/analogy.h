@@ -6,6 +6,8 @@
 #include "types/id.h"
 #include "storage/edge/edge.h"
 
+#define MAX_CANDIDATES_ANALOGY 128
+
 typedef struct {
     Triple query;
     Triple candidate;

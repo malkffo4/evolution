@@ -108,7 +108,7 @@ int get_edges_from_node(MDB_txn *txn, node_id_t source, EdgeList *list) {
     rc = mdb_cursor_get(cursor, &key, &data, MDB_SET);
     int idx = 0;
     while (rc == MDB_SUCCESS && idx < count) {
-        if (data.mv_size == sizeof(node_id_t)) {
+        if (data.mv_size == sizeof(Triple)) {
             Triple triple;
             memcpy(&triple, data.mv_data, sizeof(Triple));
             rc = get_edge(txn, &triple, &list->items[idx]);
@@ -172,7 +172,7 @@ int get_edges_to_node(MDB_txn *txn, node_id_t target, EdgeList *list) {
     rc = mdb_cursor_get(cursor, &saved_key, &data, MDB_SET);
     uint32_t idx = 0;
     while (rc == MDB_SUCCESS && idx < count) {
-        if (data.mv_size == sizeof(node_id_t)) {
+        if (data.mv_size == sizeof(Triple)) {
             Triple triple_key;
             memcpy(&triple_key, data.mv_data, sizeof(Triple));
             rc = get_edge(txn, &triple_key, &list->items[idx]);

@@ -1,3 +1,4 @@
+// runtime/vm/vm_context.h
 #ifndef VM_CONTEXT
 #define VM_CONTEXT
 
@@ -11,6 +12,21 @@
 #include "runtime/register/register.h"
 #include "runtime/trace/trace.h"
 #include "runtime/vm/vm_types.h"
+
+#define MAX_PRELOADED_EDGES 512
+
+#define MAX_SCRATCHPAD      64
+
+typedef struct {
+    node_id_t source;
+    node_id_t target;
+    node_id_t relation;
+} CachedEdge;
+
+typedef struct {
+    uint64_t key_hash;
+    int64_t value;
+} ScratchEntry;
 
 /* Контекст VM */
 typedef struct VMContext {
@@ -29,6 +45,9 @@ typedef struct VMContext {
     VMStatus        status;
     void            *userdata;
     const Operator  *current_operator;
+    CachedEdge      preloaded_edges[MAX_PRELOADED_EDGES];
+    uint32_t        preloaded_edge_count;
+    ScratchEntry    scratchpad[MAX_SCRATCHPAD];
 } VMContext;
 
 // inline обёртки для удобства
@@ -39,5 +58,11 @@ static inline VMHandle vm_ctx_object_new(VMContext *ctx, ObjectType type) {
 static inline VMObject *vm_ctx_object_get(VMContext *ctx, VMHandle handle) {
     return vm_object_get(&ctx->arena, handle);
 }
+
+// Файлы: evolution/core/src/memory/working.c и evolution/core/src/runtime/vm/vm_context.h
+// TODO Задачи:
+// Реализуйте транзакционную память (scratchpad) внутри контекста VM.
+// Все изменения состояний при симуляции пишутся сюда.
+// Если цепочка приводит к успеху (найдена уязвимость), граф переносится в долгосрочную память (episodic.c / LMDB).
 
 #endif // VM_CONTEXTVM_CONTEXT

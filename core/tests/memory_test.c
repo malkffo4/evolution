@@ -68,7 +68,7 @@ int main(void) {
 
     mdb_txn_commit(txn);
     close_lmdb();
-
+    system("rm -rf ./test_mem_db");
     printf("Memory test passed.\n");
     return 0;
 }

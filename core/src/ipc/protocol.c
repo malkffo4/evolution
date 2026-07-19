@@ -6,9 +6,6 @@
 #include "ipc/ipc.h"
 #include "lib/cJSON.h"
 
-// TODO
-//1. replace strncpy by snprintf(packet->source, sizeof(packet->source), "%s", item->valuestring);
-
 IPCStatus ipc_packet_to_json(const IPCPacket *packet, char *buffer, size_t size) {
     if (!packet || !buffer)
         return IPC_ERROR;
@@ -36,12 +33,12 @@ IPCStatus ipc_packet_to_json(const IPCPacket *packet, char *buffer, size_t size)
         cJSON_Delete(root);
         return IPC_ERROR;
     }
-
-    strncpy(buffer, json, size - 1);
-    buffer[size - 1] = '\0';
-
+    int buf_size = sizeof(buffer);
+    int _ret = snprintf(buffer, buf_size, "%s", json);
     free(json);
     cJSON_Delete(root);
+    if (_ret < 0 || (size_t)_ret >= buf_size)
+        return IPC_ERROR;
 
     return IPC_OK;
 }

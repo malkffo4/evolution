@@ -95,3 +95,10 @@ char* retrieve_subgraph_json(MDB_txn *txn, node_id_t start_node, int max_depth, 
     cJSON_Delete(root);
     return json_str;
 }
+
+// Файлы: evolution/core/src/reasoning/analogy.c и evolution/core/src/knowledge/retrieval.c
+// TODO Задачи:
+// Реализуйте поиск по вектору (vector_store.c).
+// Если система видит структуру атаки "SQL Injection",
+// она должна уметь через функцию find_similar_structures() собрать похожий граф для "NoSQL Injection",
+// скомпилировать его и отдать в примитивную VM на проверку.

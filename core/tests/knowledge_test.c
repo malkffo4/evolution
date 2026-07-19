@@ -1,5 +1,6 @@
 // tests/knowledge_test.c
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <signal.h>
@@ -16,6 +17,7 @@ WorkingMemory global_wm;
 volatile sig_atomic_t g_running = 1;
 
 int main(void) {
+    system("rm -rf ./test_knowledge_db");
     // Инициализация БД (создаст каталог ./test_knowledge_db)
     assert(init_lmdb("./test_knowledge_db") == MDB_SUCCESS);
 
@@ -56,6 +58,6 @@ int main(void) {
 
     mdb_txn_commit(txn);
     close_lmdb();
-
+    system("rm -rf ./test_knowledge_db");
     return 0;
 }
