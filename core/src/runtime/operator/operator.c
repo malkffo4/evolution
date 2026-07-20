@@ -117,6 +117,10 @@ void operator_registry_init(void) {
     operator_register_native(OP_ADD,  "add",   0, vm_op_add,  NULL, 0, 0);
     operator_register_native(OP_CHECK_CACHED_EDGE, "check_cached_edge", 0, vm_op_check_cached_edge, NULL, 0, 0);
     operator_register_native(OP_EXEC_ALGORITHM, "exec_algorithm", 0, vm_op_exec_algorithm, NULL, 0, 0);
+    operator_register_native(OP_GET_NEIGHBORS, "get_neighbors", 0, vm_op_get_neighbors, NULL, 0, 0);
+    operator_register_native(OP_FIND_SIMILAR,  "find_similar",  0, vm_op_find_similar,  NULL, 0, 0);
+    operator_register_native(OP_READ_SP,       "read_sp",       0, vm_op_read_sp,       NULL, 0, 0);
+    operator_register_native(OP_CONCAT_PATHS,  "concat_paths",  0, vm_op_concat_paths,  NULL, 0, 0);
     // ... остальные базовые
 
     // 2. Операторы с возможностями

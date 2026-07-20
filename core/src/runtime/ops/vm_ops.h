@@ -42,6 +42,14 @@ int vm_op_return(VMContext *, const Instruction *);
 
 int vm_op_check_cached_edge(VMContext *, const Instruction *);
 
+int vm_op_concat_paths(VMContext *, const Instruction *);
+
 int vm_op_exec_algorithm(VMContext *, const Instruction *);
+
+int vm_op_find_similar(VMContext *, const Instruction *);
+
+int vm_op_get_neighbors(VMContext *, const Instruction *);
+
+int vm_op_read_sp(VMContext *, const Instruction *);
 
 #endif

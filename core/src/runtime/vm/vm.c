@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "runtime/vm/vm_status.h"
 #include "runtime/vm/vm_context.h"
@@ -12,6 +13,7 @@
 
 /* регистры не инициализируем – будут заполнены операциями */
 int vm_init(VMContext *ctx, MDB_txn *txn, WorkingMemory *wm) {
+    memset(ctx, 0, sizeof(VMContext));
     ctx->memory.txn = txn;
     ctx->memory.wm = wm;
     ctx->frame = 0;

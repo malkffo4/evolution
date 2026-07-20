@@ -1,3 +1,4 @@
+// runtime/ops/opcode.h
 #ifndef OPCODES_TYPES_H
 #define OPCODES_TYPES_H
 
@@ -44,6 +45,10 @@ typedef enum {
     OP_SORT,
     OP_PUSH_RESULT,
     OP_EXEC_ALGORITHM,   // выполнить алгоритм по ID из регистра
+    OP_GET_NEIGHBORS,
+    OP_FIND_SIMILAR,
+    OP_READ_SP,
+    OP_CONCAT_PATHS,
     /* Количество opcode */
     VM_OPCODE_COUNT,
     /* опкоды для работы с графом */
