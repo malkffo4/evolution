@@ -62,3 +62,4 @@ __pycache__/
 /evolution_core
 core/evolution_core
 core/test_vm_env-lock
+core.zip

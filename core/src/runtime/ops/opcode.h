@@ -30,6 +30,7 @@ typedef enum {
     OP_CREATE_HYPOTHESIS,
     OP_EXTRACT_TARGETS,
     OP_GET_NODE,
+    OP_GET_EDGE,
     OP_GET_IN_EDGES,
     OP_GET_INCOMING,
     OP_GET_OUT_EDGES,
@@ -45,21 +46,21 @@ typedef enum {
     OP_SORT,
     OP_PUSH_RESULT,
     OP_EXEC_ALGORITHM,   // выполнить алгоритм по ID из регистра
+    OP_EXEC_ALGORITHM_BY_GOAL,
     OP_GET_NEIGHBORS,
     OP_FIND_SIMILAR,
     OP_READ_SP,
     OP_CONCAT_PATHS,
-    /* Количество opcode */
-    VM_OPCODE_COUNT,
     /* опкоды для работы с графом */
     OP_FETCH_NODE,  // достать факт
     OP_CHECK_EDGE,  // проверить связь
+    OP_CHECK_CACHED_EDGE,
     OP_ASSERT,      // выдвинуть гипотезу — временно записывает в working_memory
     OP_BACKTRACK,    // откатить состояние, если гипотеза зашла в тупик
-    OP_GET_EDGE,
     OP_SET_TMP,
     OP_COMMIT,
-    OP_CHECK_CACHED_EDGE
+    /* Количество opcode */
+    VM_OPCODE_COUNT
 } Opcode;
 
 #endif

@@ -1,5 +1,6 @@
 // runtime/ops/cognitive/get_neighbors.c
 #include <stdint.h>
+
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 
