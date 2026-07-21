@@ -21,7 +21,7 @@ Pipeline* compile_path_to_pipeline(node_id_t* path, int count) {
     p->constants.int_consts[0] = 1;   // ID отношения CAUSES
     p->constants.int_count = 1;
 
-    for (int i = 0; i < count - 1; i++) {
+    for (uint32_t i = 0; i < count - 1; i++) {
         // Загрузить текущий узел в регистр R0
         Instruction load_src = {
             .operator_id = OP_LOAD_CONST,

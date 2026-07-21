@@ -61,6 +61,9 @@ int init_lmdb(const char *db_path) {
     rc = mdb_dbi_open(txn, "algorithms", MDB_CREATE, &db.graph.algorithms);
     if (rc != MDB_SUCCESS) goto fail;
 
+    rc = mdb_dbi_open(txn, "properties", MDB_CREATE, &db.graph.properties);
+    if (rc != MDB_SUCCESS) goto fail;
+
     rc = mdb_dbi_open(txn, "edges_by_source", MDB_CREATE | MDB_DUPSORT, &db.graph.index.edges_by_source);
     if (rc != MDB_SUCCESS) goto fail;
 

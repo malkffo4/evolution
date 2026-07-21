@@ -121,6 +121,9 @@ void operator_registry_init(void) {
     operator_register_native(OP_FIND_SIMILAR,  "find_similar",  0, vm_op_find_similar,  NULL, 0, 0);
     operator_register_native(OP_READ_SP,       "read_sp",       0, vm_op_read_sp,       NULL, 0, 0);
     operator_register_native(OP_CONCAT_PATHS,  "concat_paths",  0, vm_op_concat_paths,  NULL, 0, 0);
+    operator_register_native(OP_PROP_GET,  "get_property",  0, vm_op_prop_get,  NULL, 0, 0);
+    operator_register_native(OP_PROP_SET,  "set_property",  0, vm_op_prop_set,  NULL, 0, 0);
+    operator_register_native(OP_SET_TMP, "set_tmp", 0, vm_op_set_tmp, NULL, 0, 0);
     // ... остальные базовые
 
     // 2. Операторы с возможностями

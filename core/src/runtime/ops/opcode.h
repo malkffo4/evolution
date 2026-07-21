@@ -51,6 +51,8 @@ typedef enum {
     OP_FIND_SIMILAR,
     OP_READ_SP,
     OP_CONCAT_PATHS,
+    OP_PROP_SET,
+    OP_PROP_GET,
     /* опкоды для работы с графом */
     OP_FETCH_NODE,  // достать факт
     OP_CHECK_EDGE,  // проверить связь

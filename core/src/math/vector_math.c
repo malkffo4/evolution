@@ -1,3 +1,4 @@
+// math/vector_math.c
 #include <stdint.h>
 
 // Поиск смысловой разницы. Меньше число = ближе смысл.
@@ -6,5 +7,5 @@ int semantic_distance_u64(uint64_t hash_A, uint64_t hash_B) {
     // XOR оставляет единицы только там, где биты различаются.
     uint64_t diff = hash_A ^ hash_B;
     // Встроенная ассемблерная команда процессора (очень быстрая), считает количество единиц.
-    return __builtin_popcountll(diff); 
+    return __builtin_popcountll(diff);
 }
