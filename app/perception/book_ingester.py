@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# app/perception/book_ingester.py
 import os
 import json
 import fitz  # PyMuPDF (pip install PyMuPDF)

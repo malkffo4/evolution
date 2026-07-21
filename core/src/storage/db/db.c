@@ -1,4 +1,4 @@
-// storage/db.c
+// storage/db/db.c
 #include <lmdb.h>
 #include <stdlib.h>
 #include <string.h>
