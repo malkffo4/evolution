@@ -1,4 +1,4 @@
-// storage/graph.c
+// storage/graph/graph.c
 #include <stdint.h>
 #include <lmdb.h>
 #include <stdlib.h>

@@ -17,7 +17,7 @@ int vm_op_get_neighbors(VMContext *ctx, const Instruction *ins) {
     node_id_t src = (ctx->reg[src_reg].type == REG_NODE) ? ctx->reg[src_reg].node : (node_id_t)ctx->reg[src_reg].i;
     node_id_t rel = (ctx->reg[rel_reg].type == REG_NODE) ? ctx->reg[rel_reg].node : (node_id_t)ctx->reg[rel_reg].i;
 
-    int count = 0;
+    uint32_t count = 0;
     for (uint32_t i = 0; i < ctx->preloaded_edge_count; i++) {
         if (ctx->preloaded_edges[i].source == src &&
             ctx->preloaded_edges[i].relation == rel) {

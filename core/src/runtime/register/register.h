@@ -15,15 +15,15 @@
 // EdgeList, NodeList,GraphView, Edge, MatchResult, Score, Analogy - ВСЕ живут только в Arena.
 /* Один регистр */
 typedef struct Register {
-    RegisterType type;
+    RegisterType    type;
     union {
-        int64_t i;
-        double  f;
-        bool    b;
-        node_id_t node;
-        VMHandle handle;
-        StringView string;
-        void *ptr;
+        int64_t     i;
+        double      f;
+        bool        b;
+        node_id_t   node;
+        VMHandle    handle;
+        StringView  string;
+        void        *ptr;
     };
 } Register;
 

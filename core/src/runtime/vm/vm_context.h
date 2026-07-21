@@ -6,16 +6,18 @@
 #include <stdbool.h>
 
 #include "types/id.h"
-#include "storage/edge/edge.h"
-#include "runtime/arena/arena.h"
 #include "vm_param.h"
-#include "runtime/register/register.h"
-#include "runtime/trace/trace.h"
 #include "runtime/vm/vm_types.h"
+#include "runtime/trace/trace.h"
+#include "runtime/arena/arena.h"
+#include "runtime/register/register.h"
+#include "storage/edge/edge.h"
+#include "storage/property.h"
 
-#define MAX_PRELOADED_EDGES 512
+#define MAX_PRELOADED_EDGES         512
+#define MAX_PRELOADED_PROPERTIES    256
 
-#define MAX_SCRATCHPAD      64
+#define MAX_SCRATCHPAD              64
 
 typedef struct {
     node_id_t source;
@@ -24,9 +26,20 @@ typedef struct {
 } CachedEdge;
 
 typedef struct {
-    uint64_t key_hash;
-    int64_t value;
+    uint64_t    key_hash;
+    int64_t     value;
 } ScratchEntry;
+
+typedef struct {
+    node_id_t       node_id;
+    uint64_t        key_hash;
+    PropertyType    type;
+    union {
+        int64_t i;
+        float f;
+        bool b;
+    } value;
+} CachedProperty;
 
 /* Контекст VM */
 typedef struct VMContext {
@@ -48,6 +61,8 @@ typedef struct VMContext {
     CachedEdge      preloaded_edges[MAX_PRELOADED_EDGES];
     uint32_t        preloaded_edge_count;
     ScratchEntry    scratchpad[MAX_SCRATCHPAD];
+    CachedProperty  preloaded_properties[MAX_PRELOADED_PROPERTIES];
+    uint32_t        preloaded_property_count;
 } VMContext;
 
 // inline обёртки для удобства

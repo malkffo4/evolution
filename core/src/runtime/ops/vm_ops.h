@@ -1,3 +1,4 @@
+// runtime/ops/vm_ops.h
 #ifndef VM_OPS_H
 #define VM_OPS_H
 
@@ -41,6 +42,10 @@ int vm_op_return(VMContext *, const Instruction *);
 
 
 int vm_op_check_cached_edge(VMContext *, const Instruction *);
+
+int vm_op_prop_set(VMContext *, const Instruction *);
+
+int vm_op_prop_get(VMContext *, const Instruction *);
 
 int vm_op_concat_paths(VMContext *, const Instruction *);
 

@@ -110,52 +110,42 @@ int vm_op_vector_sim(VMContext *ctx, const Instruction *ins) {
  * когнитивной программе извлекать метаданные (например, веса нейронов,
  * опасность портов, признаки котиков). */
 int vm_op_prop_get(VMContext *ctx, const Instruction *ins) {
-  uint32_t dst = ins->arg[0];
-  uint32_t entity_reg = ins->arg[1];
-  uint32_t key_reg = ins->arg[2];
+    uint32_t dst = ins->arg[0];
+    uint32_t entity_reg = ins->arg[1];
+    uint32_t key_reg = ins->arg[2];
 
-  if (!check_registers(dst, entity_reg) || key_reg >= VM_MAX_REGISTERS) {
-      return VM_INVALID_REGISTER;
-  }
+    if (!check_registers(dst, entity_reg) || key_reg >= VM_MAX_REGISTERS)
+        return VM_INVALID_REGISTER;
 
-  if (ctx->reg[entity_reg].type != REG_NODE ||
-      ctx->reg[key_reg].type != REG_STRING) {
-    return VM_INVALID_TYPE;
-  }
+    if (ctx->reg[entity_reg].type != REG_NODE || ctx->reg[key_reg].type != REG_STRING)
+        return VM_INVALID_TYPE;
 
-  node_id_t entity_id = ctx->reg[entity_reg].node;
-  const char *key = ctx->reg[key_reg].string.data;
-  MDB_txn *txn = ctx->memory.txn;
+    node_id_t node_id = ctx->reg[entity_reg].node;
+    uint64_t prop_key = djb2_hash(ctx->reg[key_reg].string.data);
 
-  // В зависимости от того, какое свойство мы ищем, грузим строку или число.
-  // Сначала пробуем считать как строку:
-  // char *str_val = get_property_string(txn, entity_id, key);
-  // if (str_val) {
-  //   vm_register_set_string(ctx, &ctx->reg[dst], str_val);
-  //   free(str_val);
-  //   return VM_OK;
-  // }
-
-  // Если строки нет, проверяем флоат (в нашей архитектуре свойства
-  // типизированы) Для этого используем расширенное чтение свойств:
-  // PropertyDBKey db_key = {entity_id, djb2_hash(key)};
-  // MDB_val mdb_k = {sizeof(db_key), &db_key};
-  // MDB_val mdb_v;
-
-  // if (mdb_get(txn, db.graph.properties, &mdb_k, &mdb_v) == MDB_SUCCESS) {
-  //   PropertyType type = (PropertyType)mdb_v.mv_data;
-  //   if (type == PROP_FLOAT) {
-  //     float val = (float)((char *)mdb_v.mv_data + sizeof(PropertyType) + sizeof(uint32_t));
-  //     vm_register_set_float(ctx, &ctx->reg[dst], (double)val);
-  //     return VM_OK;
-  //   } else if (type == PROP_INT) {
-  //     int64_t val = (int64_t)((char *)mdb_v.mv_data + sizeof(PropertyType) + sizeof(uint32_t));
-  //     vm_register_set_int(ctx, &ctx->reg[dst], val);
-  //     return VM_OK;
-  //   }
-  // }
-
-  return VM_NOT_FOUND;
+    // Ищем свойство в кэше
+    for (uint32_t i = 0; i < ctx->preloaded_property_count; i++) {
+        if (ctx->preloaded_properties[i].node_id == node_id &&
+            ctx->preloaded_properties[i].key_hash == prop_key) {
+            CachedProperty *cp = &ctx->preloaded_properties[i];
+            vm_register_clear(ctx, &ctx->reg[dst]);
+            switch (cp->type) {
+                case PROP_INT:
+                    vm_register_set_int(ctx, &ctx->reg[dst], cp->value.i);
+                    break;
+                case PROP_FLOAT:
+                    vm_register_set_float(ctx, &ctx->reg[dst], (double)cp->value.f);
+                    break;
+                case PROP_BOOL:
+                    vm_register_set_bool(ctx, &ctx->reg[dst], cp->value.b);
+                    break;
+                default:
+                    return VM_INVALID_TYPE;
+            }
+            return VM_OK;
+        }
+    }
+    return VM_NOT_FOUND;
 }
 
 /* OP_PROP_SET
@@ -165,35 +155,57 @@ int vm_op_prop_get(VMContext *ctx, const Instruction *ins) {
  * arg[2] - Регистр-источник значения (REG_FLOAT / REG_STRING / REG_INT)
  * Записывает динамическое свойство сущности в базу данных LMDB. */
 int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
-  uint32_t entity_reg = ins->arg[0];
-  uint32_t key_reg = ins->arg[1];
-  uint32_t val_reg = ins->arg[2];
+    uint32_t entity_reg = ins->arg[0];
+    uint32_t key_reg = ins->arg[1];
+    uint32_t val_reg = ins->arg[2];
 
-  if (!check_registers(entity_reg, key_reg) || val_reg >= VM_MAX_REGISTERS) {
-    return VM_INVALID_REGISTER;
-  }
+    if (!check_registers(entity_reg, key_reg) || val_reg >= VM_MAX_REGISTERS)
+        return VM_INVALID_REGISTER;
 
-  if (ctx->reg[entity_reg].type != REG_NODE ||
-      ctx->reg[key_reg].type != REG_STRING) {
-    return VM_INVALID_TYPE;
-  }
+    if (ctx->reg[entity_reg].type != REG_NODE || ctx->reg[key_reg].type != REG_STRING)
+        return VM_INVALID_TYPE;
 
-  node_id_t entity_id = ctx->reg[entity_reg].node;
-  const char *key = ctx->reg[key_reg].string.data;
-  MDB_txn *txn = ctx->memory.txn;
+    node_id_t node_id = ctx->reg[entity_reg].node;
+    uint64_t prop_key = djb2_hash(ctx->reg[key_reg].string.data);
+    Register *val = &ctx->reg[val_reg];
 
-  int rc = MDB_SUCCESS;
-  // if (ctx->reg[val_reg].type == REG_STRING) {
-  //   rc = set_property_string(txn, entity_id, key, ctx->reg[val_reg].string.data);
-  // } else if (ctx->reg[val_reg].type == REG_FLOAT) {
-  //   rc = set_property_float(txn, entity_id, key, (float)ctx->reg[val_reg].fval);
-  // } else if (ctx->reg[val_reg].type == REG_INT) {
-  //   rc = set_property_int(txn, entity_id, key, ctx->reg[val_reg].ival);
-  // } else {
-  //   return VM_INVALID_TYPE;
-  // }
+    // Ищем слот в кэше или создаём новый
+    uint32_t slot = -1;
+    for (uint32_t i = 0; i < ctx->preloaded_property_count; i++) {
+        if (ctx->preloaded_properties[i].node_id == node_id &&
+            ctx->preloaded_properties[i].key_hash == prop_key) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == -1) {
+        if (ctx->preloaded_property_count >= MAX_PRELOADED_PROPERTIES)
+            return VM_OUT_OF_MEMORY;
+        slot = ctx->preloaded_property_count++;
+        ctx->preloaded_properties[slot].node_id = node_id;
+        ctx->preloaded_properties[slot].key_hash = prop_key;
+    }
 
-  return (rc == MDB_SUCCESS) ? VM_OK : VM_ERROR;
+    CachedProperty *cp = &ctx->preloaded_properties[slot];
+    switch (val->type) {
+        case REG_INT:
+            cp->type = PROP_INT;
+            cp->value.i = val->i;
+            break;
+        case REG_FLOAT:
+            cp->type = PROP_FLOAT;
+            cp->value.f = (float)val->f;
+            break;
+        case REG_BOOL:
+            cp->type = PROP_BOOL;
+            cp->value.b = val->b;
+            break;
+        default:
+            return VM_INVALID_TYPE;
+    }
+
+    // ВАЖНО: здесь нет mdb_put! Фиксация в LMDB будет через OP_COMMIT
+    return VM_OK;
 }
 
 /* STREAMING_CHUNK:Implementing atomic node edge traversal operations... */

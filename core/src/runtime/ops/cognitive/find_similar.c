@@ -1,7 +1,8 @@
-// src/runtime/ops/cognitive/find_similar.c
+// runtime/ops/cognitive/find_similar.c
 #include <math.h>
 #include <stdlib.h>
 #include <stdint.h>
+
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 #include "storage/vector_store/vector_store.h"
