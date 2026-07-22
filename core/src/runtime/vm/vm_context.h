@@ -13,11 +13,13 @@
 #include "runtime/register/register.h"
 #include "storage/edge/edge.h"
 #include "storage/property.h"
+#include "storage/hyper_atom/hyper_atom.h"
 
 #define MAX_PRELOADED_EDGES         512
 #define MAX_PRELOADED_PROPERTIES    256
-
 #define MAX_SCRATCHPAD              64
+
+typedef struct HyperMemory HyperMemory;
 
 typedef struct {
     node_id_t source;
@@ -63,6 +65,10 @@ typedef struct VMContext {
     ScratchEntry    scratchpad[MAX_SCRATCHPAD];
     CachedProperty  preloaded_properties[MAX_PRELOADED_PROPERTIES];
     uint32_t        preloaded_property_count;
+    HyperMemory *hyper_mem;
+    ko_id_t current_context;        // регистры состояний:
+    ko_id_t current_episode_id;
+    uint32_t        pc;
 } VMContext;
 
 // inline обёртки для удобства

@@ -57,4 +57,11 @@ int vm_op_get_neighbors(VMContext *, const Instruction *);
 
 int vm_op_read_sp(VMContext *, const Instruction *);
 
+int vm_op_query(VMContext *, const Instruction *);
+int vm_op_assert(VMContext *, const Instruction *);
+int vm_op_derive(VMContext *, const Instruction *);
+int vm_op_trace(VMContext *, const Instruction *);
+int vm_op_spawn_ctx(VMContext *, const Instruction *);
+int vm_op_merge_ctx(VMContext *, const Instruction *);
+
 #endif

@@ -32,6 +32,7 @@ int create_edge(MDB_txn *txn, const Edge *edge) {
     rc = mdb_put(txn, db.graph.index.edges_by_target, &tgt_key, &tgt_data, 0);
     TXN_CHECK(rc, txn);
     #undef TXN_CHECK
+    return MDB_SUCCESS;
 }
 
 int update_edge(MDB_txn *txn, const Edge *edge) {

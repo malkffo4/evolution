@@ -124,7 +124,13 @@ void operator_registry_init(void) {
     operator_register_native(OP_PROP_GET,  "get_property",  0, vm_op_prop_get,  NULL, 0, 0);
     operator_register_native(OP_PROP_SET,  "set_property",  0, vm_op_prop_set,  NULL, 0, 0);
     operator_register_native(OP_SET_TMP, "set_tmp", 0, vm_op_set_tmp, NULL, 0, 0);
-    // ... остальные базовые
+
+    operator_register_native(OP_QUERY,       "query",        0, vm_op_query,       NULL, 0, 0);
+    operator_register_native(OP_ASSERT,      "assert",       0, vm_op_assert,      NULL, 0, 0);
+    operator_register_native(OP_DERIVE,      "derive",       0, vm_op_derive,      NULL, 0, 0);
+    operator_register_native(OP_TRACE,       "trace",        0, vm_op_trace,       NULL, 0, 0);
+    operator_register_native(OP_SPAWN_CTX,   "spawn_ctx",    0, vm_op_spawn_ctx,   NULL, 0, 0);
+    operator_register_native(OP_MERGE_CTX,   "merge_ctx",    0, vm_op_merge_ctx,   NULL, 0, 0);
 
     // 2. Операторы с возможностями
     // ObjectType in_node[] = { REG_NODE };

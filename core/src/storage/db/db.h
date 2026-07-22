@@ -17,8 +17,13 @@ typedef struct {
         MDB_dbi strings;
         MDB_dbi frames;
         MDB_dbi algorithms;
-        // MDB_dbi ontology;
-        // MDB_dbi lexicon;
+
+        struct {
+            MDB_dbi atoms;
+            MDB_dbi idx_process;
+            MDB_dbi idx_args;
+            MDB_dbi idx_context;
+        } hyper;
 
         struct {
             MDB_dbi edges_by_source;
@@ -46,7 +51,7 @@ typedef struct {
 
 extern Database db;
 
-#define LMDB_MAX_DBS      16
+#define LMDB_MAX_DBS      20
 #define LMDB_MAPSIZE_MB   100
 
 int init_lmdb(const char *db_path);
