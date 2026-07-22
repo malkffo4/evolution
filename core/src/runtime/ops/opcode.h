@@ -13,7 +13,6 @@ typedef enum {
     /* Работа с регистрами */
     OP_LOAD_CONST,
     OP_MOVE,
-    OP_ADD,
     OP_STORE,
     OP_CLEAR,
     /* Вызовы */
@@ -49,7 +48,6 @@ typedef enum {
     OP_EXEC_ALGORITHM_BY_GOAL,
     OP_GET_NEIGHBORS,
     OP_FIND_SIMILAR,
-    OP_READ_SP,
     OP_CONCAT_PATHS,
     OP_PROP_SET,
     OP_PROP_GET,
@@ -57,12 +55,38 @@ typedef enum {
     OP_FETCH_NODE,  // достать факт
     OP_CHECK_EDGE,  // проверить связь
     OP_CHECK_CACHED_EDGE,
-    OP_ASSERT,      // выдвинуть гипотезу — временно записывает в working_memory
     OP_BACKTRACK,    // откатить состояние, если гипотеза зашла в тупик
     OP_SET_TMP,
     OP_COMMIT,
+
+    // --- ПРИЧИННО-СЛЕДСТВЕННЫЙ ДВИЖОК (HYPER-OPS) ---
+
+    // OP_QUERY: (process_id, arg_filter, context_id) -> Массив ID в scratchpad
+    OP_QUERY,
+
+    // OP_ASSERT: Создает новый факт. ID генерируется, cause_id берется из текущего эпизода
+    OP_ASSERT,
+
+    // OP_DERIVE: Как ASSERT, но cause_id = ID аргументов (указывает логический вывод)
+    OP_DERIVE,
+
+    // OP_TRACE: Выгружает цепочку cause_id (Откуда мы это знаем?)
+    OP_TRACE,
+
+    // --- УПРАВЛЕНИЕ РЕАЛЬНОСТЬЮ (КОНТЕКСТАМИ) ---
+    OP_SPAWN_CTX, // Создает ветку реальности (гипотезу)
+    OP_MERGE_CTX, // Переносит успешную гипотезу в родительский контекст
+    OP_CURRENT_CTX, // Загружает ID текущего контекста в регистр
+
+    // Базовая арифметика и переходы
+    OP_READ_SP,
+    OP_WRITE_SP,
+    OP_ADD,
+    OP_ADD_CONST,
+    OP_JGE,
+    OP_JMP,
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;
 
-#endif
+#endif // OPCODES_TYPES_H

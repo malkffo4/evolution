@@ -92,7 +92,7 @@ int get_edges_from_node(MDB_txn *txn, node_id_t source, EdgeList *list) {
     }
 
     /* Подсчитаем количество ребер */
-    int count = 1;
+    uint32_t count = 1;
     while (mdb_cursor_get(cursor, &key, &data, MDB_NEXT_DUP) == MDB_SUCCESS) {
         count++;
     }
@@ -106,7 +106,7 @@ int get_edges_from_node(MDB_txn *txn, node_id_t source, EdgeList *list) {
 
     /* Заполним массив */
     rc = mdb_cursor_get(cursor, &key, &data, MDB_SET);
-    int idx = 0;
+    uint32_t idx = 0;
     while (rc == MDB_SUCCESS && idx < count) {
         if (data.mv_size == sizeof(Triple)) {
             Triple triple;
