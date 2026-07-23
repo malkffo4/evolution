@@ -14,9 +14,6 @@ typedef struct {
 
 #define MAX_PENDING_TASKS 64
 
-#define MAIN_LOOP_ALGO_ID  0x4D41494E4C4F4F50ULL  // "MAINLOOP" в little-endian?
-// Лучше использовать хэш: djb2_hash("MainLoop") -> добавим в код инициализации
-
 void start_subconscious_daemon(WorkingMemory *wm, HyperMemory *hmem);
 void stop_subconscious_daemon(void);
 

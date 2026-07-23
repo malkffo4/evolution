@@ -85,6 +85,9 @@ typedef enum {
     OP_ADD_CONST,
     OP_JGE,
     OP_JMP,
+
+    OP_SPREAD_ACTIVATION,
+    OP_EVALUATE_GOALS,
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

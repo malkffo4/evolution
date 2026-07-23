@@ -56,6 +56,23 @@ static pthread_t dmn_thread;
 static WorkingMemory *global_wm = NULL;
 static uint64_t main_loop_algo_id = 0;
 
+static Pipeline* build_main_loop_pipeline(void) {
+    Pipeline *p = calloc(1, sizeof(Pipeline));
+    static Instruction code[] = {
+        { .operator_id = OP_SPREAD_ACTIVATION },
+        { .operator_id = OP_EVALUATE_GOALS },
+        // Здесь можно добавить OP_QUERY для гипер-целей
+        { .operator_id = OP_HALT }
+    };
+    p->code_len = sizeof(code)/sizeof(Instruction);
+    p->capacity = p->code_len;
+    p->code = malloc(sizeof(code));
+    memcpy(p->code, code, sizeof(code));
+    p->constants.int_consts = NULL;
+    p->constants.int_count = 0;
+    return p;
+}
+
 // Инициализация: сохраняем MainLoop алгоритм в БД, если его нет
 static void ensure_main_loop_exists(MDB_txn *txn) {
     main_loop_algo_id = djb2_hash("MainLoop");
@@ -63,75 +80,52 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
     // Проверяем, есть ли уже алгоритм
     Pipeline *existing = NULL;
     if (algorithm_load(txn, main_loop_algo_id, &existing) == 0) {
-        if (existing) free(existing->code); // код останется в памяти LMDB? Нужно аккуратно
-        free(existing);
+        if (existing) {
+            free(existing->code);
+            free(existing);
+        }
         return; // уже есть
     }
 
-    // Создаём простой MainLoop: пока что он выполняет старые функции, обёрнутые в OP_CALL (если возможно)
-    // Или мы можем сделать последовательность Hyper-операторов.
-    // Для начала сделаем заглушку: просто HALT, чтобы демон не падал.
-    // Позже заменим на реальный алгоритм.
-    static Instruction code[] = {
-        { .operator_id = OP_HALT, .arg = {0} }
-    };
-
-    Pipeline *p = malloc(sizeof(Pipeline));
-    p->code_len = 1;
-    p->capacity = 1;
-    p->code = malloc(sizeof(code));
-    memcpy(p->code, code, sizeof(code));
-    p->constants.int_consts = NULL;
-    p->constants.int_count = 0;
-
-    algorithm_save(txn, main_loop_algo_id, p);
-    free(p->code);
-    free(p);
+    // Создаём MainLoop и сохраняем
+    Pipeline *ml = build_main_loop_pipeline();
+    if (ml) {
+        algorithm_save(txn, main_loop_algo_id, ml);
+        free(ml->code);
+        free(ml);
+    }
 }
 
 void* dmn_loop(void* arg) {
     (void)arg;
-
     while(dmn_running && g_running) {
-        // Ждём 100 мс (можно заменить на poll по IPC позже)
-        struct timespec ts = {0, 100000000}; // 100 ms
+        struct timespec ts = {0, 100000000};
         nanosleep(&ts, NULL);
-
         if (!dmn_running || !g_running) break;
 
         MDB_txn *txn = NULL;
         if (mdb_txn_begin(db.env, NULL, 0, &txn) != MDB_SUCCESS) continue;
+        if (!dmn_running) { mdb_txn_abort(txn); break; }
 
-        if (!dmn_running) {
-            mdb_txn_abort(txn);
-            break;
-        }
-
-        // Убедимся, что MainLoop существует (первый запуск)
         ensure_main_loop_exists(txn);
 
-        // Загружаем MainLoop алгоритм
         Pipeline *main_loop = NULL;
         if (algorithm_load(txn, main_loop_algo_id, &main_loop) == 0 && main_loop) {
-            // Создаём контекст VM
             VMContext ctx;
             memset(&ctx, 0, sizeof(ctx));
             vm_init(&ctx, txn, global_wm);
             ctx.hyper_mem = global_hyper_mem;
-            ctx.current_context = 0; // базовая реальность
-            ctx.current_episode_id = 0; // можно задать ID текущего тика
+            ctx.current_context = 0;
+            ctx.current_episode_id = 0;
 
-            // Выполняем алгоритм
             int rc = vm_execute(&ctx, main_loop);
             if (rc != VM_OK) {
                 LOG_ERROR("MainLoop execution failed with status %d", rc);
             }
 
-            // Освобождаем Pipeline (но не код, он в LMDB? Нет, algorithm_load выделяет память)
             if (main_loop->code) free(main_loop->code);
             free(main_loop);
         }
-
         mdb_txn_commit(txn);
     }
     LOG_MEMORY("Subconscious daemon stopped.");

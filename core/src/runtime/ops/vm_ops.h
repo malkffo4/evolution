@@ -64,4 +64,8 @@ int vm_op_trace(VMContext *, const Instruction *);
 int vm_op_spawn_ctx(VMContext *, const Instruction *);
 int vm_op_merge_ctx(VMContext *, const Instruction *);
 
+// Заглушки (пока просто вызывают старые функции)
+int vm_op_spread_activation(VMContext *ctx, const Instruction *ins);
+int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins);
+
 #endif
