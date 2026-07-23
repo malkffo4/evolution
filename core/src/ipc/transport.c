@@ -101,13 +101,18 @@ static void *client_rx_loop(void *arg) {
     IPCClient *client = arg;
     IPCPacket request;
     IPCPacket response;
+
     while (client->alive && running) {
         if (transport_recv_fd(client->fd, &request) != IPC_OK)
             break;
+
         memset(&response, 0, sizeof(response));
         response.id = request.id;
         response.type = IPC_RESPONSE;
+
+        // ИСПРАВЛЕНИЕ: Вызываем диспетчер напрямую в потоке клиента, а не шину
         int rc = ipc_dispatch(&request, &response);
+
         if (rc != IPC_OK) {
             if (response.payload[0] == '\0') {
                 response.type = IPC_RESPONSE;
@@ -116,7 +121,8 @@ static void *client_rx_loop(void *arg) {
                 response.payload_size = (uint32_t)strlen(response.payload);
             }
         }
-        // Отправляем ответ, только если сокет еще живой
+
+        // Отправляем ответ обратно клиенту только если сокет жив
         if (client->alive) {
             IPCStatus st = transport_send_fd(client->fd, &response);
             if (st != IPC_OK) {
@@ -124,6 +130,7 @@ static void *client_rx_loop(void *arg) {
             }
         }
     }
+
     LOG_IPC("Client connection closed fd=%d", client->fd);
     close(client->fd);
     client->fd = -1;

@@ -1,3 +1,4 @@
+// core/message_bus.c
 #include <string.h>
 #include "core/message_bus.h"
 

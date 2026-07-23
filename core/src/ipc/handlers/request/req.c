@@ -13,10 +13,10 @@
 void req_ping(IPCPacket *req, IPCPacket *resp) {
     LOG_IPC("Handling ping request id=%lu", req->id);
     resp->type = IPC_RESPONSE;
-    strncpy(resp->name, "ping", sizeof(resp->name)-1);
-    const char* ok_msg = "{\"ok\": true}";
-    strncpy(resp->payload, ok_msg, sizeof(resp->payload)-1);
-    resp->payload_size = (uint32_t)strlen(ok_msg);
+    snprintf(resp->name, sizeof(resp->name), "ping");
+    snprintf(resp->payload, sizeof(resp->payload), "{\"ok\": true}");
+    resp->payload_size = (uint32_t)strlen(resp->payload);
+
     LOG_IPC("Ping response prepared, payload: %s", resp->payload);
 }
 

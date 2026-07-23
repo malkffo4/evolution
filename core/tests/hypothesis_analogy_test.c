@@ -141,6 +141,6 @@ int main(void) {
     mdb_txn_abort(txn);
     close_lmdb();
     system("rm -rf ./test_hyp_db");
-    printf("Hypothesis analogy test passed.\n");
+    printf("Hypothesis analogy test 2 passed.\n");
     return 0;
 }

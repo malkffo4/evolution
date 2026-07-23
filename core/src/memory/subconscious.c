@@ -132,10 +132,9 @@ void* dmn_loop(void* arg) {
     return NULL;
 }
 
-void start_subconscious_daemon(WorkingMemory *wm, HyperMemory *hmem) {
+void start_subconscious_daemon(WorkingMemory *wm) {
     if (dmn_running) return;
     global_wm = wm;
-    global_hyper_mem = hmem;
     dmn_running = 1;
     pthread_create(&dmn_thread, NULL, dmn_loop, NULL);
 }

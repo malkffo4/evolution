@@ -14,7 +14,7 @@ typedef struct {
 
 #define MAX_PENDING_TASKS 64
 
-void start_subconscious_daemon(WorkingMemory *wm, HyperMemory *hmem);
+void start_subconscious_daemon(WorkingMemory *wm);
 void stop_subconscious_daemon(void);
 
 #endif

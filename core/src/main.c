@@ -13,6 +13,7 @@
 #include "memory/subconscious.h"
 #include "storage/db/db.h"
 #include "ipc/ipc.h"
+#include "core/globals.h"
 #include "core/message_bus.h"
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
@@ -163,26 +164,10 @@ int main(void) {
 
     LOG_INFO("System ready, waiting for IPC messages...");
 
-    // Главный цикл обработки входящих IPC-сообщений
-    while (g_running) {
-        IPCPacket request, response;
-        memset(&request, 0, sizeof(request));
-        memset(&response, 0, sizeof(response));
-
-        IPCStatus st = ipc_receive(&request);
-        if (st == IPC_DISCONNECTED || !g_running) {
-            LOG_IPC("IPC channel closed or shutdown requested.");
-            break;
-        }
-
-        if (st != IPC_OK) {
-            // Защита от перегрузки CPU при пустой шине
-            usleep(10000);
-            continue;
-        }
-
-        // Диспетчеризация и выполнение пришедшего запроса/команды
-        ipc_dispatch(&request, &response);
+    // ИСПРАВЛЕНИЕ: Главный поток просто ждет сигнала завершения (g_running = 0)
+    // Всю работу по приему и диспетчеризации делают потоки клиентов
+    while (g_running) { //[cite: 32]
+        sleep(1); // Засыпаем, чтобы не перегружать CPU
     }
 
     // Полное высвобождение ресурсов

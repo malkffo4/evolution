@@ -6,6 +6,7 @@
 #include <stddef.h>
 
 #include "algorithm_loader.h"
+#include "runtime/logging/logging.h"
 #include "storage/db/db.h"
 
 int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
@@ -17,13 +18,13 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
 
     int rc = mdb_get(txn, db.graph.algorithms, &key, &data);
     if (rc != MDB_SUCCESS) {
-        fprintf(stderr, "Algorithm %lu not found in DB\n", algo_id);
+        LOG_WARN("Algorithm %lu not found in DB", algo_id);
         return rc;
     }
 
     // Проверяем минимальный размер (хотя бы заголовок)
     if (data.mv_size < sizeof(uint32_t) * 2) {
-        fprintf(stderr, "Algorithm %lu data too small\n", algo_id);
+        LOG_WARN("Algorithm %lu data too small", algo_id);
         return -1;
     }
 
@@ -36,7 +37,7 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
     size_t code_bytes = code_len * sizeof(Instruction);
     // Проверяем, что данных достаточно
     if (sizeof(uint32_t) * 2 + code_bytes > data.mv_size) {
-        fprintf(stderr, "Algorithm %lu data truncated\n", algo_id);
+        LOG_WARN("Algorithm %lu data truncated", algo_id);
         return -1;
     }
 

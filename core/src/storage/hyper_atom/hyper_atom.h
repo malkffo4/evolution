@@ -48,6 +48,7 @@ typedef struct HyperMemory HyperMemory;
 
 HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx);
 int hyper_assert(HyperMemory *mem, const HyperAtom *atom);
+int hyper_assert_unique(HyperMemory *mem, const HyperAtom *atom);
 int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t context_id, HyperAtom **results, size_t *count);
 int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t context_id, HyperAtom **results, size_t *count);
 int hyper_trace_cause(HyperMemory *mem, ko_id_t start_id, HyperAtom **chain, size_t max_depth, size_t *count);

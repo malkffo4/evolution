@@ -1,7 +1,9 @@
+# app/runtime/ipc.py
 import json
 import socket
 import itertools
 
+LOCK_FILE = "/tmp/evolution.lock"
 DEFAULT_SOCKET = "/tmp/evolution.sock"
 DEFAULT_TIMEOUT = 1.0
 

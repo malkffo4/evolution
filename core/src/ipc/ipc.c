@@ -1,3 +1,4 @@
+// ipc/ipc.c
 #include "ipc.h"
 
 #include "core/message_bus.h"

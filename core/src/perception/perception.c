@@ -184,7 +184,7 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
         static uint64_t next_id = 0;
         atom.id = ++next_id; // временное решение, потом заменим на глобальный счетчик
 
-        if (hyper_assert(hmem, &atom) != 0) {
+        if (hyper_assert_unique(hmem, &atom) != 0) {
             LOG_ERROR("Failed to assert atom");
         } else {
             LOG_DEBUG("Asserted atom: id=%lu process=%lu", atom.id, atom.process_id);
@@ -197,7 +197,7 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
                 union { float f; uint32_t i; } u;
                 u.f = (float)conf_json->valuedouble;
                 belief_atom.args[1].raw = (ko_id_t)u.i | HYPER_TYPE_FLOAT;
-                hyper_assert(hmem, &belief_atom);
+                hyper_assert_unique(hmem, &belief_atom);
             }
         }
     }

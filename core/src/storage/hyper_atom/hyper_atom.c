@@ -1,4 +1,5 @@
 // storage/hyper_atom/hyper_atom.c
+#include <stdbool.h>
 #include <lmdb.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,47 @@ HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB
 
 void hyper_memory_free(HyperMemory *mem) {
     free(mem);
+}
+
+// Проверка на существование атома с таким же process_id и аргументами
+// (без учёта id, context_id и time_tick — только семантическая проверка)
+static bool hyper_atom_exists(HyperMemory *mem, const HyperAtom *atom) {
+    HyperAtom *existing = NULL;
+    size_t count = 0;
+
+    // Ищем по process_id
+    if (hyper_find_by_process(mem, atom->process_id, atom->context_id, &existing, &count) != 0)
+        return false;
+
+    for (size_t i = 0; i < count; i++) {
+        // Сравниваем аргументы (все три)
+        bool match = true;
+        for (int a = 0; a < 3; a++) {
+            if (existing[i].args[a].raw != atom->args[a].raw) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            free(existing);
+            return true;  // найден дубликат
+        }
+    }
+
+    free(existing);
+    return false;
+}
+
+// Модифицируем hyper_assert с флагом проверки дубликатов
+int hyper_assert_unique(HyperMemory *mem, const HyperAtom *atom) {
+    if (!mem || !atom) return -1;
+
+    // Проверяем, нет ли уже такого атома
+    if (hyper_atom_exists(mem, atom)) {
+        return 1;  // уже существует, не записываем
+    }
+
+    return hyper_assert(mem, atom);
 }
 
 int hyper_assert(HyperMemory *mem, const HyperAtom *atom) {

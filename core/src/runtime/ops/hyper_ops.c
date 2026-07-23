@@ -116,7 +116,7 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
     atom.time_tick = get_time_tick(ctx);
     atom.cause_id = ctx->current_episode_id;
 
-    if (hyper_assert(ctx->hyper_mem, &atom) != 0) return VM_ERROR;
+    if (hyper_assert_unique(ctx->hyper_mem, &atom) != 0) return VM_ERROR;
 
     ctx->reg[ins->arg[4]].type = REG_INT;
     ctx->reg[ins->arg[4]].i = (int64_t)atom.id;
@@ -138,7 +138,7 @@ int vm_op_derive(VMContext *ctx, const Instruction *ins) {
     atom.time_tick = get_time_tick(ctx);
     atom.cause_id = (ko_id_t)ctx->reg[ins->arg[4]].i;
 
-    if (hyper_assert(ctx->hyper_mem, &atom) != 0) return VM_ERROR;
+    if (hyper_assert_unique(ctx->hyper_mem, &atom) != 0) return VM_ERROR;
 
     ctx->reg[ins->arg[5]].type = REG_INT;
     ctx->reg[ins->arg[5]].i = (int64_t)atom.id;
@@ -181,7 +181,7 @@ int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
     rel.time_tick = get_time_tick(ctx);
     rel.cause_id = ctx->current_episode_id;
 
-    hyper_assert(ctx->hyper_mem, &rel);
+    hyper_assert_unique(ctx->hyper_mem, &rel);
 
     ctx->current_context = child_id;
 
@@ -255,7 +255,7 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
         }
 
         // Сохраняем "материализованный" факт в родительский контекст
-        hyper_assert(ctx->hyper_mem, &atoms[i]);
+        hyper_assert_unique(ctx->hyper_mem, &atoms[i]);
     }
 
     if (id_map) free(id_map);
