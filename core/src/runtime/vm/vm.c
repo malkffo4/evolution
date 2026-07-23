@@ -94,11 +94,7 @@ int vm_execute(VMContext *ctx, const Pipeline *pipeline) {
         const Instruction *ins = &frame->code[frame->ip++];
 
         const Operator *op;
-        if (ins->operator_id != 0) {
-            op = operator_find(ins->operator_id);
-        } else {
-            op = planner_choose(ctx, ins->capability_mask);
-        }
+        op = operator_find(ins->operator_id);
 
         if (!op)
             return VM_UNKNOWN_OPCODE;

@@ -28,6 +28,7 @@ static const Route response_routes[] = {
 static const Route command_routes[] = {
     { "learn",          cmd_learn },
     { "shutdown",       cmd_shutdown },
+    { "think",          cmd_think },
     { NULL, NULL }
 };
 

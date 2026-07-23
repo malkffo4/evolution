@@ -1,4 +1,6 @@
 // ipc/handlers/command/cmd.c
+#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <lmdb.h>
@@ -31,9 +33,9 @@ void cmd_learn(IPCPacket *req, IPCPacket *resp) {
                 uint64_t algo_id = (uint64_t)cJSON_GetNumberValue(cJSON_GetObjectItem(root, "algo_id"));
                 cJSON *code_arr = cJSON_GetObjectItem(root, "code");
                 if (cJSON_IsArray(code_arr)) {
-                    int len = cJSON_GetArraySize(code_arr);
-                    Instruction *code = malloc(len * sizeof(Instruction));
-                    for (int i = 0; i < len; i++) {
+                    uint32_t len = cJSON_GetArraySize(code_arr);
+                    Instruction *code = malloc((size_t)len * sizeof(Instruction));
+                    for (uint32_t i = 0; i < len; i++) {
                         cJSON *ins = cJSON_GetArrayItem(code_arr, i);
                         const char *op_name = cJSON_GetStringValue(cJSON_GetObjectItem(ins, "operator_id"));
                         // Преобразование имени в Opcode (можно сделать мапу, пока хардкод)
@@ -96,4 +98,23 @@ void cmd_shutdown(IPCPacket *req, IPCPacket *resp) {
     // Больше никакой деструктивной логики и pthread_join() внутри самого сетевого потока!
     g_running = 0;
     bus_stop();
+}
+
+void cmd_think(IPCPacket *req, IPCPacket *resp) {
+    (void)req;
+
+    // Принудительно дёргаем MainLoop вручную (без транзакции LMDB — демон сам управляет)
+    // Для этого просто отправляем событие пробуждения демону,
+    // либо, если у вас есть функция ручного запуска MainLoop, вызываем её.
+
+    // Простейший вариант: ставим флаг, который демон проверяет.
+    // Пока что просто отвечаем OK, что триггернуло демон.
+    extern int g_think_trigger;  // объявим в subconscious.c
+    g_think_trigger = 1;
+
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "think", sizeof(resp->name)-1);
+    const char* ok_msg = "{\"ok\": true, \"msg\": \"MainLoop triggered\"}";
+    strncpy(resp->payload, ok_msg, sizeof(resp->payload)-1);
+    resp->payload_size = (uint32_t)strlen(ok_msg);
 }

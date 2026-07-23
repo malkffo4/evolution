@@ -10,9 +10,21 @@ def djb2_hash(s: str) -> int:
         h = ((h << 5) + h) + ord(c)
     return h & 0xFFFFFFFFFFFFFFFF
 
-def bootstrap_knowledge(ipc: IPCClient):
-    """Загружает Meta-Core и алгоритм CheckEdgeAlgo через IPC."""
-    # 1. Мета-типы
+def is_already_bootstrapped(ipc: IPCClient) -> bool:
+    resp = ipc.request("retrieve", {"query": "MetaType"})
+    try:
+        payload = json.loads(resp.get("payload", "{}"))
+        return len(payload.get("nodes", [])) > 0 or len(payload.get("atoms", [])) > 0
+    except Exception:
+        return False
+
+def bootstrap_knowledge(ipc: IPCClient, force=False):
+    if not force and is_already_bootstrapped(ipc):
+        print("[Bootstrap] Knowledge already loaded, skipping.")
+        return
+
+    print("[Bootstrap] Loading Meta-Core...")
+    # Мета-типы
     meta_atoms = [
         {"process": "IS_A", "args": ["Goal", "MetaType"], "confidence": 1.0},
         {"process": "IS_A", "args": ["Algorithm", "MetaType"], "confidence": 1.0},
@@ -21,19 +33,18 @@ def bootstrap_knowledge(ipc: IPCClient):
         {"process": "HAS_ALGORITHM", "args": ["Goal", "Algorithm"], "confidence": 1.0},
     ]
     resp = ipc.command("learn", json.dumps({"atoms": meta_atoms}))
-    print("[Bootstrap] Meta-types:", resp.get("payload", ""))
+    print(f"[Bootstrap] Meta-types: {resp}")
 
-    # 2. Цель и алгоритм
-    goal_id = djb2_hash("FindVulnerability")
-    algo_id = djb2_hash("CheckEdgeAlgo")
+    # Цель
     goal_atoms = [
         {"process": "IS_A", "args": ["FindVulnerability", "Goal"], "confidence": 1.0},
         {"process": "HAS_ALGORITHM", "args": ["FindVulnerability", "CheckEdgeAlgo"], "confidence": 1.0},
     ]
     resp = ipc.command("learn", json.dumps({"atoms": goal_atoms}))
-    print("[Bootstrap] Goal:", resp.get("payload", ""))
+    print(f"[Bootstrap] Goal: {resp}")
 
-    # 3. Алгоритм (пока через старый pipeline, будет заменён на гипер-операторы)
+    # Алгоритм
+    algo_id = djb2_hash("CheckEdgeAlgo")
     pipeline_payload = {
         "type": "pipeline",
         "algo_id": algo_id,
@@ -43,4 +54,4 @@ def bootstrap_knowledge(ipc: IPCClient):
         ]
     }
     resp = ipc.command("learn", json.dumps(pipeline_payload))
-    print("[Bootstrap] Algorithm:", resp.get("payload", ""))
+    print(f"[Bootstrap] Algorithm: {resp}")

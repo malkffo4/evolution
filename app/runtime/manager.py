@@ -221,7 +221,7 @@ class EvolutionManager:
                     print(f"\n[ERROR] {e}")
             elif text.lower() == "bootstrap":
                 from bootstrap import bootstrap_knowledge
-                bootstrap_knowledge(self.ipc)
+                bootstrap_knowledge(self.ipc, force=True)
                 print("\n[Manager] Bootstrap complete.")
             else:
                 try:

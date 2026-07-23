@@ -6,15 +6,6 @@
 
 #include "hyper_atom.h"
 
-// Скрытая структура
-struct HyperMemory {
-    MDB_txn *txn;
-    MDB_dbi dbi_atoms;
-    MDB_dbi dbi_idx_process;
-    MDB_dbi dbi_idx_args;
-    MDB_dbi dbi_idx_context;
-};
-
 /* Инициализация — должна вызываться после открытия DBI в db.c */
 HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx) {
     HyperMemory *mem = malloc(sizeof(HyperMemory));
@@ -30,6 +21,10 @@ void hyper_memory_free(HyperMemory *mem) {
     free(mem);
 }
 
+void hyper_memory_set_txn(HyperMemory *mem, MDB_txn *txn) {
+    if (mem) mem->txn = txn;
+}
+
 // Проверка на существование атома с таким же process_id и аргументами
 // (без учёта id, context_id и time_tick — только семантическая проверка)
 static bool hyper_atom_exists(HyperMemory *mem, const HyperAtom *atom) {
@@ -37,7 +32,7 @@ static bool hyper_atom_exists(HyperMemory *mem, const HyperAtom *atom) {
     size_t count = 0;
 
     // Ищем по process_id
-    if (hyper_find_by_process(mem, atom->process_id, atom->context_id, &existing, &count) != 0)
+    if (hyper_find_by_process(mem, atom->process_id, 0, atom->context_id, &existing, &count) != 0)
         return false;
 
     for (size_t i = 0; i < count; i++) {
@@ -103,14 +98,11 @@ int hyper_assert(HyperMemory *mem, const HyperAtom *atom) {
     return 0;
 }
 
-// Новый поиск по процессу (например: "Найти все события CAUSES в контексте 42")
-int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t context_id, HyperAtom **results, size_t *count) {
+int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, HyperAtom **results, size_t *count) {
     MDB_cursor *cursor;
     MDB_val key = {sizeof(ko_id_t), &process_id};
     MDB_val val_id;
-
-    if (mdb_cursor_open(mem->txn, mem->dbi_idx_process, &cursor) != MDB_SUCCESS)
-        return -1;
+    if (mdb_cursor_open(mem->txn, mem->dbi_idx_process, &cursor) != MDB_SUCCESS) return -1;
 
     *count = 0;
     size_t capacity = 16;
@@ -118,24 +110,39 @@ int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t context_
 
     int rc = mdb_cursor_get(cursor, &key, &val_id, MDB_SET);
     while (rc == MDB_SUCCESS) {
-      MDB_val val_atom;
-      // Читаем сам атом по ID
-      if (mdb_get(mem->txn, mem->dbi_atoms, &val_id, &val_atom) ==
-          MDB_SUCCESS) {
-        HyperAtom *atom = (HyperAtom *)val_atom.mv_data;
-        // Фильтруем по контексту на лету
-        if (context_id == 0 || atom->context_id == context_id) {
-          if (*count >= capacity) {
-            capacity *= 2;
-            *results = realloc(*results, sizeof(HyperAtom) * capacity);
-          }
-          memcpy(&(*results)[*count], atom, sizeof(HyperAtom));
-          (*count)++;
+        MDB_val val_atom;
+        if (mdb_get(mem->txn, mem->dbi_atoms, &val_id, &val_atom) == MDB_SUCCESS) {
+            HyperAtom *atom = (HyperAtom *)val_atom.mv_data;
+            // Фильтр по контексту
+            if (context_id != 0 && atom->context_id != context_id) {
+                rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+                continue;
+            }
+            // Если задан participant_id, проверяем любой из трёх аргументов
+            if (participant_id != 0) {
+                bool found = false;
+                for (int i = 0; i < 3; i++) {
+                    if (HYPER_GET_TYPE(atom->args[i].raw) == HYPER_TYPE_REF &&
+                        HYPER_GET_ID(atom->args[i].raw) == participant_id) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+                    continue;
+                }
+            }
+            // Добавляем в результат
+            if (*count >= capacity) {
+                capacity *= 2;
+                *results = realloc(*results, sizeof(HyperAtom) * capacity);
+            }
+            memcpy(&(*results)[*count], atom, sizeof(HyperAtom));
+            (*count)++;
         }
-      }
-      rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+        rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
     }
-
     mdb_cursor_close(cursor);
     return 0;
 }

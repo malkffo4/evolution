@@ -1,14 +1,17 @@
 // ipc/handlers/request/req.c
 #include <string.h>
 #include <stdlib.h>
+
 #include "ipc/ipc.h"
 #include "lib/cJSON.h"
 #include "runtime/logging/logging.h"
 #include "storage/db/db.h"
-#include "knowledge/retrieval.h"    // retrieve_subgraph_json()
+#include "storage/hyper_atom/hyper_atom.h"
+#include "knowledge/hyper_retrieval.h"
 #include "math/hash.h"              // djb2_hash()
 #include "execution/executor.h"     // executor_run_sync()
 #include "types/exec.h"             // EXEC
+#include "core/globals.h"
 
 void req_ping(IPCPacket *req, IPCPacket *resp) {
     LOG_IPC("Handling ping request id=%lu", req->id);
@@ -52,16 +55,13 @@ void req_generate_reply(IPCPacket *req, IPCPacket *resp) {
     resp->payload_size = (uint32_t)strlen(reply);
 }
 
-// ЭНДПОИНТ: RAG Context Retrieval
 void req_retrieve(IPCPacket *req, IPCPacket *resp) {
     cJSON *json = cJSON_Parse(req->payload);
     char query[256] = {0};
-
     if (json) {
         cJSON *query_item = cJSON_GetObjectItemCaseSensitive(json, "query");
-        if (cJSON_IsString(query_item) && query_item->valuestring) {
+        if (cJSON_IsString(query_item) && query_item->valuestring)
             strncpy(query, query_item->valuestring, sizeof(query) - 1);
-        }
         cJSON_Delete(json);
     }
 
@@ -75,22 +75,26 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
         return;
     }
 
-    // Хешируем слово, чтобы найти его ID
-    uint64_t node_id = djb2_hash(query);
-    LOG_IPC("Retrieving context for query '%s' (hash: %lu)", query, node_id);
+    uint64_t participant_id = djb2_hash(query);
+    LOG_IPC("Hyper-retrieve for '%s' (hash: %lu)", query, participant_id);
 
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) == MDB_SUCCESS) {
-        // Извлекаем подграф (глубина 2 шага, до 30 узлов)
-        char *graph_json = retrieve_subgraph_json(txn, node_id, 2, 30);
-        mdb_txn_abort(txn); // Read-only транзакция просто закрывается
+        HyperMemory local_hm;
+        local_hm.txn = txn;
+        local_hm.dbi_atoms = db.graph.hyper.atoms;
+        local_hm.dbi_idx_process = db.graph.hyper.idx_process;
+        local_hm.dbi_idx_args = db.graph.hyper.idx_args;
+        local_hm.dbi_idx_context = db.graph.hyper.idx_context;
 
-        if (graph_json) {
-            strncpy(resp->payload, graph_json, IPC_PAYLOAD_SIZE - 1);
-            resp->payload_size = (uint32_t)strlen(graph_json);
-            free(graph_json);
+        char *result = hyper_retrieve_json(&local_hm, participant_id, 2, 30);
+        mdb_txn_abort(txn);
+        if (result) {
+            strncpy(resp->payload, result, IPC_PAYLOAD_SIZE - 1);
+            resp->payload_size = (uint32_t)strlen(result);
+            free(result);
         } else {
-            const char* err = "{\"error\": \"Node not found or isolated\"}";
+            const char* err = "{\"error\": \"No results\"}";
             strncpy(resp->payload, err, sizeof(resp->payload)-1);
             resp->payload_size = (uint32_t)strlen(err);
         }

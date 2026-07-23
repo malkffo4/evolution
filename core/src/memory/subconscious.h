@@ -1,4 +1,4 @@
-// src/memory/subconscious.h
+// memory/subconscious.h
 #ifndef SUBCONSCIOUS_H
 #define SUBCONSCIOUS_H
 
@@ -14,7 +14,9 @@ typedef struct {
 
 #define MAX_PENDING_TASKS 64
 
+extern volatile int g_think_trigger;
+
 void start_subconscious_daemon(WorkingMemory *wm);
 void stop_subconscious_daemon(void);
 
-#endif
+#endif // SUBCONSCIOUS_H

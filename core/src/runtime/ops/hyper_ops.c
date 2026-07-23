@@ -85,9 +85,9 @@ int vm_op_query(VMContext *ctx, const Instruction *ins) {
     size_t count = 0;
 
     if (participant != 0)
-        hyper_find_by_participant(ctx->hyper_mem, participant, context, &results, &count);
+        hyper_find_by_process(ctx->hyper_mem, proc_id, participant, context, &results, &count);
     else
-        hyper_find_by_process(ctx->hyper_mem, proc_id, context, &results, &count);
+        hyper_find_by_process(ctx->hyper_mem, proc_id, 0, context, &results, &count);
 
     // Сохраняем ID найденных атомов в scratchpad
     for (size_t i = 0; i < count && (sp_offset + i) < MAX_SCRATCHPAD; i++)
@@ -199,7 +199,7 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     size_t count = 0;
 
     // Выгружаем ВСЕ атомы текущей гипотезы
-    if (hyper_find_by_process(ctx->hyper_mem, 0, ctx->current_context, &atoms, &count) != 0) {
+    if (hyper_find_by_process(ctx->hyper_mem, 0, 0, ctx->current_context, &atoms, &count) != 0) {
         return VM_ERROR; // Не удалось выгрузить контекст
     }
 

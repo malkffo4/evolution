@@ -16,31 +16,20 @@ class NeuroSymbolicRAG:
 
     def get_graph_context(self, keyword: str) -> str:
         """Запрашивает семантический подграф у C-ядра"""
-        print(f"[RAG] Запрашиваю жесткую аксиоматику графа для '{keyword}'...")
-        response = self.ipc.request("retrieve", {"query": keyword.lower()})
 
-        payload_raw = response.get("payload", "")
-        if not payload_raw or "error" in payload_raw:
-            print(f"[RAG] Ядро не знает о '{keyword}' или узел изолирован.")
-            return ""
+        print(f"[RAG] Запрашиваю жесткую аксиоматику графа для '{keyword}'...")
 
         try:
-            graph_data = json.loads(payload_raw)
-            nodes = graph_data.get("nodes", [])
-            edges = graph_data.get("edges", [])
-
+            response = self.ipc.request("retrieve", {"query": keyword.lower()})
+            payload = json.loads(response.get("payload", "{}"))
+            atoms = payload.get("atoms", [])
+            if not atoms:
+                return ""
             context_lines = []
-            for edge in edges:
-                src = edge.get('source')
-                tgt = edge.get('target')
-                rel = edge.get('relation', 'СВЯЗАН_С')
-
-                # Ищем имена по ID
-                src_label = next((n.get('label', src) for n in nodes if n.get('id') == src), src)
-                tgt_label = next((n.get('label', tgt) for n in nodes if n.get('id') == tgt), tgt)
-
-                context_lines.append(f"- {src_label} [{rel}] {tgt_label}")
-
+            for a in atoms:
+                pid = a.get("process")
+                args = a.get("args", [])
+                context_lines.append(f"  process={pid} args={args}")
             return "\n".join(context_lines)
 
         except json.JSONDecodeError:
