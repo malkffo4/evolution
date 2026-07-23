@@ -1,26 +1,33 @@
-// subconscious_daemon.c
+// memory/subconscious.c
+#include <stddef.h>
 #include <stdint.h>
+#undef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include <time.h>
-// #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
-#include "main.h"
 
-#include "storage/db/db.h"
+#include "main.h"
+#include "core/globals.h"
 #include "subconscious.h"
+#include "storage/db/db.h"
 #include "storage/string_pool/string_pool.h"
 #include "memory/working.h"
-#include "runtime/logging/logging.h"
 #include "reasoning/planner.h"
+#include "knowledge/algorithm_loader.h"
+#include "knowledge/algorithm_saver.h"
+#include "runtime/vm/vm.h"
+#include "runtime/vm/vm_context.h"
+#include "runtime/ops/opcode.h"
+#include "runtime/logging/logging.h"
+#include "math/hash.h"
 
 static ResearchTask task_queue[MAX_PENDING_TASKS];
 static int task_count = 0;
 static pthread_mutex_t task_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Добавление задачи в очередь (потокобезопасно)
 void enqueue_research_task(uint64_t node_id, const char *query) {
     pthread_mutex_lock(&task_mutex);
     if (task_count < MAX_PENDING_TASKS) {
@@ -31,33 +38,67 @@ void enqueue_research_task(uint64_t node_id, const char *query) {
     pthread_mutex_unlock(&task_mutex);
 }
 
-// Функция, которую вызовет Python-сервис (пока заглушка)
 int get_pending_tasks(ResearchTask *buffer, int max_count) {
     int cnt = 0;
     pthread_mutex_lock(&task_mutex);
     cnt = (task_count < max_count) ? task_count : max_count;
-    memcpy(buffer, task_queue, cnt * (int)sizeof(ResearchTask));
-    // Удаляем взятые задачи
+    memcpy(buffer, task_queue, (size_t)cnt * sizeof(ResearchTask));
     if (cnt > 0) {
-        memmove(task_queue, task_queue + cnt, (task_count - cnt) * sizeof(ResearchTask));
+        memmove(task_queue, task_queue + cnt, (size_t)(task_count - cnt) * sizeof(ResearchTask));
         task_count -= cnt;
     }
     pthread_mutex_unlock(&task_mutex);
     return cnt;
 }
-/* ------------------------------------------------------------ */
 
 static int dmn_running = 0;
 static pthread_t dmn_thread;
-static WorkingMemory *global_wm;
+static WorkingMemory *global_wm = NULL;
+static uint64_t main_loop_algo_id = 0;
+
+// Инициализация: сохраняем MainLoop алгоритм в БД, если его нет
+static void ensure_main_loop_exists(MDB_txn *txn) {
+    main_loop_algo_id = djb2_hash("MainLoop");
+
+    // Проверяем, есть ли уже алгоритм
+    Pipeline *existing = NULL;
+    if (algorithm_load(txn, main_loop_algo_id, &existing) == 0) {
+        if (existing) free(existing->code); // код останется в памяти LMDB? Нужно аккуратно
+        free(existing);
+        return; // уже есть
+    }
+
+    // Создаём простой MainLoop: пока что он выполняет старые функции, обёрнутые в OP_CALL (если возможно)
+    // Или мы можем сделать последовательность Hyper-операторов.
+    // Для начала сделаем заглушку: просто HALT, чтобы демон не падал.
+    // Позже заменим на реальный алгоритм.
+    static Instruction code[] = {
+        { .operator_id = OP_HALT, .arg = {0} }
+    };
+
+    Pipeline *p = malloc(sizeof(Pipeline));
+    p->code_len = 1;
+    p->capacity = 1;
+    p->code = malloc(sizeof(code));
+    memcpy(p->code, code, sizeof(code));
+    p->constants.int_consts = NULL;
+    p->constants.int_count = 0;
+
+    algorithm_save(txn, main_loop_algo_id, p);
+    free(p->code);
+    free(p);
+}
 
 void* dmn_loop(void* arg) {
     (void)arg;
 
     while(dmn_running && g_running) {
-        sleep(2); // Тик каждые 2 секунды
+        // Ждём 100 мс (можно заменить на poll по IPC позже)
+        struct timespec ts = {0, 100000000}; // 100 ms
+        nanosleep(&ts, NULL);
 
         if (!dmn_running || !g_running) break;
+
         MDB_txn *txn = NULL;
         if (mdb_txn_begin(db.env, NULL, 0, &txn) != MDB_SUCCESS) continue;
 
@@ -65,59 +106,48 @@ void* dmn_loop(void* arg) {
             mdb_txn_abort(txn);
             break;
         }
-        // 1. Когнитивный цикл
-        engine_spread_activation(global_wm, txn);
-        // hypothesis_engine(global_wm, txn);
-        wm_decay(global_wm);
 
-        // --- АКТИВИРУЕМ ПЛАНИРОВЩИК ---
-        planner_evaluate_goals(global_wm, txn);
+        // Убедимся, что MainLoop существует (первый запуск)
+        ensure_main_loop_exists(txn);
 
-        // 2. Поиск новых знаний (любопытство) → добавляем в очередь задач
-        for (uint32_t i = 0; i < global_wm->count; i++) {
-            WorkingNode *n = &global_wm->nodes[i];
+        // Загружаем MainLoop алгоритм
+        Pipeline *main_loop = NULL;
+        if (algorithm_load(txn, main_loop_algo_id, &main_loop) == 0 && main_loop) {
+            // Создаём контекст VM
+            VMContext ctx;
+            memset(&ctx, 0, sizeof(ctx));
+            vm_init(&ctx, txn, global_wm);
+            ctx.hyper_mem = global_hyper_mem;
+            ctx.current_context = 0; // базовая реальность
+            ctx.current_episode_id = 0; // можно задать ID текущего тика
 
-            if (n->activation > 0.5f && n->state.novelty > 0.6f) {
-                // Проверяем, нет ли уже такой задачи в очереди
-                int already_queued = 0;
-                pthread_mutex_lock(&task_mutex);
-                for (int t = 0; t < task_count; t++) {
-                    if (task_queue[t].node_id == n->node_id) {
-                        already_queued = 1;
-                        break;
-                    }
-                }
-                pthread_mutex_unlock(&task_mutex);
-
-                if (!already_queued) {
-                    const char *word_name = get_string_from_pool(txn, n->node_id);
-                    if (word_name) {
-                        LOG_MEMORY("[ПОДСОЗНАНИЕ] Новое понятие '%s' → в очередь на исследование", word_name);
-                        enqueue_research_task(n->node_id, word_name);
-                        // free(word_name);
-                        n->state.novelty *= 0.5f; // Чтобы не спамить
-                    }
-                }
+            // Выполняем алгоритм
+            int rc = vm_execute(&ctx, main_loop);
+            if (rc != VM_OK) {
+                LOG_ERROR("MainLoop execution failed with status %d", rc);
             }
+
+            // Освобождаем Pipeline (но не код, он в LMDB? Нет, algorithm_load выделяет память)
+            if (main_loop->code) free(main_loop->code);
+            free(main_loop);
         }
 
         mdb_txn_commit(txn);
     }
     LOG_MEMORY("Subconscious daemon stopped.");
-
     return NULL;
 }
 
-void start_subconscious_daemon(WorkingMemory *wm) {
+void start_subconscious_daemon(WorkingMemory *wm, HyperMemory *hmem) {
     if (dmn_running) return;
     global_wm = wm;
+    global_hyper_mem = hmem;
     dmn_running = 1;
     pthread_create(&dmn_thread, NULL, dmn_loop, NULL);
 }
 
 void stop_subconscious_daemon(void) {
     if (!dmn_running) return;
-
     LOG_MEMORY("Stopping subconscious daemon...");
     dmn_running = 0;
     pthread_join(dmn_thread, NULL);

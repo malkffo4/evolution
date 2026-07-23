@@ -1,4 +1,6 @@
+// core/module_loader.c
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dlfcn.h>
@@ -44,7 +46,7 @@ Module *load_module(const char *path, char **error_message) {
         return NULL;
     }
     // Объявляем тип: функция, не принимающая аргументов, возвращающая const char*
-    const char* (*get_name_func)(void) = (const char* (*)(void))ptr_name;
+    const char* (*get_name_func)(void) = (const char* (*)(void))(intptr_t)ptr_name;
     module->name = strdup(get_name_func());
 
     // 2. Получаем описание

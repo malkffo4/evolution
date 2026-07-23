@@ -18,6 +18,7 @@ typedef struct Register {
     RegisterType    type;
     union {
         int64_t     i;
+        uint64_t    ui;
         double      f;
         bool        b;
         node_id_t   node;

@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+
+#include "main.h"
 #include "memory/working.h"
 #include "memory/subconscious.h"
 #include "storage/db/db.h"
@@ -15,7 +17,7 @@
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
 #include "execution/executor.h"
-#include "main.h"
+
 
 #define VERSION "0.4.0"
 
@@ -121,17 +123,28 @@ static int init_everything(void) {
         LOG_ERROR("Cannot initialize database.");
         return -1;
     }
-    LOG_GRAPH("Graph database initialized.");
+
+    // Инициализируем HyperMemory
+    MDB_txn *txn;
+    if (mdb_txn_begin(db.env, NULL, 0, &txn) == MDB_SUCCESS) {
+        global_hyper_mem = hyper_memory_new(txn,
+            db.graph.hyper.atoms,
+            db.graph.hyper.idx_process,
+            db.graph.hyper.idx_args,
+            db.graph.hyper.idx_context);
+        mdb_txn_commit(txn);
+    } else {
+        LOG_ERROR("Failed to begin transaction for HyperMemory init");
+        return -1;
+    }
 
     // Реестр операторов виртуальной машины
     operator_registry_init();
-    LOG_DEBUG("Operator registry initialized.");
 
     if (ipc_init() != IPC_OK) {
         LOG_ERROR("IPC initialization failed.");
         return -1;
     }
-    LOG_IPC("IPC initialized.");
 
     // Запуск фонового демона подсознания (когнитивные процессы)
     start_subconscious_daemon(&global_wm);

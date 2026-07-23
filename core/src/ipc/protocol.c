@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,6 +8,8 @@
 #include "lib/cJSON.h"
 
 IPCStatus ipc_packet_to_json(const IPCPacket *packet, char *buffer, size_t size) {
+    (void)size;
+
     if (!packet || !buffer)
         return IPC_ERROR;
 
@@ -33,11 +36,11 @@ IPCStatus ipc_packet_to_json(const IPCPacket *packet, char *buffer, size_t size)
         cJSON_Delete(root);
         return IPC_ERROR;
     }
-    int buf_size = sizeof(buffer);
+    size_t buf_size = sizeof(buffer);
     int _ret = snprintf(buffer, buf_size, "%s", json);
     free(json);
     cJSON_Delete(root);
-    if (_ret < 0 || (size_t)_ret >= buf_size)
+    if (_ret < 0 || _ret >= (int)buf_size)
         return IPC_ERROR;
 
     return IPC_OK;

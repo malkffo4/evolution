@@ -22,7 +22,7 @@ int g_running = 0;
 
 int main() {
     printf("Hyper Inference Causality Test\n");
-
+    system("rm -rf ./test_hyper_db");
     // Создаём временную LMDB
     MDB_env *env;
     mdb_env_create(&env);
@@ -96,6 +96,6 @@ int main() {
     mdb_txn_commit(txn);
     hyper_memory_free(hmem);
     mdb_env_close(env);
-    // Удалить тестовую директорию можно вручную или system("rm -rf ...")
+    system("rm -rf ./test_hyper_db");
     return 0;
 }

@@ -5,18 +5,13 @@
 #include "runtime/logging/logging.h"
 
 int vm_op_return(VMContext *ctx, const Instruction *ins) {
-    (void)ins; // Аргумент возврата пока не используем, регистры общие
-
+    (void)ins;
     if (ctx->frame == 0) {
-        // Мы в корневом фрейме - завершаем работу VM
-        ctx->halted = true;
-        LOG_DEBUG("VM: HALTED gracefully.");
-        return VM_OK;
+        ctx->halted = true;   // корневой уровень – останов
+    } else {
+        // Проматываем ip за границу кода, чтобы завершить цикл в vm_execute
+        ctx->frames[ctx->frame].ip = ctx->frames[ctx->frame].pipeline->code_len;
+        ctx->frame--;          // возвращаемся к вызывающему фрейму
     }
-
-    // Возвращаемся в вызывающий пайплайн (POP FRAME)
-    LOG_DEBUG("VM: POP FRAME -> Leaving depth %d", ctx->frame);
-    ctx->frame--;
-
     return VM_OK;
 }

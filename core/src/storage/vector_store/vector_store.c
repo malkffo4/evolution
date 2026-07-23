@@ -238,7 +238,7 @@ int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t 
         float similarity;
     } SimilarityResult;
 
-    SimilarityResult *similarities = malloc(candidate_count * sizeof(SimilarityResult));
+    SimilarityResult *similarities = malloc((size_t)candidate_count * sizeof(SimilarityResult));
     if (!similarities) {
         return -1;
     }
@@ -261,7 +261,7 @@ int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t 
     // ---- Замена: Min-Heap для выбора topK (O(N log K)) ----
     // Куча хранит не более topK элементов, минимальная similarity – в корне.
     int heap_capacity = (topK < valid_count) ? topK : valid_count;
-    SimilarityResult *heap = malloc(heap_capacity * sizeof(SimilarityResult));
+    SimilarityResult *heap = malloc((size_t)heap_capacity * sizeof(SimilarityResult));
     if (!heap) {
         free(similarities);
         return -1;

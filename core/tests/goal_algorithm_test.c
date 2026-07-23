@@ -39,11 +39,20 @@ int main(void) {
     assert(create_node(txn, &goal_node) == MDB_SUCCESS);
 
     uint64_t algo_id = djb2_hash("CheckEdgeAlgo");
+
+    // Создаём Pipeline для сохранения
     Instruction algo_code[] = {
         { .operator_id = OP_CHECK_CACHED_EDGE, .arg[0] = 3, .arg[1] = 0, .arg[2] = 2, .arg[3] = 1 },
-        { .operator_id = OP_HALT }
+        { .operator_id = OP_HALT }   // <-- используем HALT вместо RETURN
     };
-    assert(algorithm_save(txn, algo_id, algo_code, 2) == MDB_SUCCESS);
+    Pipeline algo_pipeline;
+    algo_pipeline.code = algo_code;
+    algo_pipeline.code_len = 2;
+    algo_pipeline.capacity = 2;
+    algo_pipeline.constants.int_consts = NULL;
+    algo_pipeline.constants.int_count = 0;
+
+    assert(algorithm_save(txn, algo_id, &algo_pipeline) == MDB_SUCCESS);
 
     uint64_t rel_has_algo = djb2_hash("HAS_ALGORITHM");
     Edge link = { .key = { goal_id, rel_has_algo, algo_id }, .confidence = 1.0f, .evidence_count = 1 };

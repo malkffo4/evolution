@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <lmdb.h>
 
 // 64-битный универсальный идентификатор
 typedef uint64_t ko_id_t;

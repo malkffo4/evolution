@@ -170,7 +170,7 @@ int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
     Register *val = &ctx->reg[val_reg];
 
     // Ищем слот в кэше или создаём новый
-    uint32_t slot = -1;
+    uint32_t slot = UINT32_MAX;
     for (uint32_t i = 0; i < ctx->preloaded_property_count; i++) {
         if (ctx->preloaded_properties[i].node_id == node_id &&
             ctx->preloaded_properties[i].key_hash == prop_key) {
@@ -178,7 +178,7 @@ int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
             break;
         }
     }
-    if (slot == -1) {
+    if (slot == UINT32_MAX) {
         if (ctx->preloaded_property_count >= MAX_PRELOADED_PROPERTIES)
             return VM_OUT_OF_MEMORY;
         slot = ctx->preloaded_property_count++;

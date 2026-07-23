@@ -13,11 +13,11 @@ int vm_op_set_tmp(VMContext *ctx, const Instruction *ins) {
     if (key_reg >= VM_MAX_REGISTERS || val_reg >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
-    uint64_t key = ctx->reg[key_reg].i;   // предполагаем, что ключ – целое
+    uint64_t key = ctx->reg[key_reg].ui;   // предполагаем, что ключ – целое
     int64_t val  = ctx->reg[val_reg].i;
 
     // Простейший scratchpad в виде массива (можно заменить на хеш-таблицу)
-    for (int i = 0; i < MAX_SCRATCHPAD; i++) {
+    for (uint32_t i = 0; i < MAX_SCRATCHPAD; i++) {
         if (ctx->scratchpad[i].key_hash == 0) { // свободный слот
             ctx->scratchpad[i].key_hash = key;
             ctx->scratchpad[i].value = val;

@@ -72,13 +72,14 @@ void vm_destroy(VMContext *ctx) {
 }
 
 int vm_execute(VMContext *ctx, const Pipeline *pipeline) {
-    ctx->frame = 0;
+    // НЕ сбрасываем ctx->frame! Вызывающая сторона (или main) устанавливает фрейм 0.
     ctx->halted = false;
     ctx->cycles = 0;
 
-    ctx->frames[0].pipeline = pipeline;
-    ctx->frames[0].code = pipeline->code;
-    ctx->frames[0].ip = 0;
+    VMFrame *frame = &ctx->frames[ctx->frame];
+    frame->pipeline = pipeline;
+    frame->code = pipeline->code;
+    frame->ip = 0;
 
     for(;;) {
         if(ctx->halted)
@@ -87,9 +88,7 @@ int vm_execute(VMContext *ctx, const Pipeline *pipeline) {
         if(ctx->cycles>=ctx->max_cycles)
             return VM_TIMEOUT;
 
-        VMFrame *frame=&ctx->frames[ctx->frame];
-
-        if(frame->ip>=frame->pipeline->code_len)
+        if(frame->ip >= frame->pipeline->code_len)
             break;
 
         const Instruction *ins = &frame->code[frame->ip++];
@@ -102,31 +101,26 @@ int vm_execute(VMContext *ctx, const Pipeline *pipeline) {
         }
 
         if (!op)
-            return VM_UNKNOWN_OPCODE; // VM_UNKNOWN_OPERATOR
+            return VM_UNKNOWN_OPCODE;
 
         ctx->current_operator = op;
-
         VMTrace *trace = vm_trace_begin(ctx, op->id);
-
         int rc = operator_execute(ctx, op, ins);
-
         vm_trace_end(ctx, trace, rc);
 
         uint64_t dt = trace->end - trace->begin;
-
         VMProfile *p = &ctx->profile[op->id];
-
         p->calls++;
         p->cycles += dt;
-
         if(!p->min_cycles || dt < p->min_cycles)
             p->min_cycles = dt;
-
         if(dt > p->max_cycles)
             p->max_cycles = dt;
 
-        if(rc != VM_OK)
+        if(rc != VM_OK) {
             p->failures++;
+            return rc; // Немедленно прерываем выполнение и возвращаем код ошибки
+        }
     }
 
     return VM_OK;

@@ -13,7 +13,6 @@ int vm_op_exec_algorithm(VMContext *ctx, const Instruction *ins) {
     if (reg_idx >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
-    // Предполагаем, что в регистре лежит либо REG_NODE, либо REG_INT с ID алгоритма
     node_id_t algo_id;
     if (ctx->reg[reg_idx].type == REG_NODE)
         algo_id = ctx->reg[reg_idx].node;
@@ -27,14 +26,33 @@ int vm_op_exec_algorithm(VMContext *ctx, const Instruction *ins) {
     if (rc != 0)
         return VM_NOT_FOUND;
 
-    // Выполняем загруженный пайплайн
-    rc = vm_execute(ctx, algo_pipeline);
-
-    // Освобождаем память
-    if (algo_pipeline) {
+    // Защита от переполнения стека
+    if (ctx->frame + 1 >= VM_MAX_CALL_DEPTH) {
         free(algo_pipeline->code);
         free(algo_pipeline);
+        return VM_STACK_OVERFLOW;
     }
 
+    // Сохраняем состояние
+    uint32_t prev_frame = ctx->frame;
+    bool prev_halted = ctx->halted;
+
+    // Переключаемся на новый фрейм
+    ctx->frame++;
+    VMFrame *f = &ctx->frames[ctx->frame];
+    f->pipeline = algo_pipeline;
+    f->code     = algo_pipeline->code;
+    f->ip       = 0;
+
+    ctx->halted = false;   // сбрасываем halted для подпрограммы
+    rc = vm_execute(ctx, algo_pipeline);
+
+    // Восстанавливаем состояние
+    ctx->frame = prev_frame;
+    ctx->halted = prev_halted;
+
+    // Освобождаем загруженный pipeline
+    free(algo_pipeline->code);
+    free(algo_pipeline);
     return rc;
 }

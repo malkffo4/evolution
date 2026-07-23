@@ -21,27 +21,39 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
         return rc;
     }
 
-    size_t num_instructions = data.mv_size / sizeof(Instruction);
+    // Проверяем минимальный размер (хотя бы заголовок)
+    if (data.mv_size < sizeof(uint32_t) * 2) {
+        fprintf(stderr, "Algorithm %lu data too small\n", algo_id);
+        return -1;
+    }
+
+    const uint8_t *raw = (const uint8_t *)data.mv_data;
+    const uint32_t *header = (const uint32_t *)raw;
+    uint32_t code_len = header[0];
+    // uint32_t capacity = header[1]; // можно игнорировать
+    const Instruction *code_start = (const Instruction *)(raw + sizeof(uint32_t) * 2);
+
+    size_t code_bytes = code_len * sizeof(Instruction);
+    // Проверяем, что данных достаточно
+    if (sizeof(uint32_t) * 2 + code_bytes > data.mv_size) {
+        fprintf(stderr, "Algorithm %lu data truncated\n", algo_id);
+        return -1;
+    }
 
     Pipeline *p = calloc(1, sizeof(Pipeline));
     if (!p) return -1;
 
-    p->code = malloc(data.mv_size);
+    p->code = malloc(code_bytes);
     if (!p->code) {
         free(p);
         return -1;
     }
 
-    memcpy(p->code, data.mv_data, data.mv_size);
-    p->code_len = num_instructions;
-    p->capacity = num_instructions;
-    // Константы пока не сериализуем, OP_LOAD_CONST берёт значение из arg[1]
+    memcpy(p->code, code_start, code_bytes);
+    p->code_len = code_len;
+    p->capacity = code_len; // можно использовать header[1] при желании
     p->constants.int_consts = NULL;
-    p->constants.float_consts = NULL;
-    p->constants.str_consts = NULL;
     p->constants.int_count = 0;
-    p->constants.float_count = 0;
-    p->constants.str_count = 0;
 
     *out_pipeline = p;
     return 0;

@@ -19,9 +19,9 @@
 #include "storage/edge/edge.h"
 #include "storage/graph/graph.h"
 #include "storage/string_pool/string_pool.h"
+#include "storage/vector_store/vector_store.h"
 #include "math/hash.h"
 #include "knowledge/knowledge_cache.h"
-#include "storage/vector_store/vector_store.h"
 
 WorkingMemory global_wm;
 volatile sig_atomic_t g_running = 1;

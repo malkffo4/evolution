@@ -2,13 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "memory/working.h"
 #include "storage/db/db.h"
 #include "storage/graph/graph.h"
 #include "storage/string_pool/string_pool.h"
+#include "storage/hyper_atom/hyper_atom.h"
 #include "lib/cJSON.h"
 #include "math/hash.h"
+#include "runtime/logging/logging.h"
 
 // Загрузка знаний из JSON напрямую в Рабочую Память (Working Memory)
 int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn) {
@@ -81,5 +84,124 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn)
     return 0;
 }
 
-// perceive()
-    // perceive_and_activate()
+static ko_id_t resolve_arg(cJSON *arg_item) {
+    if (cJSON_IsString(arg_item)) {
+        const char *str = arg_item->valuestring;
+        // Проверяем, не число ли это в строке
+        char *end;
+        long long ival = strtoll(str, &end, 10);
+        if (*end == '\0') return (ko_id_t)(ival) | HYPER_TYPE_INT;
+        double dval = strtod(str, &end);
+        if (*end == '\0') {
+            // float упаковываем: используем union
+            union { double d; ko_id_t i; } u;
+            u.d = dval;
+            return u.i | HYPER_TYPE_FLOAT;
+        }
+        // Иначе хэшируем как ссылку
+        return HYPER_MAKE_REF(djb2_hash(str));
+    } else if (cJSON_IsNumber(arg_item)) {
+        double num = arg_item->valuedouble;
+        if (num == (long long)num) {
+            return (ko_id_t)((long long)num) | HYPER_TYPE_INT;
+        } else {
+            union { double d; ko_id_t i; } u;
+            u.d = num;
+            return u.i | HYPER_TYPE_FLOAT;
+        }
+    } else if (cJSON_IsBool(arg_item)) {
+        return (ko_id_t)(arg_item->valueint) | HYPER_TYPE_INT;
+    }
+    return 0; // неизвестный тип
+}
+
+int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
+    if (!json_str || !hmem) return -1;
+
+    cJSON *root = cJSON_Parse(json_str);
+    if (!root) {
+        LOG_ERROR("perceive_hyper_json: failed to parse JSON");
+        return -1;
+    }
+
+    cJSON *atoms = cJSON_GetObjectItem(root, "atoms");
+    if (!cJSON_IsArray(atoms)) {
+        cJSON_Delete(root);
+        LOG_ERROR("perceive_hyper_json: missing 'atoms' array");
+        return -1;
+    }
+
+    cJSON *atom_item;
+    cJSON_ArrayForEach(atom_item, atoms) {
+        // Читаем process (обязательно)
+        cJSON *process_json = cJSON_GetObjectItem(atom_item, "process");
+        if (!cJSON_IsString(process_json)) continue;
+        ko_id_t process_id = djb2_hash(process_json->valuestring);
+
+        // Аргументы (обязательно)
+        cJSON *args_json = cJSON_GetObjectItem(atom_item, "args");
+        if (!cJSON_IsArray(args_json)) continue;
+
+        HyperAtom atom = {0};
+        atom.id = 0; // будет сгенерирован позже (пока можно автоинкремент из хелпера)
+        atom.process_id = process_id;
+
+        int arg_count = cJSON_GetArraySize(args_json);
+        for (int i = 0; i < arg_count && i < 3; i++) {
+            cJSON *arg = cJSON_GetArrayItem(args_json, i);
+            atom.args[i].raw = resolve_arg(arg);
+        }
+        // Если аргументов больше 3 – используем продолжение (но пока не реализовано)
+
+        // Контекст (опционально)
+        cJSON *ctx_json = cJSON_GetObjectItem(atom_item, "context");
+        atom.context_id = ctx_json ? (ko_id_t)cJSON_GetNumberValue(ctx_json) : 0;
+
+        // Время (опционально, иначе текущее)
+        cJSON *time_json = cJSON_GetObjectItem(atom_item, "time");
+        atom.time_tick = time_json ? (uint64_t)cJSON_GetNumberValue(time_json) : (uint64_t)time(NULL);
+
+        // Причина (опционально)
+        cJSON *cause_json = cJSON_GetObjectItem(atom_item, "cause");
+        if (cJSON_IsString(cause_json)) {
+            atom.cause_id = djb2_hash(cause_json->valuestring);
+        } else if (cJSON_IsNumber(cause_json)) {
+            atom.cause_id = (ko_id_t)cJSON_GetNumberValue(cause_json);
+        } else {
+            atom.cause_id = 0;
+        }
+
+        // Уверенность (опционально, сохраним отдельным атомом BELIEF, если нужно)
+        cJSON *conf_json = cJSON_GetObjectItem(atom_item, "confidence");
+        if (conf_json && cJSON_IsNumber(conf_json)) {
+            float conf = (float)conf_json->valuedouble;
+            // Создаём атом BELIEF: (atom.id, ID_BELIEF, atom.id, conf)
+            // Но atom.id ещё не известен – сначала сохраним атом, потом добавим оценку
+            // Упростим: запомним, что нужно создать BELIEF после
+        }
+
+        // Генерация ID
+        static uint64_t next_id = 0;
+        atom.id = ++next_id; // временное решение, потом заменим на глобальный счетчик
+
+        if (hyper_assert(hmem, &atom) != 0) {
+            LOG_ERROR("Failed to assert atom");
+        } else {
+            LOG_DEBUG("Asserted atom: id=%lu process=%lu", atom.id, atom.process_id);
+            // Если была confidence, создаём атом BELIEF
+            if (conf_json && cJSON_IsNumber(conf_json)) {
+                HyperAtom belief_atom = {0};
+                belief_atom.id = ++next_id;
+                belief_atom.process_id = 0x0002; // ID_BELIEF (должно быть определено)
+                belief_atom.args[0].raw = HYPER_MAKE_REF(atom.id);
+                union { float f; uint32_t i; } u;
+                u.f = (float)conf_json->valuedouble;
+                belief_atom.args[1].raw = (ko_id_t)u.i | HYPER_TYPE_FLOAT;
+                hyper_assert(hmem, &belief_atom);
+            }
+        }
+    }
+
+    cJSON_Delete(root);
+    return 0;
+}

@@ -9,7 +9,7 @@
 // и записываем промежуточный результат в scratchpad.
 // Вход: массив node_id – цепочка узлов, count – их количество.
 // Выход: Pipeline, который можно сразу подать в vm_execute.
-Pipeline* compile_path_to_pipeline(node_id_t* path, int count) {
+Pipeline* compile_path_to_pipeline(node_id_t* path, uint32_t count) {
     if (count < 2) return NULL;
 
     Pipeline *p = pipeline_create();

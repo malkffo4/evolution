@@ -3,10 +3,11 @@
 #define ALGORITHM_SAVER_H
 
 #include <lmdb.h>
+#include <stdint.h>
 
 #include "types/id.h"
-#include "runtime/vm/instruction.h"
+#include "runtime/compiler/pipeline.h"
 
-int algorithm_save(MDB_txn *txn, node_id_t algo_id, const Instruction *code, uint32_t code_len);
+int algorithm_save(MDB_txn *txn, node_id_t algo_id, const Pipeline *pipeline);
 
 #endif
