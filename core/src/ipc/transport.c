@@ -41,47 +41,79 @@ static int send_all(int fd, const void *buf, size_t len) {
     return IPC_OK;
 }
 
-static int recv_line(int fd, char *buffer, size_t size) {
-    size_t pos = 0;
-    while (pos < size - 1) {
-        char c;
-        ssize_t rc = recv(fd, &c, 1, 0);
+static int recv_all(int fd, void *buf, size_t len) {
+    char *p = buf;
+    while (len > 0) {
+        ssize_t rc = recv(fd, p, len, 0);
         if (rc < 0) {
-            if (errno == EINTR)
-                continue;
-            // Не пишем в лог ошибку "Bad file descriptor" при штатном закрытии сокета сервера
+            if (errno == EINTR) continue;
             if (errno != EBADF) {
-                LOG_ERROR("recv() failed: %s", strerror(errno));
+                LOG_ERROR("recv_all() failed: %s", strerror(errno));
             }
             return IPC_ERROR;
         }
         if (rc == 0) {
-            return IPC_DISCONNECTED;
+            return IPC_DISCONNECTED; // Клиент отключился
         }
-        if (c == '\n')
-            break;
-        buffer[pos++] = c;
+        p += rc;
+        len -= (size_t)rc;
     }
-    buffer[pos] = 0;
     return IPC_OK;
 }
 
 IPCStatus transport_send_fd(int fd, const IPCPacket *packet) {
-    char json[IPC_PAYLOAD_SIZE + 1024];
-    if (ipc_packet_to_json(packet, json, sizeof(json)) != IPC_OK)
-        return IPC_ERROR;
-    if (send_all(fd, json, strlen(json)) != IPC_OK)
+    // Вычисляем размер заголовка (все поля до начала массива payload)
+    size_t header_size = offsetof(IPCPacket, payload);
+
+    // 1. Отправляем заголовок
+    if (send_all(fd, packet, header_size) != IPC_OK)
         return IPC_DISCONNECTED;
-    if (send_all(fd, "\n", 1) != IPC_OK)
+
+    // 2. Отправляем payload (только фактический размер, а не все 64KB)
+    if (packet->payload_size > 0) {
+        if (send_all(fd, packet->payload, packet->payload_size) != IPC_OK)
+            return IPC_DISCONNECTED;
+    }
+
+    // 3. Отправляем flags (идущие после payload)
+    // Так как массив payload фиксированный в структуре, нам нужно отправить
+    // поле flags отдельно, если мы не отправляем весь пакет целиком.
+    if (send_all(fd, &packet->flags, sizeof(packet->flags)) != IPC_OK)
         return IPC_DISCONNECTED;
+
     return IPC_OK;
 }
 
 IPCStatus transport_recv_fd(int fd, IPCPacket *packet) {
-    char json[IPC_PAYLOAD_SIZE + 1024];
-    if (recv_line(fd, json, sizeof(json)) != IPC_OK)
+    memset(packet, 0, sizeof(IPCPacket));
+    size_t header_size = offsetof(IPCPacket, payload);
+
+    // 1. Читаем заголовок
+    if (recv_all(fd, packet, header_size) != IPC_OK)
         return IPC_DISCONNECTED;
-    return ipc_packet_from_json(json, packet);
+
+    // Защита от переполнения буфера
+    if (packet->payload_size > IPC_PAYLOAD_SIZE) {
+        LOG_ERROR("Payload too large: %u", packet->payload_size);
+        return IPC_ERR_PAYLOAD_TOO_LARGE;
+    }
+
+    // 2. Читаем сырой payload
+    if (packet->payload_size > 0) {
+        if (recv_all(fd, packet->payload, packet->payload_size) != IPC_OK)
+            return IPC_DISCONNECTED;
+    }
+
+    // 3. Читаем flags
+    if (recv_all(fd, &packet->flags, sizeof(packet->flags)) != IPC_OK)
+        return IPC_DISCONNECTED;
+
+    // Важно: если это JSON-строка (флаг 0), гарантируем нуль-терминатор
+    if ((packet->flags & IPC_FLAG_BINARY) == 0 && packet->payload_size < IPC_PAYLOAD_SIZE) {
+        packet->payload[packet->payload_size] = '\0';
+    }
+
+    return IPC_OK;
 }
 
 static IPCClient *alloc_client(void) {

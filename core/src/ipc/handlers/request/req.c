@@ -1,9 +1,9 @@
 // ipc/handlers/request/req.c
 #include <string.h>
 #include <stdlib.h>
+#include <cjson/cJSON.h>
 
 #include "ipc/ipc.h"
-#include <cjson/cJSON.h>
 #include "runtime/logging/logging.h"
 #include "storage/db/db.h"
 #include "storage/hyper_atom/hyper_atom.h"
@@ -103,6 +103,28 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
         strncpy(resp->payload, err, sizeof(resp->payload)-1);
         resp->payload_size = (uint32_t)strlen(err);
     }
+}
+
+void req_retrieve_graph(IPCPacket *req, IPCPacket *resp) {
+    (void)req;
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "error", sizeof(resp->name)-1);
+    const char* msg = "Not implemented yet";
+    strncpy(resp->payload, msg, sizeof(resp->payload)-1);
+    resp->payload_size = (uint32_t)strlen(msg);
+    // resp->type = IPC_RESPONSE;
+    // strncpy(resp->name, "retrieve_graph", sizeof(resp->name)-1);
+
+    // // Допустим, мы достали из LMDB массив из 10 000 Node ID
+    // uint64_t node_ids[10000];
+    // uint32_t count = get_nodes_from_db(node_ids, 10000);
+
+    // // Прямое копирование байтов в payload без JSON!
+    // size_t data_size = count * sizeof(uint64_t);
+    // memcpy(resp->payload, node_ids, data_size);
+
+    // resp->payload_size = (uint32_t)data_size;
+    // resp->flags |= IPC_FLAG_BINARY; // Говорим Python-клиенту, что это сырые байты
 }
 
 void req_embedding(IPCPacket *req, IPCPacket *resp) {

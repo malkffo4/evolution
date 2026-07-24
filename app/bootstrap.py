@@ -55,13 +55,13 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
 
     pipeline_payload = {
         "type": "pipeline",
-        "algo_id": "CheckEdgeAlgo",
+        "algo_name": "CheckEdgeAlgo",
         "code": [
             {"operator_id": "OP_CHECK_CACHED_EDGE", "arg": [3, 0, 2, 1]},
             {"operator_id": "OP_HALT"}
         ],
         "constants": {
-            "int_consts": [djb2_hash("A"), djb2_hash("B"), djb2_hash("CAUSES")]
+            "int_consts": ["A", "B", "CAUSES"]
         }
     }
     resp = ipc.command("learn", json.dumps(pipeline_payload))

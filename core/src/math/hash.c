@@ -4,6 +4,9 @@
 #include "storage/hyper_atom/hyper_atom.h"
 
 uint64_t djb2_hash(const char *str) {
+    if (str == NULL)
+        return 0;
+
     const unsigned char *ptr = (const unsigned char *)str;
     uint64_t hash = 5381;
 

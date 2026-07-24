@@ -7,7 +7,10 @@
 #include <pthread.h>
 
 #define IPC_NAME_SIZE     64
-#define IPC_PAYLOAD_SIZE  65536 // Увеличено с 4096 для передачи графов из RAG
+#define IPC_PAYLOAD_SIZE  65536
+
+#define IPC_FLAG_JSON   0x00000000  // Добавляем бинарные флаги для поля packet->flags
+#define IPC_FLAG_BINARY 0x00000001
 
 typedef enum {
     IPC_REQUEST = 0,
@@ -33,11 +36,12 @@ typedef struct {
 
     char source[32];
     char destination[32];
-
     char name[IPC_NAME_SIZE];
 
     uint32_t payload_size;
-    char payload[IPC_PAYLOAD_SIZE];
+
+    // Меняем char на uint8_t для корректной работы с бинарными данными
+    uint8_t payload[IPC_PAYLOAD_SIZE];
 
     uint32_t flags;
 } IPCPacket;

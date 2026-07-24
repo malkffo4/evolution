@@ -9,6 +9,7 @@
 void req_ping(IPCPacket *req, IPCPacket *resp);
 void req_generate_reply(IPCPacket *req, IPCPacket *resp);
 void req_retrieve(IPCPacket *req, IPCPacket *resp);
+void req_retrieve_graph(IPCPacket *req, IPCPacket *resp);
 void req_execute_command(IPCPacket *req, IPCPacket *resp);
 void req_get_command_result(IPCPacket *req, IPCPacket *resp);
 void req_embedding(IPCPacket *req, IPCPacket *resp);
