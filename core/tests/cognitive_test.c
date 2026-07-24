@@ -20,8 +20,8 @@
 #include "math/hash.h"
 #include "knowledge/knowledge_cache.h"   // наш новый модуль
 
-WorkingMemory global_wm;
-volatile sig_atomic_t g_running = 1;
+// WorkingMemory global_wm;
+// volatile sig_atomic_t g_running = 1;
 
 int main(void) {
     // 1. Инициализация временной БД

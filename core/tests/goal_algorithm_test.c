@@ -25,8 +25,8 @@
 #include "knowledge/algorithm_saver.h"
 #include "reasoning/algorithm_planner.h"
 
-WorkingMemory global_wm;
-volatile sig_atomic_t g_running = 1;
+// WorkingMemory global_wm;
+// volatile sig_atomic_t g_running = 1;
 
 int main(void) {
     system("rm -rf ./test_goal_db");

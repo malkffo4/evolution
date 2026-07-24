@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 #include "storage/hyper_atom/hyper_atom.h"
-#include "memory/working.h"
 
 typedef struct {
     uint64_t node_id;       // Целевой узел, который нужно исследовать
@@ -16,7 +15,7 @@ typedef struct {
 
 extern volatile int g_think_trigger;
 
-void start_subconscious_daemon(WorkingMemory *wm);
+void start_subconscious_daemon(void);
 void stop_subconscious_daemon(void);
 
 #endif // SUBCONSCIOUS_H

@@ -22,8 +22,8 @@
 #include "math/hash.h"
 #include "knowledge/knowledge_cache.h"
 
-WorkingMemory global_wm;
-volatile sig_atomic_t g_running = 1;
+// WorkingMemory global_wm;
+// volatile sig_atomic_t g_running = 1;
 
 static void set_node_property(MDB_txn *txn, node_id_t node_id, const char *key, int value) {
     uint64_t prop_key = djb2_hash(key);

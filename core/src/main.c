@@ -8,7 +8,6 @@
 #include <unistd.h>
 #include <string.h>
 
-#include "main.h"
 #include "memory/working.h"
 #include "memory/subconscious.h"
 #include "storage/db/db.h"
@@ -25,9 +24,6 @@
 #define LOCKFILE "/tmp/evolution.lock"
 
 static int lock_fd = -1;
-
-volatile sig_atomic_t g_running = 1;
-WorkingMemory global_wm;
 
 // Обработчик сигналов прерывания
 static void signal_handler(int sig) {
@@ -75,7 +71,7 @@ static void shutdown_everything(void) {
     stop_subconscious_daemon();
 
     // 2. Останавливаем фоновый экзекьютор скриптов
-    // executor_stop_daemon();
+    executor_stop_daemon();
     bus_stop();
     // 3. Выключаем IPC сервер (закрывает сокеты и завершает потоки клиентов)
     ipc_shutdown();
@@ -119,7 +115,6 @@ static int init_everything(void) {
         LOG_ERROR("Failed to initialize Working Memory");
         return EXIT_FAILURE;
     }
-    global_wm_ptr = &global_wm;
 
     if (init_lmdb("./data") != MDB_SUCCESS) {
         LOG_ERROR("Cannot initialize database.");
@@ -149,10 +144,10 @@ static int init_everything(void) {
     }
 
     // Запуск фонового демона подсознания (когнитивные процессы)
-    start_subconscious_daemon(&global_wm);
+    start_subconscious_daemon();
 
     // Запуск демона выполнения внешних скриптов
-    // executor_start_daemon();
+    executor_start_daemon();
 
     return 0;
 }

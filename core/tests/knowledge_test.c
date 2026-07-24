@@ -13,8 +13,8 @@
 #include "memory/working.h"
 
 // Заглушки глобальных переменных, используемых другими модулями
-WorkingMemory global_wm;
-volatile sig_atomic_t g_running = 1;
+// WorkingMemory global_wm;
+// volatile sig_atomic_t g_running = 1;
 
 int main(void) {
     system("rm -rf ./test_knowledge_db");

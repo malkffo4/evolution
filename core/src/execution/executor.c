@@ -234,7 +234,7 @@ static void *executor_thread_main(void *arg) {
     }
     return NULL;
 }
-// int EXPORT
+
 int executor_start_daemon(void) {
     pthread_mutex_lock(&queue_mutex);
     if (executor_running) { pthread_mutex_unlock(&queue_mutex); return 0; }
@@ -244,7 +244,7 @@ int executor_start_daemon(void) {
     pthread_mutex_unlock(&queue_mutex);
     return rc;
 }
-// int EXPORT
+
 int executor_stop_daemon(void) {
     pthread_mutex_lock(&queue_mutex);
     if (!executor_running) { pthread_mutex_unlock(&queue_mutex); return 0; }

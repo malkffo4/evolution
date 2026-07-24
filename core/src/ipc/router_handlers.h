@@ -5,8 +5,6 @@
 #include "ipc/ipc.h"
 #include "memory/working.h"
 
-extern WorkingMemory global_wm;
-
 /* requests */
 void req_ping(IPCPacket *req, IPCPacket *resp);
 void req_generate_reply(IPCPacket *req, IPCPacket *resp);

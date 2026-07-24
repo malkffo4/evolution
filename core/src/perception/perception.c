@@ -211,10 +211,8 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             if (atom.process_id == djb2_hash("HAS_ALGORITHM")) {
                 ko_id_t goal = HYPER_GET_ID(atom.args[0].raw);
                 ko_id_t algo = HYPER_GET_ID(atom.args[1].raw);
-                if (global_wm_ptr) {
-                    wm_activate(global_wm_ptr, goal, 0.8f, 0.9f);   // цель
-                    wm_activate(global_wm_ptr, algo, 0.5f, 0.5f);   // алгоритм (чтобы был в WM, но с меньшим приоритетом)
-                }
+                wm_activate(&global_wm, goal, 0.8f, 0.9f);   // цель
+                wm_activate(&global_wm, algo, 0.5f, 0.5f);   // алгоритм (чтобы был в WM, но с меньшим приоритетом)
             }
             // Если была confidence, создаём атом BELIEF
             if (conf_json && cJSON_IsNumber(conf_json)) {

@@ -9,7 +9,6 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#include "main.h"
 #include "core/globals.h"
 #include "subconscious.h"
 #include "storage/db/db.h"
@@ -54,7 +53,6 @@ int get_pending_tasks(ResearchTask *buffer, int max_count) {
 
 static int dmn_running = 0;
 static pthread_t dmn_thread;
-static WorkingMemory *global_wm = NULL;
 static uint64_t main_loop_algo_id = 0;
 
 /* -----------------------------------------------
@@ -126,7 +124,7 @@ void* dmn_loop(void* arg) {
         if (algorithm_load(txn, main_loop_algo_id, &main_loop) == 0 && main_loop) {
             VMContext ctx;
             memset(&ctx, 0, sizeof(ctx));
-            rc = vm_init(&ctx, txn, global_wm);
+            rc = vm_init(&ctx, txn, &global_wm);
             if (rc != VM_OK) {
                 LOG_ERROR("Error vm_init()");
                 continue;
@@ -175,9 +173,8 @@ void* dmn_loop(void* arg) {
     return NULL;
 }
 
-void start_subconscious_daemon(WorkingMemory *wm) {
+void start_subconscious_daemon() {
     if (dmn_running) return;
-    global_wm = wm;
     dmn_running = 1;
     pthread_create(&dmn_thread, NULL, dmn_loop, NULL);
 }

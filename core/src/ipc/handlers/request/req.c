@@ -125,32 +125,39 @@ void req_rerank(IPCPacket *req, IPCPacket *resp) {
 
 void req_execute_command(IPCPacket *req, IPCPacket *resp) {
     cJSON *json = cJSON_Parse(req->payload);
-    char cmd[MAX_CMD_LENGTH] = {0};
+    const char *cmd_str = NULL;
 
     if (json) {
         cJSON *cmd_item = cJSON_GetObjectItemCaseSensitive(json, "command");
-        if (cJSON_IsString(cmd_item) && cmd_item->valuestring) {
-            strncpy(cmd, cmd_item->valuestring, sizeof(cmd) - 1);
+        if (cJSON_IsString(cmd_item) && cmd_item->valuestring && strlen(cmd_item->valuestring) > 0) {
+            cmd_str = cmd_item->valuestring;
+        } else {
+            // Если команды нет или она пустая — удаляем JSON сразу
+            cJSON_Delete(json);
+            json = NULL;
         }
-        cJSON_Delete(json);
     }
 
     resp->type = IPC_RESPONSE;
-    strncpy(resp->name, "execute", sizeof(resp->name)-1);
+    strncpy(resp->name, "execute", sizeof(resp->name) - 1);
 
-    if (strlen(cmd) == 0) {
-        const char* err = "{\"error\": \"Empty command provided\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload)-1);
+    if (!cmd_str) {
+        const char *err = "{\"error\": \"Empty command provided\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
         resp->payload_size = (uint32_t)strlen(err);
+        if (json) cJSON_Delete(json);
         return;
     }
 
-    // Обертка для выполнения строки как команды оболочки
-    char *exec_args[] = { cmd, NULL };
+    // Пока json существует, cmd_str валиден. Передаём его прямо в вызов.
+    char *exec_args[] = { (char *)cmd_str, NULL };
     int task_id = 0;
 
     // Ставим задачу в асинхронную очередь экзекьютора. Поток не блокируется.
     int rc = executor_enqueue_script("/bin/sh", "-c", exec_args, &task_id);
+
+    // Теперь JSON можно безопасно удалить
+    cJSON_Delete(json);
 
     if (rc == 0) {
         // Мгновенно возвращаем Python-клиенту ID задачи для дальнейшего пуллинга

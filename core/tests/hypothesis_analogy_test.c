@@ -23,8 +23,8 @@
 #include "math/hash.h"
 #include "knowledge/knowledge_cache.h"
 
-WorkingMemory global_wm;
-volatile sig_atomic_t g_running = 1;
+// WorkingMemory global_wm;
+// volatile sig_atomic_t g_running = 1;
 
 // Подготовка эмбеддингов для теста (в реальности их даст LLM/модель)
 static void prepare_embeddings(MDB_txn *txn) {

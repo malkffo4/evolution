@@ -17,8 +17,8 @@
 #define ID_SMOKE       0x0201
 #define ID_ALARM       0x0202
 
-void *global_wm = NULL;
-int g_running = 0;
+// void *global_wm = NULL;
+// int g_running = 0;
 
 int main() {
     printf("Hyper Inference Causality Test\n");

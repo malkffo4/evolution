@@ -5,10 +5,9 @@
 #include <string.h>
 #include <lmdb.h>
 
-#include "main.h"                // g_running
 #include "core/globals.h"
 #include "core/message_bus.h"
-#include "ipc/router_handlers.h" // global_wm
+#include "ipc/router_handlers.h"
 #include "ipc/ipc.h"
 #include <cjson/cJSON.h>
 #include "knowledge/algorithm_saver.h"

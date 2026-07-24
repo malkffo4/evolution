@@ -14,8 +14,8 @@
 #include "memory/working.h"
 #include "runtime/ops/vm_ops.h"
 
-WorkingMemory global_wm;
-volatile sig_atomic_t g_running = 1;
+// WorkingMemory global_wm;
+// volatile sig_atomic_t g_running = 1;
 
 static WorkingMemory wm_stub;
 static void init_working_memory_stub(WorkingMemory *wm) {

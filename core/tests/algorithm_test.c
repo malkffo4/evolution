@@ -22,8 +22,8 @@
 #include "knowledge/knowledge_cache.h"
 #include "knowledge/algorithm_saver.h"
 
-WorkingMemory global_wm;
-volatile sig_atomic_t g_running = 1;
+// WorkingMemory global_wm;
+// volatile sig_atomic_t g_running = 1;
 
 int main(void) {
     system("rm -rf ./test_algo_db");
