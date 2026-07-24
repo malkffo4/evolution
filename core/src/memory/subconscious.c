@@ -138,6 +138,7 @@ void* dmn_loop(void* arg) {
             rc = vm_execute(&ctx, main_loop);
             if (rc != VM_OK && rc != VM_NOT_FOUND) {
                 LOG_DEBUG("MainLoop execution failed with status %d", rc);
+                // TODO CRITIC ERROR VM
                 // struct TODO { int consecutive_failures, bool quarantined } node;
                 // // 1. Классифицируй статус: EXPECTED (VM_NOT_FOUND — нет алгоритма, это нормально)
                 // //    vs REAL_ERROR (VM_INVALID_REGISTER, VM_ERROR — баг в pipeline)
@@ -153,16 +154,17 @@ void* dmn_loop(void* arg) {
                 // Не создавать один общий FAILURE_STATE на всё — разные типы отказов (VM_INVALID_REGISTER — баг компиляции pipeline; VM_TIMEOUT — зависание; VM_NOT_FOUND — нормальный "не знаю") должны давать разные узлы/рёбра.
                 // Понижать confidence конкретного algorithm/edge, который выполнялся, а не абстрактного task_target_id.
                 // Триггерить карантин при N подряд отказах — это твой автоматический "исправить/остановить".
-                HyperAtom fail_atom = {
-                    .id = generate_id(ctx),  // нужен доступ к глобальному счётчику
-                    .process_id = djb2_hash("EXEC_FAILED"),
-                    .args = {
-                        HYPER_MAKE_REF(main_loop_algo_id),  // какой алгоритм упал
-                        (ko_id_t)rc | HYPER_TYPE_INT,       // код ошибки
-                        HYPER_MAKE_REF(goal_id)             // какая цель
-                    }
-                };
-                hyper_assert_unique(ctx->hyper_mem, &fail_atom);
+                // OR ???
+                // HyperAtom fail_atom = {
+                //     .id = generate_id(ctx),  // нужен доступ к глобальному счётчику
+                //     .process_id = djb2_hash("EXEC_FAILED"),
+                //     .args = {
+                //         HYPER_MAKE_REF(main_loop_algo_id),  // какой алгоритм упал
+                //         (ko_id_t)rc | HYPER_TYPE_INT,       // код ошибки
+                //         HYPER_MAKE_REF(goal_id)             // какая цель
+                //     }
+                // };
+                // hyper_assert_unique(ctx.hyper_mem, &fail_atom);
             }
             vm_destroy(&ctx);
             pipeline_free(main_loop);

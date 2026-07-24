@@ -3,6 +3,7 @@
 #define WORKING_H
 
 #include <stdint.h>
+#include <pthread.h> // Добавлено для pthread_rwlock_t
 
 #include "types/id.h"
 #include "memory/cognitive.h"
@@ -32,11 +33,11 @@ typedef struct {
 typedef struct {
     NodeList  active_nodes;
     EdgeList  active_edges;
-    // … дополнительные поля
     WorkingNode *nodes;
     uint32_t count;
     uint32_t capacity;
     uint64_t tick;
+    pthread_rwlock_t lock; // RW-Lock для защиты от состояния гонки
 } WorkingMemory;
 
 // Интерфейсы модулей
@@ -49,10 +50,12 @@ void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn);
 
 node_id_t wm_get_highest_goal(WorkingMemory *wm);
 
-// TODO ???
-// memory_tick();
-// memory_activate();
-// memory_decay();
-// memory_consolidate();
+void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const char *value);
+const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key);
 
-#endif
+// Явные функции управления блокировкой для сложных внешних операций
+void wm_rdlock(WorkingMemory *wm);
+void wm_wrlock(WorkingMemory *wm);
+void wm_unlock(WorkingMemory *wm);
+
+#endif // WORKING_H
