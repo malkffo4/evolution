@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include "ipc/ipc.h"
-#include "lib/cJSON.h"
+#include <cjson/cJSON.h>
 
 IPCStatus ipc_packet_to_json(const IPCPacket *packet, char *buffer, size_t size) {
     if (!packet || !buffer)

@@ -37,6 +37,7 @@ typedef struct Operator {
 } Operator;
 
 const Operator *operator_find(OperatorID id);
+OperatorID operator_find_by_name(const char *name);
 void operator_register_native(OperatorID id, const char *name, CapabilityMask cap, NativeFunction handler, ObjectType *input, int input_count, ObjectType output);
 void operator_register_pipeline(OperatorID id, const char *name, CapabilityMask cap, Pipeline *pipeline, ObjectType *input, int input_count, ObjectType output);
 void operator_register_compiled(OperatorID id, const char *name, CapabilityMask cap, void *compiled_code, ObjectType *input, int input_count, ObjectType output);

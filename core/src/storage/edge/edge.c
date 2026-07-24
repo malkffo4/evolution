@@ -1,4 +1,4 @@
-// edge.c
+// storage/edge/edge.c
 #include <string.h>
 
 #include "storage/db/db.h"

@@ -1,4 +1,3 @@
-// свойства узлов/ребер
 // storage/property.h
 #ifndef PROPERTY_H
 #define PROPERTY_H

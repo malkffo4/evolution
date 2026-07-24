@@ -1,6 +1,4 @@
-// только идентификатор узла
 // storage/node/node.h
-
 #ifndef NODE_H
 #define NODE_H
 

@@ -39,11 +39,9 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
         return -1;
     }
 
-    Pipeline *p = calloc(1, sizeof(Pipeline));
+    Pipeline *p = pipeline_create();
     if (!p) return -1;
 
-    p->code = malloc(code_bytes);
-    if (!p->code) { free(p); return -1; }
     memcpy(p->code, code_start, code_bytes);
     p->code_len = code_len;
     p->capacity = code_len;
@@ -99,10 +97,7 @@ done:
 
 cleanup:
     // частично освободить и вернуть ошибку
-    free(p->code);
-    free(p->constants.int_consts);
-    free(p->constants.float_consts);
-    // и строки
-    free(p);
+    pipeline_free(p);
+
     return -1;
 }

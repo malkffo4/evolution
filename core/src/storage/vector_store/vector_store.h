@@ -1,5 +1,4 @@
 // storage/vector_store/vector_store.h
-
 #ifndef VECTOR_STORE_H
 #define VECTOR_STORE_H
 

@@ -10,29 +10,24 @@
 #include "storage/string_pool/string_pool.h"
 #include "math/hash.h"
 
-void analyze_error(const char *error_log, uint64_t task_target_id, MDB_txn *txn) {
-    if (!txn) return;
-    printf("\n\033[31m[КРИТИК] Анализ провала для узла ID: %lu...\033[0m\n", task_target_id);
+void analyze_error(const char *error_log, uint64_t algo_id, MDB_txn *txn) {
+    // 1. Найти все связи, которые ВЕДУТ к этому algo_id
+    //    (т.е. ребра, где algo_id является целью)
+    EdgeList edges_to_algo;
+    if (get_edges_to_node(txn, algo_id, &edges_to_algo) == MDB_SUCCESS) {
+        for (int i = 0; i < edges_to_algo.count; i++) {
+            // 2. Понизить уверенность в этих связях
+            edges_to_algo.items[i].confidence *= 0.8f; // Уменьшаем на 20%
+            update_edge(txn, &edges_to_algo.items[i]);
 
-    // 1. Создаем узел отрицательного опыта (Боль/Провал)
-    uint64_t fail_id = djb2_hash("FAILURE_STATE");
-    Node fail_node = { .id = fail_id, .name_hash = add_string_to_pool(txn, "FAILURE_STATE")};
-    create_node(txn, &fail_node);
-
-    // 2. Создаем связь "Приводит к ошибке" от целевого узла к провалу
-    Edge penalty_edge;
-    penalty_edge.key.source = task_target_id;
-    penalty_edge.key.target = fail_id;
-    penalty_edge.key.relation = add_string_to_pool(txn, "LEADS_TO_ERROR");
-    // penalty_edge.weight = 0.9f; // Высокая уверенность ИИ, что это действие сломано
-    // penalty_edge.context = 0;
-    // penalty_edge.occurrences = 1;
-
-    upsert_edge(txn, &penalty_edge);
-
-    if (error_log && strlen(error_log) > 0) {
-        printf("  -> \033[90mЛог ошибки учтен. Вес путей к этому узлу будет снижен.\033[0m\n");
-    } else {
-        printf("  -> \033[90mСкрипт упал молча. Связь LEADS_TO_ERROR закреплена в графе.\033[0m\n");
+            // 3. Если алгоритм окончательно сломался, пометить его
+            if (edges_to_algo.items[i].confidence < 0.1f) {
+                // Создаем связь "алгоритм имеет дефект"
+                uint64_t flaw_rel = djb2_hash("HAS_FLAW");
+                Edge flaw = { .key = { algo_id, flaw_rel, algo_id }, .confidence = 1.0f };
+                create_edge(txn, &flaw);
+            }
+        }
+        free(edges_to_algo.items);
     }
 }

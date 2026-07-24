@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 #include "ipc/ipc.h"
-#include "lib/cJSON.h"
+#include <cjson/cJSON.h>
 #include "runtime/logging/logging.h"
 #include "storage/db/db.h"
 #include "storage/hyper_atom/hyper_atom.h"
@@ -150,22 +150,22 @@ void req_execute_command(IPCPacket *req, IPCPacket *resp) {
     char output[MAX_OUTPUT_LENGTH] = {0};
     int exit_code = -1;
 
-    ExecStatus status = executor_run_sync(cmd, output, sizeof(output), &exit_code);
+    // ExecStatus status = executor_run_sync(cmd, output, sizeof(output), &exit_code);
+    // executor_run_script_sync
+    // if (status == EXEC_OK) {
+    //     cJSON *res_json = cJSON_CreateObject();
+    //     cJSON_AddNumberToObject(res_json, "exit_code", exit_code);
+    //     cJSON_AddStringToObject(res_json, "output", output);
 
-    if (status == EXEC_OK) {
-        cJSON *res_json = cJSON_CreateObject();
-        cJSON_AddNumberToObject(res_json, "exit_code", exit_code);
-        cJSON_AddStringToObject(res_json, "output", output);
+    //     char *json_str = cJSON_PrintUnformatted(res_json);
+    //     strncpy(resp->payload, json_str, IPC_PAYLOAD_SIZE - 1);
+    //     resp->payload_size = (uint32_t)strlen(json_str);
 
-        char *json_str = cJSON_PrintUnformatted(res_json);
-        strncpy(resp->payload, json_str, IPC_PAYLOAD_SIZE - 1);
-        resp->payload_size = (uint32_t)strlen(json_str);
-
-        free(json_str);
-        cJSON_Delete(res_json);
-    } else {
-        const char* err = "{\"error\": \"Failed to execute command\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload)-1);
-        resp->payload_size = (uint32_t)strlen(err);
-    }
+    //     free(json_str);
+    //     cJSON_Delete(res_json);
+    // } else {
+    //     const char* err = "{\"error\": \"Failed to execute command\"}";
+    //     strncpy(resp->payload, err, sizeof(resp->payload)-1);
+    //     resp->payload_size = (uint32_t)strlen(err);
+    // }
 }

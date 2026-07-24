@@ -47,6 +47,8 @@ void wm_decay(WorkingMemory *wm);
 
 void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn);
 
+node_id_t wm_get_highest_goal(WorkingMemory *wm);
+
 // TODO ???
 // memory_tick();
 // memory_activate();

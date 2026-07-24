@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "hyper_retrieval.h"
-#include "lib/cJSON.h"
+#include <cjson/cJSON.h>
 #include "runtime/logging/logging.h"
 
 char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_depth, int max_atoms) {

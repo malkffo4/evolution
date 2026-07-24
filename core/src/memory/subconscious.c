@@ -61,10 +61,11 @@ static uint64_t main_loop_algo_id = 0;
  * Гипер-операторный MainLoop
  * ----------------------------------------------- */
 static Pipeline* build_main_loop_pipeline(void) {
-    Pipeline *p = calloc(1, sizeof(Pipeline));
+    Pipeline *p = pipeline_create();
     if (!p) return NULL;
 
     Instruction code[] = {
+        { .operator_id = OP_LOAD_CONTEXT },
         { .operator_id = OP_SPREAD_ACTIVATION },
         { .operator_id = OP_EVALUATE_GOALS },
         { .operator_id = OP_HALT }
@@ -72,12 +73,11 @@ static Pipeline* build_main_loop_pipeline(void) {
 
     size_t num = sizeof(code) / sizeof(code[0]);
     p->code_len = (uint32_t)num;
-    p->capacity = (uint32_t)num;
-    p->code = malloc(sizeof(code));
-    if (!p->code) { free(p); return NULL; }
     memcpy(p->code, code, sizeof(code));
+    p->capacity = (uint32_t)num;
     p->constants.int_consts = NULL;
     p->constants.int_count = 0;
+
     return p;
 }
 
@@ -88,7 +88,7 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
     if (algorithm_load(txn, main_loop_algo_id, &existing) == 0) {
         if (existing) {
             // НЕ освобождаем existing->code!
-            free(existing);  // только обёртка Pipeline
+            pipeline_free(existing);
         }
         return;
     }
@@ -96,13 +96,14 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
     Pipeline *ml = build_main_loop_pipeline();
     if (ml) {
         algorithm_save(txn, main_loop_algo_id, ml);
-        free(ml->code);
-        free(ml);
+        pipeline_free(ml);
     }
 }
 
 void* dmn_loop(void* arg) {
     (void)arg;
+    int rc;
+
     while(dmn_running && g_running) {
         if (!g_think_trigger) {
             struct timespec ts = {0, 100000000};
@@ -125,13 +126,17 @@ void* dmn_loop(void* arg) {
         if (algorithm_load(txn, main_loop_algo_id, &main_loop) == 0 && main_loop) {
             VMContext ctx;
             memset(&ctx, 0, sizeof(ctx));
-            vm_init(&ctx, txn, global_wm);
+            rc = vm_init(&ctx, txn, global_wm);
+            if (rc != VM_OK) {
+                LOG_ERROR("Error vm_init()");
+                continue;
+            }
             ctx.hyper_mem = global_hyper_mem;
             ctx.current_context = 0;
             ctx.current_episode_id = 0;
 
-            int rc = vm_execute(&ctx, main_loop);
-            if (rc != VM_OK) {
+            rc = vm_execute(&ctx, main_loop);
+            if (rc != VM_OK && rc != VM_NOT_FOUND) {
                 LOG_DEBUG("MainLoop execution failed with status %d", rc);
                 // struct TODO { int consecutive_failures, bool quarantined } node;
                 // // 1. Классифицируй статус: EXPECTED (VM_NOT_FOUND — нет алгоритма, это нормально)
@@ -148,10 +153,19 @@ void* dmn_loop(void* arg) {
                 // Не создавать один общий FAILURE_STATE на всё — разные типы отказов (VM_INVALID_REGISTER — баг компиляции pipeline; VM_TIMEOUT — зависание; VM_NOT_FOUND — нормальный "не знаю") должны давать разные узлы/рёбра.
                 // Понижать confidence конкретного algorithm/edge, который выполнялся, а не абстрактного task_target_id.
                 // Триггерить карантин при N подряд отказах — это твой автоматический "исправить/остановить".
+                HyperAtom fail_atom = {
+                    .id = generate_id(ctx),  // нужен доступ к глобальному счётчику
+                    .process_id = djb2_hash("EXEC_FAILED"),
+                    .args = {
+                        HYPER_MAKE_REF(main_loop_algo_id),  // какой алгоритм упал
+                        (ko_id_t)rc | HYPER_TYPE_INT,       // код ошибки
+                        HYPER_MAKE_REF(goal_id)             // какая цель
+                    }
+                };
+                hyper_assert_unique(ctx->hyper_mem, &fail_atom);
             }
-
-            if (main_loop->code) free(main_loop->code);
-            free(main_loop);
+            vm_destroy(&ctx);
+            pipeline_free(main_loop);
         }
         mdb_txn_commit(txn);
     }

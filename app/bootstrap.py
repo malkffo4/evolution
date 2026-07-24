@@ -4,12 +4,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from runtime.ipc import IPCClient
 
-def djb2_hash(s: str) -> int:
-    h = 5381
-    for c in s:
-        h = ((h << 5) + h) + ord(c)
-    return h & 0xFFFFFFFFFFFFFFFF
-
 def is_already_bootstrapped(ipc: IPCClient) -> bool:
     resp = ipc.request("retrieve", {"query": "MetaType"})
     try:
@@ -35,6 +29,22 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
     resp = ipc.command("learn", json.dumps({"atoms": meta_atoms}))
     print(f"[Bootstrap] Meta-types: {resp}")
 
+    test_data = {
+        "nodes": [
+            {"id": "A", "label": "A", "danger": 0.2, "utility": 0.9},
+            {"id": "B", "label": "B", "danger": 0.1, "utility": 0.8}
+        ],
+        "edges": [
+            {"source": "A", "target": "B", "relation": "CAUSES"}
+        ]
+    }
+    ipc.command("learn", json.dumps(test_data))
+
+    goal_activation = {
+        "nodes": [{"id": "FindVulnerability", "label": "FindVulnerability", "danger": 0.9, "utility": 1.0}]
+    }
+    ipc.command("learn", json.dumps(goal_activation))
+
     # Цель
     goal_atoms = [
         {"process": "IS_A", "args": ["FindVulnerability", "Goal"], "confidence": 1.0},
@@ -43,15 +53,16 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
     resp = ipc.command("learn", json.dumps({"atoms": goal_atoms}))
     print(f"[Bootstrap] Goal: {resp}")
 
-    # Алгоритм
-    algo_id = djb2_hash("CheckEdgeAlgo")
     pipeline_payload = {
         "type": "pipeline",
-        "algo_id": algo_id,
+        "algo_id": "CheckEdgeAlgo",
         "code": [
             {"operator_id": "OP_CHECK_CACHED_EDGE", "arg": [3, 0, 2, 1]},
             {"operator_id": "OP_HALT"}
-        ]
+        ],
+        "constants": {
+            "int_consts": [djb2_hash("A"), djb2_hash("B"), djb2_hash("CAUSES")]
+        }
     }
     resp = ipc.command("learn", json.dumps(pipeline_payload))
     print(f"[Bootstrap] Algorithm: {resp}")

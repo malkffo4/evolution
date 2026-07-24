@@ -64,6 +64,14 @@ const Operator *operator_find(OperatorID id) {
     return &operator_table[id];
 }
 
+OperatorID operator_find_by_name(const char *name) {
+    for (uint32_t i = 0; i < MAX_OPERATORS; i++) {
+        if (operator_used[i] && strcmp(operator_table[i].name, name) == 0)
+            return operator_table[i].id;
+    }
+    return 0;
+}
+
 void operator_register_native(OperatorID id, const char *name, CapabilityMask cap,
                               NativeFunction handler, ObjectType *input, int input_count, ObjectType output) {
     Operator op = {
@@ -134,6 +142,8 @@ void operator_registry_init(void) {
 
     operator_register_native(OP_SPREAD_ACTIVATION, "spread_activation", 0, vm_op_spread_activation, NULL, 0, 0);
     operator_register_native(OP_EVALUATE_GOALS,    "evaluate_goals",    0, vm_op_evaluate_goals,    NULL, 0, 0);
+
+    operator_register_native(OP_LOAD_CONTEXT, "load_context", 0, vm_op_load_context, NULL, 0, 0);
 
     // 2. Операторы с возможностями
     // ObjectType in_node[] = { REG_NODE };

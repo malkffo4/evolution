@@ -6,12 +6,10 @@
 
 Pipeline *pipeline_create(void) {
     Pipeline *p = calloc(1, sizeof(Pipeline));
-
     if (!p)
         return NULL;
 
     p->code = calloc(MAX_PIPELINE_CODE, sizeof(Instruction));
-
     if (!p->code) {
         free(p);
         return NULL;

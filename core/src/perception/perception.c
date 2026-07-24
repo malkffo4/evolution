@@ -4,17 +4,19 @@
 #include <string.h>
 #include <time.h>
 
+#include "core/globals.h"
 #include "memory/working.h"
 #include "storage/db/db.h"
 #include "storage/graph/graph.h"
 #include "storage/string_pool/string_pool.h"
 #include "storage/hyper_atom/hyper_atom.h"
-#include "lib/cJSON.h"
+#include <cjson/cJSON.h>
 #include "math/hash.h"
 #include "runtime/logging/logging.h"
+#include "runtime/operator/operator.h"
 
 // Загрузка знаний из JSON напрямую в Рабочую Память (Working Memory)
-int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn) {
+int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn, HyperMemory *hmem) {
     cJSON *json = cJSON_Parse(json_str);
     if (json == NULL) return -1;
 
@@ -73,9 +75,26 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn)
                 logic_edge.key.source = djb2_hash(source->valuestring);
                 logic_edge.key.target = djb2_hash(target->valuestring);
                 logic_edge.key.relation = add_string_to_pool(txn, relation->valuestring);
-                logic_edge.confidence = 0.5f; // Стартовая гипотеза
+                logic_edge.confidence = 0.5f;
                 logic_edge.context = 0;
                 upsert_edge(txn, &logic_edge);
+
+                // Создаём гипер-атом EDGE
+                HyperAtom edge_atom = {
+                    .id = 0,  // будет присвоен в hyper_assert_unique
+                    .process_id = djb2_hash("EDGE"),
+                    .args = {
+                        HYPER_MAKE_REF(logic_edge.key.source),
+                        HYPER_MAKE_REF(logic_edge.key.relation),
+                        HYPER_MAKE_REF(logic_edge.key.target)
+                    },
+                    .context_id = 0,
+                    .time_tick = (uint64_t)time(NULL),
+                    .cause_id = 0
+                };
+                static uint64_t next_edge_id = 10000;  // отдельный счётчик
+                edge_atom.id = ++next_edge_id;
+                hyper_assert_unique(hmem, &edge_atom);
             }
         }
     }
@@ -184,10 +203,19 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
         static uint64_t next_id = 0;
         atom.id = ++next_id; // временное решение, потом заменим на глобальный счетчик
 
-        if (hyper_assert_unique(hmem, &atom) != 0) {
+        int result = hyper_assert_unique(hmem, &atom);
+        if (result != 0 && result != 1) {   // <-- разрешаем уже существующие атомы
             LOG_ERROR("Failed to assert atom");
         } else {
             LOG_DEBUG("Asserted atom: id=%lu process=%lu", atom.id, atom.process_id);
+            if (atom.process_id == djb2_hash("HAS_ALGORITHM")) {
+                ko_id_t goal = HYPER_GET_ID(atom.args[0].raw);
+                ko_id_t algo = HYPER_GET_ID(atom.args[1].raw);
+                if (global_wm_ptr) {
+                    wm_activate(global_wm_ptr, goal, 0.8f, 0.9f);   // цель
+                    wm_activate(global_wm_ptr, algo, 0.5f, 0.5f);   // алгоритм (чтобы был в WM, но с меньшим приоритетом)
+                }
+            }
             // Если была confidence, создаём атом BELIEF
             if (conf_json && cJSON_IsNumber(conf_json)) {
                 HyperAtom belief_atom = {0};

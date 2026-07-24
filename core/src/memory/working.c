@@ -161,3 +161,21 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
     }
     return NULL;
 }
+
+node_id_t wm_get_highest_goal(WorkingMemory *wm) {
+    if (!wm) return 0;
+    node_id_t best_id = 0;
+    float best_score = -1.0f;
+    for (uint32_t i = 0; i < wm->count; i++) {
+        WorkingNode *n = &wm->nodes[i];
+        // Простая эвристика цели: высокая активация и полезность
+        if (n->activation > 0.6f && n->state.usefulness > 0.7f) {
+            float score = n->activation * n->state.usefulness;
+            if (score > best_score) {
+                best_score = score;
+                best_id = n->node_id;
+            }
+        }
+    }
+    return best_id;
+}

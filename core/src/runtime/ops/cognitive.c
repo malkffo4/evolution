@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <math.h>
 
+#include "opcode.h"
+#include "math/hash.h"
 #include "runtime/vm/vm.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
@@ -12,6 +14,7 @@
 #include "storage/vector_store/vector_store.h"
 #include "memory/working.h"
 #include "reasoning/planner.h"
+#include "reasoning/algorithm_planner.h"
 
 static inline node_id_t reg_as_node(const Register *r) {
     if (r->type == REG_NODE) return r->node;
@@ -232,9 +235,30 @@ int vm_op_spread_activation(VMContext *ctx, const Instruction *ins) {
 
 int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
     (void)ins;
-    if (ctx->memory.wm && ctx->memory.txn)
-        planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
-    return VM_OK;
+    if (!ctx->memory.wm || !ctx->memory.txn || !ctx->hyper_mem) return VM_ERROR;
+
+    // 1. Оцениваем цели (backward chaining и аналогии)
+    planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
+
+    // 2. Находим самую приоритетную цель
+    node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm);
+    if (goal_id == 0) return VM_OK; // нет активных целей
+
+    // 3. Планировщик выбирает алгоритм
+    node_id_t algo_id = 0;
+    int rc = planner_select_algorithm(ctx->hyper_mem, goal_id, ctx, &algo_id);
+    if (rc != 0) return VM_NOT_FOUND;
+
+    // 4. Загружаем и выполняем алгоритм
+    Pipeline *algo = NULL;
+    rc = algorithm_load(ctx->memory.txn, algo_id, &algo);
+    if (rc != 0) return VM_NOT_FOUND;
+
+    // Запускаем в том же контексте (не порождая новый фрейм вручную)
+    rc = vm_execute(ctx, algo);
+    pipeline_free(algo);   // освобождаем загруженный пайплайн
+
+    return rc;
 }
 
 int vm_op_read_sp(VMContext *ctx, const Instruction *ins) {
@@ -247,5 +271,33 @@ int vm_op_read_sp(VMContext *ctx, const Instruction *ins) {
     ctx->reg[dst_reg].type = REG_INT;          // scratchpad хранит int64_t
     ctx->reg[dst_reg].i = ctx->scratchpad[sp_idx].value;
 
+    return VM_OK;
+}
+
+int vm_op_load_context(VMContext *ctx, const Instruction *ins) {
+    (void)ins;
+    if (!ctx->hyper_mem || !ctx->memory.wm) return VM_ERROR;
+
+    node_id_t goal = wm_get_highest_goal(ctx->memory.wm);
+    if (!goal) return VM_OK;
+
+    ctx->preloaded_edge_count = 0;
+    for (uint32_t i = 0; i < ctx->memory.wm->count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; i++) {
+        node_id_t nid = ctx->memory.wm->nodes[i].node_id;
+        HyperAtom *edges = NULL;
+        size_t ec = 0;
+        if (hyper_find_by_participant(ctx->hyper_mem, nid, 0, &edges, &ec) == 0) {
+            for (size_t j = 0; j < ec && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; j++) {
+                if (edges[j].process_id == djb2_hash("EDGE")) {
+                    ctx->preloaded_edges[ctx->preloaded_edge_count++] = (CachedEdge){
+                        .source = HYPER_GET_ID(edges[j].args[0].raw),
+                        .relation = HYPER_GET_ID(edges[j].args[1].raw),
+                        .target = HYPER_GET_ID(edges[j].args[2].raw)
+                    };
+                }
+            }
+            free(edges);
+        }
+    }
     return VM_OK;
 }

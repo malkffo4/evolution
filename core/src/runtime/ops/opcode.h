@@ -88,6 +88,8 @@ typedef enum {
 
     OP_SPREAD_ACTIVATION,
     OP_EVALUATE_GOALS,
+
+    OP_LOAD_CONTEXT,
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

@@ -68,4 +68,6 @@ int vm_op_merge_ctx(VMContext *, const Instruction *);
 int vm_op_spread_activation(VMContext *ctx, const Instruction *ins);
 int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins);
 
+int vm_op_load_context(VMContext *ctx, const Instruction *ins);
+
 #endif

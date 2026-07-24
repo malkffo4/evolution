@@ -1,4 +1,3 @@
-// source-relation-target
 // storage/graph/graph.h
 #ifndef GRAPH_H
 #define GRAPH_H
