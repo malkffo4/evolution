@@ -37,9 +37,13 @@ int algorithm_save(MDB_txn *txn, node_id_t algo_id, const Pipeline *pipeline) {
     uint8_t *ptr = buffer;
 
     /* Заголовки */
-    ((uint32_t*)ptr)[0] = pipeline->code_len;
-    ((uint32_t*)ptr)[1] = pipeline->capacity;
-    ptr += sizeof(uint32_t) * 2;
+    // Безопасная запись uint32_t без нарушения выравнивания
+    uint32_t tmp32;
+
+    tmp32 = pipeline->code_len;
+    memcpy(ptr, &tmp32, sizeof(tmp32)); ptr += sizeof(tmp32);
+    tmp32 = pipeline->capacity;
+    memcpy(ptr, &tmp32, sizeof(tmp32)); ptr += sizeof(tmp32);
 
     /* Байткод */
     if (pipeline->code_len > 0) {
@@ -48,27 +52,27 @@ int algorithm_save(MDB_txn *txn, node_id_t algo_id, const Pipeline *pipeline) {
     }
 
     /* Целые константы */
-    *(uint32_t*)ptr = c->int_count;
-    ptr += sizeof(uint32_t);
+    tmp32 = c->int_count;
+    memcpy(ptr, &tmp32, sizeof(tmp32)); ptr += sizeof(tmp32);
     if (c->int_count > 0) {
         memcpy(ptr, c->int_consts, c->int_count * sizeof(int64_t));
         ptr += c->int_count * sizeof(int64_t);
     }
 
     /* Вещественные константы */
-    *(uint32_t*)ptr = c->float_count;
-    ptr += sizeof(uint32_t);
+    tmp32 = c->float_count;
+    memcpy(ptr, &tmp32, sizeof(tmp32)); ptr += sizeof(tmp32);
     if (c->float_count > 0) {
         memcpy(ptr, c->float_consts, c->float_count * sizeof(double));
         ptr += c->float_count * sizeof(double);
     }
 
     /* Строковые константы */
-    *(uint32_t*)ptr = c->str_count;
-    ptr += sizeof(uint32_t);
+    tmp32 = c->str_count;
+    memcpy(ptr, &tmp32, sizeof(tmp32)); ptr += sizeof(tmp32);
     for (uint32_t i = 0; i < c->str_count; i++) {
-        *(uint32_t*)ptr = c->str_consts[i].len;
-        ptr += sizeof(uint32_t);
+        tmp32 = c->str_consts[i].len;
+        memcpy(ptr, &tmp32, sizeof(tmp32)); ptr += sizeof(tmp32);
         if (c->str_consts[i].len > 0) {
             memcpy(ptr, c->str_consts[i].data, c->str_consts[i].len);
             ptr += c->str_consts[i].len;

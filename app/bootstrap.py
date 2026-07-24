@@ -24,7 +24,7 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
         {"process": "IS_A", "args": ["Algorithm", "MetaType"], "confidence": 1.0},
         {"process": "IS_A", "args": ["Relation", "MetaType"], "confidence": 1.0},
         {"process": "SOLVES", "args": ["Algorithm", "Goal"], "confidence": 1.0},
-        {"process": "HAS_ALGORITHM", "args": ["Goal", "Algorithm"], "confidence": 1.0},
+        # {"process": "HAS_ALGORITHM", "args": ["Goal", "Algorithm"], "confidence": 1.0},  <-- удалить эту строку
     ]
     resp = ipc.command("learn", json.dumps({"atoms": meta_atoms}))
     print(f"[Bootstrap] Meta-types: {resp}")

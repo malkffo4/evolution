@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdio.h>
 
 #include "algorithm_planner.h"
 #include "storage/hyper_atom/hyper_atom.h"
@@ -27,10 +28,13 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
     int found = 0;
     for (size_t i = 0; i < count && found < max_out; i++) {
         HyperAtom *a = &atoms[i];
+        printf("DEBUG 1: atom args: [0]=0x%016lx, [1]=0x%016lx, [2]=0x%016lx, goal_id=0x%016lx\n",
+               a->args[0].raw, a->args[1].raw, a->args[2].raw, goal_id);
         // Проверяем, есть ли goal_id среди аргументов (обычно первый аргумент – цель)
         for (int arg_idx = 0; arg_idx < 3; arg_idx++) {
-            if (HYPER_GET_TYPE(a->args[arg_idx].raw) == HYPER_TYPE_REF &&
-                HYPER_GET_ID(a->args[arg_idx].raw) == goal_id) {
+            if (HYPER_GET_TYPE(a->args[arg_idx].raw) == HYPER_TYPE_REF && HYPER_GET_ID(a->args[arg_idx].raw) == goal_id) {
+                printf("DEBUG 2: atom args: [0]=0x%016lx, [1]=0x%016lx, [2]=0x%016lx, goal_id=0x%016lx\n",
+                       a->args[0].raw, a->args[1].raw, a->args[2].raw, goal_id);
                 // Второй аргумент (или другой, в зависимости от модели) — алгоритм
                 for (int algo_idx = 0; algo_idx < 3; algo_idx++) {
                     if (algo_idx == arg_idx) continue;
