@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "types/id.h"
 #include "memory/working.h"
@@ -12,6 +13,71 @@
 #include "storage/graph/graph.h"
 #include "math/hash.h"
 #include "planner.h"
+
+// Добавить структуру кэша проваленных целей или писать cooldown прямо в свойство Node
+#define GOAL_COOLDOWN_SEC 10
+
+typedef struct {
+    uint64_t goal_id;
+    time_t ignore_until;
+} GoalCooldown;
+
+static GoalCooldown cooldown_list[128];
+
+// Проверка перед попыткой построить план
+static bool is_goal_on_cooldown(uint64_t goal_id) {
+    time_t now = time(NULL);
+    for (int i = 0; i < 128; i++) {
+        if (cooldown_list[i].goal_id == goal_id && cooldown_list[i].ignore_until > now) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void set_goal_cooldown(uint64_t goal_id) {
+    time_t now = time(NULL);
+    int empty_idx = -1;
+    for (int i = 0; i < 128; i++) {
+        if (cooldown_list[i].goal_id == goal_id) {
+            cooldown_list[i].ignore_until = now + GOAL_COOLDOWN_SEC;
+            return;
+        }
+        if (cooldown_list[i].goal_id == 0 && empty_idx == -1) empty_idx = i;
+    }
+    if (empty_idx != -1) {
+        cooldown_list[empty_idx].goal_id = goal_id;
+        cooldown_list[empty_idx].ignore_until = now + GOAL_COOLDOWN_SEC;
+    }
+}
+// TODO
+// Псевдокод интеграции в ваш цикл планировщика:
+// void planner_evaluate_goals() {
+//     // Получить активные цели...
+//     for (int i = 0; i < num_goals; i++) {
+//         uint64_t current_goal = goals[i].id;
+
+//         if (is_goal_on_cooldown(current_goal)) {
+//             continue; // Пропускаем, чтобы не спамить и сберечь CPU
+//         }
+
+//         LOG_INFO("[ПЛАНИРОВЩИК] Поставлена цель: ID %llu. Строю план...", current_goal);
+
+//         int rc = build_plan_for_goal(current_goal);
+
+//         if (rc == PLAN_DEAD_END) {
+//             LOG_WARN("  -> [ТУПИК] У меня нет готового паттерна действий. Ищу аналогии...");
+
+//             // Запускаем поиск аналогий (Hypothesis By Analogy)
+//             rc = try_hypothesis_by_analogy(current_goal);
+
+//             if (rc == HYPOTHESIS_FAILED) {
+//                 // Если даже аналогии не помогли - замораживаем цель на время
+//                 set_goal_cooldown(current_goal);
+//             }
+//         }
+//     }
+// }
 
 void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
     if (!wm || !txn) return;

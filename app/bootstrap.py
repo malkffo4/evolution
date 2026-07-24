@@ -61,7 +61,7 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
             {"operator_id": "OP_HALT"}
         ],
         "constants": {
-            "int_consts": ["A", "B", "CAUSES"]
+            "str_consts": ["A", "B", "CAUSES"]
         }
     }
     resp = ipc.command("learn", json.dumps(pipeline_payload))

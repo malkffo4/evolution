@@ -3,9 +3,10 @@
 #define PIPELINE_IO_H
 
 #include <lmdb.h>
+#include <cjson/cJSON.h>
 
 #include "runtime/compiler/pipeline.h"
 
-int pipeline_import_json(const char *json_str, MDB_txn *txn);
+Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id);
 
 #endif

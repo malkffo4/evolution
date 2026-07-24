@@ -23,11 +23,76 @@
 #include "runtime/logging/logging.h"
 #include "math/hash.h"
 
+#define MAX_QUARANTINE_NODES 64
+#define QUARANTINE_BASE_COOLDOWN_SEC 60 // 1 минута отдыха для зациклившегося алгоритма
+
+typedef struct {
+    uint64_t algo_id;
+    int consecutive_failures;
+    time_t quarantined_until;
+} QuarantineEntry;
+
+static QuarantineEntry quarantine_list[MAX_QUARANTINE_NODES];
 static ResearchTask task_queue[MAX_PENDING_TASKS];
 static int task_count = 0;
 static pthread_mutex_t task_mutex = PTHREAD_MUTEX_INITIALIZER;
 volatile int g_think_trigger = 0;
 
+static int dmn_running = 0;
+static pthread_t dmn_thread;
+static uint64_t main_loop_algo_id = 0;
+
+/* -----------------------------------------------
+ * Подсистема Критика (Карантин)
+ * ----------------------------------------------- */
+static bool is_quarantined(uint64_t algo_id) {
+    time_t now = time(NULL);
+    for (int i = 0; i < MAX_QUARANTINE_NODES; i++) {
+        if (quarantine_list[i].algo_id == algo_id) {
+            return (quarantine_list[i].quarantined_until > now);
+        }
+    }
+    return false;
+}
+
+static void record_execution_result(uint64_t algo_id, int rc) {
+    time_t now = time(NULL);
+    int empty_slot = -1;
+
+    for (int i = 0; i < MAX_QUARANTINE_NODES; i++) {
+        if (quarantine_list[i].algo_id == algo_id) {
+            if (rc == VM_OK || rc == VM_NOT_FOUND) {
+                // Успешное выполнение — сбрасываем счетчик ошибок
+                quarantine_list[i].consecutive_failures = 0;
+                quarantine_list[i].quarantined_until = 0;
+            } else {
+                quarantine_list[i].consecutive_failures++;
+                if (quarantine_list[i].consecutive_failures >= 3) {
+                    // Экспоненциальный бэкофф: 60с -> 120с -> 240с...
+                    int multiplier = 1 << (quarantine_list[i].consecutive_failures - 3);
+                    quarantine_list[i].quarantined_until = now + (QUARANTINE_BASE_COOLDOWN_SEC * multiplier);
+                    LOG_ERROR("[CRITIC] Algorithm %llu quarantined for %d sec (Error: %d). Loop detected.",
+                              (unsigned long long)algo_id, QUARANTINE_BASE_COOLDOWN_SEC * multiplier, rc);
+                }
+            }
+            return;
+        }
+        if (quarantine_list[i].algo_id == 0 && empty_slot == -1) {
+            empty_slot = i;
+        }
+    }
+
+    // Добавляем новую запись, если произошла ошибка
+    if ((rc != VM_OK && rc != VM_NOT_FOUND) && empty_slot != -1) {
+        quarantine_list[empty_slot].algo_id = algo_id;
+        quarantine_list[empty_slot].consecutive_failures = 1;
+        quarantine_list[empty_slot].quarantined_until = 0;
+    }
+}
+
+/* -----------------------------------------------
+ * Очередь задач
+ * ----------------------------------------------- */
 void enqueue_research_task(uint64_t node_id, const char *query) {
     pthread_mutex_lock(&task_mutex);
     if (task_count < MAX_PENDING_TASKS) {
@@ -50,10 +115,6 @@ int get_pending_tasks(ResearchTask *buffer, int max_count) {
     pthread_mutex_unlock(&task_mutex);
     return cnt;
 }
-
-static int dmn_running = 0;
-static pthread_t dmn_thread;
-static uint64_t main_loop_algo_id = 0;
 
 /* -----------------------------------------------
  * Гипер-операторный MainLoop
@@ -85,7 +146,6 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
     Pipeline *existing = NULL;
     if (algorithm_load(txn, main_loop_algo_id, &existing) == 0) {
         if (existing) {
-            // НЕ освобождаем existing->code!
             pipeline_free(existing);
         }
         return;
@@ -98,13 +158,17 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
     }
 }
 
+/* -----------------------------------------------
+ * Основной цикл демона
+ * ----------------------------------------------- */
 void* dmn_loop(void* arg) {
     (void)arg;
     int rc;
 
     while(dmn_running && g_running) {
+        // Уступаем процессор, если нет явного триггера
         if (!g_think_trigger) {
-            struct timespec ts = {0, 100000000};
+            struct timespec ts = {0, 100000000}; // 100 мс
             nanosleep(&ts, NULL);
         }
         g_think_trigger = 0;
@@ -120,55 +184,49 @@ void* dmn_loop(void* arg) {
 
         ensure_main_loop_exists(txn);
 
+        // Проверка карантина ПЕРЕД выполнением
+        if (is_quarantined(main_loop_algo_id)) {
+            mdb_txn_abort(txn);
+            // Если MainLoop в карантине, спим дольше, чтобы дать системе остыть
+            struct timespec ts = {1, 0};
+            nanosleep(&ts, NULL);
+            continue;
+        }
+
         Pipeline *main_loop = NULL;
         if (algorithm_load(txn, main_loop_algo_id, &main_loop) == 0 && main_loop) {
             VMContext ctx;
             memset(&ctx, 0, sizeof(ctx));
+
             rc = vm_init(&ctx, txn, &global_wm);
-            if (rc != VM_OK) {
+            if (rc == VM_OK) {
+                ctx.hyper_mem = global_hyper_mem;
+                ctx.current_context = 0;
+                ctx.current_episode_id = 0;
+
+                rc = vm_execute(&ctx, main_loop);
+
+                // Делегируем анализ успеха/провала Критику
+                record_execution_result(main_loop_algo_id, rc);
+
+                if (rc != VM_OK && rc != VM_NOT_FOUND) {
+                    // TODO: Здесь можно добавить генерацию fail_atom в БД,
+                    // когда структура HyperAtom будет полностью утверждена.
+                    LOG_DEBUG("MainLoop execution halted with status %d", rc);
+                }
+
+                vm_destroy(&ctx);
+            } else {
                 LOG_ERROR("Error vm_init()");
-                continue;
             }
-            ctx.hyper_mem = global_hyper_mem;
-            ctx.current_context = 0;
-            ctx.current_episode_id = 0;
-
-            rc = vm_execute(&ctx, main_loop);
-            if (rc != VM_OK && rc != VM_NOT_FOUND) {
-                LOG_DEBUG("MainLoop execution failed with status %d", rc);
-                // TODO CRITIC ERROR VM
-                // struct TODO { int consecutive_failures, bool quarantined } node;
-                // // 1. Классифицируй статус: EXPECTED (VM_NOT_FOUND — нет алгоритма, это нормально)
-                // //    vs REAL_ERROR (VM_INVALID_REGISTER, VM_ERROR — баг в pipeline)
-                // // 2. Дедупликация лога: не пиши одинаковую ошибку чаще раза в N секунд
-                // // 3. Circuit breaker на уровне алгоритма/узла:
-                // if (node.consecutive_failures++ > 3) {
-                //     node.quarantined = true; // критик убирает узел из планирования
-                //     analyze_error("repeated VM failure", node->node_id, txn); // теперь critic реально вызывается
-                // }
-                // Плюс у тебя уже ЕСТЬ статистика по операторам — ctx->profile[op->id].failures/calls в VMContext. Critic должен читать именно её, а не голый error_log (который сейчас вообще не парсится в analyze_error — только проверяется на strlen > 0). Доработка critic'а:
-
-                // Принимать OperatorID/node_id_t algo_id + VMProfile вместо голой строки.
-                // Не создавать один общий FAILURE_STATE на всё — разные типы отказов (VM_INVALID_REGISTER — баг компиляции pipeline; VM_TIMEOUT — зависание; VM_NOT_FOUND — нормальный "не знаю") должны давать разные узлы/рёбра.
-                // Понижать confidence конкретного algorithm/edge, который выполнялся, а не абстрактного task_target_id.
-                // Триггерить карантин при N подряд отказах — это твой автоматический "исправить/остановить".
-                // OR ???
-                // HyperAtom fail_atom = {
-                //     .id = generate_id(ctx),  // нужен доступ к глобальному счётчику
-                //     .process_id = djb2_hash("EXEC_FAILED"),
-                //     .args = {
-                //         HYPER_MAKE_REF(main_loop_algo_id),  // какой алгоритм упал
-                //         (ko_id_t)rc | HYPER_TYPE_INT,       // код ошибки
-                //         HYPER_MAKE_REF(goal_id)             // какая цель
-                //     }
-                // };
-                // hyper_assert_unique(ctx.hyper_mem, &fail_atom);
-            }
-            vm_destroy(&ctx);
             pipeline_free(main_loop);
         }
+
+        // Коммитим транзакцию, чтобы сохранить возможные полезные изменения
+        // рабочей памяти до момента таймаута
         mdb_txn_commit(txn);
     }
+
     LOG_MEMORY("Subconscious daemon stopped.");
     return NULL;
 }
@@ -176,6 +234,7 @@ void* dmn_loop(void* arg) {
 void start_subconscious_daemon() {
     if (dmn_running) return;
     dmn_running = 1;
+    memset(quarantine_list, 0, sizeof(quarantine_list)); // Сброс карантина при старте
     pthread_create(&dmn_thread, NULL, dmn_loop, NULL);
 }
 

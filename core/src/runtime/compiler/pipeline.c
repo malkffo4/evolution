@@ -32,15 +32,33 @@ VMStatus pipeline_add_instruction(Pipeline *p, const Instruction *ins) {
 
 void pipeline_free(Pipeline *p) {
     if (!p) return;
-    if (p->code) free(p->code);
-    if (p->constants.int_consts) free(p->constants.int_consts);
-    if (p->constants.float_consts) free(p->constants.float_consts);
-    if (p->constants.str_consts) {
-        for (uint32_t i = 0; i < p->constants.str_count; i++) {
-            if (p->constants.str_consts[i].data)
-                free((void*)p->constants.str_consts[i].data);
-        }
-        free(p->constants.str_consts);
+
+    // Освобождение байткода
+    if (p->code) {
+        free(p->code);
+        p->code = NULL;
     }
+
+    // Глубокая очистка пула констант
+    if (p->constants.int_consts) {
+        free(p->constants.int_consts);
+        p->constants.int_consts = NULL;
+    }
+    if (p->constants.float_consts) {
+        free(p->constants.float_consts);
+        p->constants.float_consts = NULL;
+    }
+    if (p->constants.str_consts) {
+        // Освобождаем каждую строку (выделенную через strdup)
+        for (uint32_t i = 0; i < p->constants.str_count; i++) {
+            if (p->constants.str_consts[i].data) {
+                free(p->constants.str_consts[i].data);
+            }
+        }
+        // Освобождаем сам массив указателей
+        free(p->constants.str_consts);
+        p->constants.str_consts = NULL;
+    }
+
     free(p);
 }
