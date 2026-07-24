@@ -1,3 +1,4 @@
+// memory/context.h
 // // Общий контекст.
 // // Контекст нужен вообще всем.
 // // Planner.
@@ -5,12 +6,8 @@
 // // Reasoner.
 // // Perception.
 
-// typedef struct
-// {
+// typedef struct {
 //     MDB_txn *txn;
-
 //     WorkingMemory *wm;
-
 //     Planner *planner;
-
 // } Context;

@@ -1,4 +1,4 @@
-// runtime/capability.c
+// runtime/capability/capability.c
 // декларация
 // FindEdges
 // FindAnalogy

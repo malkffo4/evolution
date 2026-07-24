@@ -1,4 +1,4 @@
-// runtime/capability_types.h
+// runtime/capability/capability_types.h
 #ifndef CAPABILITY_TYPES_H
 #define CAPABILITY_TYPES_H
 

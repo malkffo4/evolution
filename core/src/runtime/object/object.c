@@ -1,4 +1,4 @@
-// runtime/object.c
+// runtime/object/object.c
 #include <string.h>
 #include <stdlib.h>
 #include <stddef.h>

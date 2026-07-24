@@ -1,4 +1,4 @@
-// reasoning/learning_planner.c
+// reasoning/planner.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

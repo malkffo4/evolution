@@ -1,4 +1,4 @@
-// runtime/object.h
+// runtime/object/object.h
 #ifndef OBJECT_H
 #define OBJECT_H
 

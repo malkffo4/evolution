@@ -64,40 +64,9 @@ static Pipeline* build_main_loop_pipeline(void) {
     Pipeline *p = calloc(1, sizeof(Pipeline));
     if (!p) return NULL;
 
-    #define HASH_IS_A           0x17c4b3f0a95d8cfeULL   // djb2_hash("IS_A")
-    #define HASH_GOAL           0x17c4b3f0a95d8d1aULL  // djb2_hash("Goal")
-    #define HASH_HAS_ALGORITHM  0x4046433720830455175ULL  // djb2_hash("HAS_ALGORITHM")
-
     Instruction code[] = {
-        /* 0: reg[1] = 0 (базовый контекст) */
-        { .operator_id = OP_LOAD_CONST, .arg[0] = 1, .arg[1] = 0 },
-        /* 1: reg[2] = IS_A */
-        { .operator_id = OP_LOAD_CONST, .arg[0] = 2, .arg[1] = HASH_IS_A },
-        /* 2: reg[3] = Goal */
-        { .operator_id = OP_LOAD_CONST, .arg[0] = 3, .arg[1] = HASH_GOAL },
-        /* 3: OP_QUERY: process=IS_A, participant=Goal, context=0 -> scratchpad[10] */
-        { .operator_id = OP_QUERY, .arg[0] = 2, .arg[1] = 3, .arg[2] = 1, .arg[3] = 10, .arg[4] = 7 },
-        /* 4: если reg[7] == 0 → HALT (индекс 14) */
-        { .operator_id = OP_BRANCH_IF_EMPTY, .arg[0] = 7, .arg[1] = 14 },
-        /* 5: читаем первый goal id в reg[3] */
-        { .operator_id = OP_READ_SP, .arg[0] = 3, .arg[1] = 10 },
-        /* 6: reg[4] = HAS_ALGORITHM */
-        { .operator_id = OP_LOAD_CONST, .arg[0] = 4, .arg[1] = HASH_HAS_ALGORITHM },
-        /* 7: OP_QUERY: process=HAS_ALGORITHM, participant=goal, context=0 -> scratchpad[20] */
-        { .operator_id = OP_QUERY, .arg[0] = 4, .arg[1] = 3, .arg[2] = 1, .arg[3] = 20, .arg[4] = 8 },
-        /* 8: если reg[8] == 0 → HALT */
-        { .operator_id = OP_BRANCH_IF_EMPTY, .arg[0] = 8, .arg[1] = 14 },
-        /* 9: читаем первый algo id в reg[5] */
-        { .operator_id = OP_READ_SP, .arg[0] = 5, .arg[1] = 20 },
-        /* 10: spawn context → reg[6] */
-        { .operator_id = OP_SPAWN_CTX, .arg[0] = 6 },
-        /* 11: exec algorithm */
-        { .operator_id = OP_EXEC_ALGORITHM, .arg[0] = 5 },
-        /* 12: порог 0.8 в reg[10] */
-        { .operator_id = OP_LOAD_CONST, .arg[0] = 10, .arg[1] = 0x3f4ccccd },
-        /* 13: merge ctx */
-        { .operator_id = OP_MERGE_CTX, .arg[0] = 10 },
-        /* 14: HALT */
+        { .operator_id = OP_SPREAD_ACTIVATION },
+        { .operator_id = OP_EVALUATE_GOALS },
         { .operator_id = OP_HALT }
     };
 

@@ -1,4 +1,4 @@
-// evaluate_goals()
+// planning/goals.h
 #ifndef DDD_H
 #define DDD_H
 

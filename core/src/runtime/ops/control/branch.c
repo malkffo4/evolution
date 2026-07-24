@@ -1,5 +1,4 @@
 // runtime/ops/control/branch.c
-
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 

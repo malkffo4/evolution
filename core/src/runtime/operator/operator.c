@@ -1,4 +1,4 @@
-// runtime/operator.c
+// runtime/operator/operator.c
 #include <string.h>
 
 #include "runtime/operator/operator.h"

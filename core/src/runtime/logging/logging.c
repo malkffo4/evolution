@@ -1,4 +1,4 @@
-// runtime/logging.c
+// runtime/logging/logging.c
 #define _POSIX_C_SOURCE 200809L   // должно быть самым первым, до #include <time.h>
 #define _DEFAULT_SOURCE           // для glibc, без значения
 #include <stdarg.h>

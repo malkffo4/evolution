@@ -1,4 +1,4 @@
-// runtime/capability.h
+// runtime/capability/capability.h
 #ifndef CAPABILITY_H
 #define CAPABILITY_H
 

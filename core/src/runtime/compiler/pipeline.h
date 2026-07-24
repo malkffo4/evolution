@@ -1,4 +1,3 @@
-// Pipeline Instruction ConstantPool ExecutionPlan
 // runtime/compiler/pipeline.h
 #ifndef PIPELINE_H
 #define PIPELINE_H

@@ -1,4 +1,3 @@
-// система правил вывода
 // reasoning/rule.h
 #ifndef RULE_H
 #define RULE_H

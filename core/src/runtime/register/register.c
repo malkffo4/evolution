@@ -1,6 +1,7 @@
 // runtime/register/register.c
 #include <string.h>
 #include <stdbool.h>
+
 #include "runtime/vm/vm_fwd.h"
 #include "runtime/object/object.h"
 #include "runtime/arena/arena.h"
