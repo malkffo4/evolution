@@ -13,6 +13,7 @@ static const Route request_routes[] = {
     { "chat",           req_generate_reply },
     { "retrieve",       req_retrieve },
     { "execute",        req_execute_command},
+    { "get_result",     req_get_command_result},
     { "embedding",      req_embedding },
     { "rerank",         req_rerank },
     { NULL, NULL }

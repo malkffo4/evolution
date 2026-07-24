@@ -123,7 +123,6 @@ void req_rerank(IPCPacket *req, IPCPacket *resp) {
     resp->payload_size = (uint32_t)strlen(msg);
 }
 
-// Эндпоинт: Позволяет Python отправлять команды в консоль через C-ядро
 void req_execute_command(IPCPacket *req, IPCPacket *resp) {
     cJSON *json = cJSON_Parse(req->payload);
     char cmd[MAX_CMD_LENGTH] = {0};
@@ -146,26 +145,79 @@ void req_execute_command(IPCPacket *req, IPCPacket *resp) {
         return;
     }
 
-    // Выполняем команду
-    char output[MAX_OUTPUT_LENGTH] = {0};
-    int exit_code = -1;
+    // Обертка для выполнения строки как команды оболочки
+    char *exec_args[] = { cmd, NULL };
+    int task_id = 0;
 
-    // ExecStatus status = executor_run_sync(cmd, output, sizeof(output), &exit_code);
-    // executor_run_script_sync
-    // if (status == EXEC_OK) {
-    //     cJSON *res_json = cJSON_CreateObject();
-    //     cJSON_AddNumberToObject(res_json, "exit_code", exit_code);
-    //     cJSON_AddStringToObject(res_json, "output", output);
+    // Ставим задачу в асинхронную очередь экзекьютора. Поток не блокируется.
+    int rc = executor_enqueue_script("/bin/sh", "-c", exec_args, &task_id);
 
-    //     char *json_str = cJSON_PrintUnformatted(res_json);
-    //     strncpy(resp->payload, json_str, IPC_PAYLOAD_SIZE - 1);
-    //     resp->payload_size = (uint32_t)strlen(json_str);
+    if (rc == 0) {
+        // Мгновенно возвращаем Python-клиенту ID задачи для дальнейшего пуллинга
+        snprintf(resp->payload, sizeof(resp->payload),
+                 "{\"task_id\": %d, \"status\": \"queued\"}", task_id);
+    } else {
+        snprintf(resp->payload, sizeof(resp->payload),
+                 "{\"error\": \"Failed to enqueue task\"}");
+    }
 
-    //     free(json_str);
-    //     cJSON_Delete(res_json);
-    // } else {
-    //     const char* err = "{\"error\": \"Failed to execute command\"}";
-    //     strncpy(resp->payload, err, sizeof(resp->payload)-1);
-    //     resp->payload_size = (uint32_t)strlen(err);
-    // }
+    resp->payload_size = (uint32_t)strlen(resp->payload);
+}
+
+void req_get_command_result(IPCPacket *req, IPCPacket *resp) {
+    cJSON *json = cJSON_Parse(req->payload);
+    int task_id = 0;
+
+    if (json) {
+        cJSON *id_item = cJSON_GetObjectItemCaseSensitive(json, "task_id");
+        if (cJSON_IsNumber(id_item)) {
+            task_id = id_item->valueint;
+        }
+        cJSON_Delete(json);
+    }
+
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "execute_result", sizeof(resp->name)-1);
+
+    if (task_id <= 0) {
+        const char* err = "{\"error\": \"Invalid task_id\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload)-1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    char *output = NULL;
+    int exit_code = 0;
+    int term_signal = 0;
+
+    // Пытаемся забрать результат. Функция не блокирует поток.
+    int rc = executor_get_result(task_id, &output, &exit_code, &term_signal);
+
+    if (rc == 0) {
+        // Результат готов и успешно извлечен
+        cJSON *res_json = cJSON_CreateObject();
+        cJSON_AddStringToObject(res_json, "status", "completed");
+        cJSON_AddNumberToObject(res_json, "exit_code", exit_code);
+
+        if (term_signal > 0) {
+            cJSON_AddNumberToObject(res_json, "term_signal", term_signal);
+        }
+
+        cJSON_AddStringToObject(res_json, "output", output ? output : "");
+
+        char *json_str = cJSON_PrintUnformatted(res_json);
+        strncpy(resp->payload, json_str, IPC_PAYLOAD_SIZE - 1);
+        resp->payload_size = (uint32_t)strlen(json_str);
+
+        free(json_str);
+        cJSON_Delete(res_json);
+
+        // executor_get_result выделяет память под строку, мы обязаны ее освободить
+        if (output) free(output);
+    } else {
+        // Задачи с таким ID нет в готовых (либо еще выполняется, либо ID неверный)
+        const char* pending = "{\"status\": \"pending\"}";
+        strncpy(resp->payload, pending, sizeof(resp->payload)-1);
+        resp->payload_size = (uint32_t)strlen(pending);
+    }
 }
