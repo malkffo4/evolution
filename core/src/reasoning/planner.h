@@ -1,6 +1,6 @@
 // reasoning/planner.h
-#ifndef PLANNER_H
-#define PLANNER_H
+#ifndef REASON_PLANNER_H
+#define REASON_PLANNER_H
 
 #include "types/id.h"
 #include "memory/working.h"
@@ -17,4 +17,4 @@ typedef struct {
 
 void planner_evaluate_goals(WorkingMemory *wm, void *txn);
 
-#endif // PLANNER_H
+#endif // REASON_PLANNER_H

@@ -14,7 +14,6 @@
 #include "memory/working.h"
 #include "runtime/ops/vm_ops.h"
 
-// Заглушки глобальных переменных для линковки с остальными модулями
 WorkingMemory global_wm;
 volatile sig_atomic_t g_running = 1;
 
@@ -28,7 +27,6 @@ static void register_test_operators(void) {
 }
 
 int main(void) {
-    // 1. Создаём in-memory LMDB окружение (с временной директорией)
     const char *env_path = "./test_vm_env";
     MDB_env *env;
     mdb_env_create(&env);
@@ -38,59 +36,39 @@ int main(void) {
     MDB_txn *txn;
     assert(mdb_txn_begin(env, NULL, 0, &txn) == 0);
 
-    // 2. Инициализируем VMContext
     init_working_memory_stub(&wm_stub);
     VMContext ctx;
     assert(vm_init(&ctx, txn, &wm_stub) == VM_OK);
 
-    // 3. Регистрируем операторы
     register_test_operators();
 
-    // 4. Строим программу (Pipeline) с константами
+    // Строим программу с непосредственными значениями (новый load_const)
+    Instruction code[] = {
+        { .operator_id = OP_LOAD_CONST, .arg[0] = 1, .arg[1] = 5 },   // R1 = 5
+        { .operator_id = OP_LOAD_CONST, .arg[0] = 2, .arg[1] = 10 },  // R2 = 10
+        { .operator_id = OP_ADD,        .arg[0] = 0, .arg[1] = 1, .arg[2] = 2 }, // R0 = R1 + R2
+        { .operator_id = OP_HALT }
+    };
+
     Pipeline pipeline = {0};
-    pipeline.constants.int_consts = malloc(2 * sizeof(int64_t));
-    pipeline.constants.int_consts[0] = 5;
-    pipeline.constants.int_consts[1] = 10;
-    pipeline.constants.int_count = 2;
+    pipeline.code = code;
+    pipeline.code_len = 4;
+    pipeline.capacity = 4;
+    // Константный пул не используется
+    pipeline.constants.int_consts = NULL;
+    pipeline.constants.int_count = 0;
 
-    Instruction load_r1 = {
-        .operator_id = OP_LOAD_CONST,
-        .arg[0] = 1,  // R1
-        .arg[1] = 0   // const[0] = 5
-    };
-    Instruction load_r2 = {
-        .operator_id = OP_LOAD_CONST,
-        .arg[0] = 2,  // R2
-        .arg[1] = 1   // const[1] = 10
-    };
-    Instruction add = {
-        .operator_id = OP_ADD,
-        .arg[0] = 0,  // R0 = R1 + R2
-        .arg[1] = 1,
-        .arg[2] = 2
-    };
-    Instruction halt = { .operator_id = OP_HALT };
-
-    Instruction prog[] = { load_r1, load_r2, add, halt };
-    pipeline.code = prog;
-    pipeline.code_len = sizeof(prog) / sizeof(Instruction);
-
-    // 5. Запуск VM
     printf("Running VM test...\n");
     int result = vm_execute(&ctx, &pipeline);
     assert(result == VM_OK);
 
-    // 6. Проверяем результат
     int64_t r0_value = vm_register_read_int(&ctx, 0);
     assert(r0_value == 15);
     printf("VM test passed: R0 = %ld\n", r0_value);
 
-    // 7. Очистка
-    free(pipeline.constants.int_consts);
     vm_destroy(&ctx);
     mdb_txn_abort(txn);
     mdb_env_close(env);
-    // Удаляем временную директорию
     system("rm -rf ./test_vm_env");
     system("rm -f test_vm_env-lock");
     return 0;

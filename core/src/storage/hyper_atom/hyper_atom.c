@@ -79,7 +79,7 @@ int hyper_assert(HyperMemory *mem, const HyperAtom *atom) {
 
     /* Индекс process_id → id */
     MDB_val key_proc = {sizeof(ko_id_t), (void *)&atom->process_id};
-    mdb_put(mem->txn, mem->dbi_idx_process, &key_proc, &key_id, MDB_APPENDDUP);
+    mdb_put(mem->txn, mem->dbi_idx_process, &key_proc, &key_id, 0); // не APPENDDUP
 
     // БЕЗОПАСНАЯ ИНДЕКСАЦИЯ АРГУМЕНТОВ
     // Кладем в индекс ТОЛЬКО если это ссылка, предварительно очистив маску типа.

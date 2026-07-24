@@ -1,4 +1,4 @@
-// runtime/ops/cognitive/cognitive_ops.c
+// runtime/ops/cognitive_ops.c
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>

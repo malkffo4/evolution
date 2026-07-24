@@ -1,90 +1,84 @@
 // reasoning/algorithm_planner.c
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "algorithm_planner.h"
-#include "storage/graph/graph.h"        // get_edges_from_node, EdgeList
-#include "storage/vector_store/vector_store.h" // find_similar_nodes
+#include "storage/hyper_atom/hyper_atom.h"
+#include "storage/vector_store/vector_store.h"
 #include "runtime/vm/vm_context.h"
-#include "runtime/vm/vm_types.h"        // VMProfile
 #include "runtime/ops/opcode.h"
-#include "math/hash.h"                           // djb2_hash
+#include "math/hash.h"
 
-/**
- * Выбирает лучший алгоритм из кандидатов.
- *
- * На данном этапе использует агрегированную статистику профиля VM по оператору
- * OP_EXEC_ALGORITHM (количество ошибок). В будущем будет читать метрики
- * непосредственно из свойств узла алгоритма (confidence, success_count,
- * average_time и т.д.), накопленные Learning.
- */
-static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
-    node_id_t best = candidates[0];
-    uint64_t best_failures = UINT64_MAX;
+/* ---------------------------------------------------------------- */
+/* Вспомогательная функция: поиск всех алгоритмов, связанных с целью */
+/* ---------------------------------------------------------------- */
+static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_id_t *out, int max_out) {
+    if (!hmem || !out) return 0;
 
-    for (int i = 0; i < count; i++) {
-        // Пока все алгоритмы используют один и тот же оператор OP_EXEC_ALGORITHM,
-        // но в будущем у каждого алгоритма будет собственная статистика.
-        uint64_t failures = ctx->profile[OP_EXEC_ALGORITHM].failures;
+    node_id_t rel_has_algo = djb2_hash("HAS_ALGORITHM");
+    HyperAtom *atoms = NULL;
+    size_t count = 0;
 
-        // Дополнительно можно учесть количество вызовов: чем больше вызовов при
-        // малом числе ошибок, тем надёжнее алгоритм.
-        uint64_t calls = ctx->profile[OP_EXEC_ALGORITHM].calls;
-        if (calls > 0) {
-            // Предпочтение отдаём алгоритмам с меньшей долей ошибок
-            uint64_t score = (failures * 100) / calls;  // процент ошибок
-            if (score < best_failures) {
-                best_failures = score;
-                best = candidates[i];
-            }
-        } else {
-            // Нет статистики — берём первый попавшийся
-            if (best_failures == UINT64_MAX) {
-                best = candidates[i];
-                best_failures = 0;
+    // Ищем все атомы, где process_id == HAS_ALGORITHM и один из аргументов == goal_id
+    int rc = hyper_find_by_process(hmem, rel_has_algo, 0, 0, &atoms, &count);
+    if (rc != 0 || !atoms || count == 0) return 0;
+
+    int found = 0;
+    for (size_t i = 0; i < count && found < max_out; i++) {
+        HyperAtom *a = &atoms[i];
+        // Проверяем, есть ли goal_id среди аргументов (обычно первый аргумент – цель)
+        for (int arg_idx = 0; arg_idx < 3; arg_idx++) {
+            if (HYPER_GET_TYPE(a->args[arg_idx].raw) == HYPER_TYPE_REF &&
+                HYPER_GET_ID(a->args[arg_idx].raw) == goal_id) {
+                // Второй аргумент (или другой, в зависимости от модели) — алгоритм
+                for (int algo_idx = 0; algo_idx < 3; algo_idx++) {
+                    if (algo_idx == arg_idx) continue;
+                    if (HYPER_GET_TYPE(a->args[algo_idx].raw) == HYPER_TYPE_REF) {
+                        node_id_t algo_id = HYPER_GET_ID(a->args[algo_idx].raw);
+                        out[found++] = algo_id;
+                        break;  // берём только один алгоритм на атом
+                    }
+                }
             }
         }
     }
-    return best;
+    free(atoms);
+    return found;
 }
 
-int planner_select_algorithm(MDB_txn *txn, node_id_t goal_id, VMContext *ctx, node_id_t *out_algo_id) {
-    if (!txn || !out_algo_id) return -1;
+/* ---------------------------------------------------------------- */
+/* Выбор лучшего алгоритма по статистике (упрощённо)                */
+/* ---------------------------------------------------------------- */
+static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
+    // Пока статистика не накоплена, берём первый
+    (void)ctx;
+    return candidates[0];
+}
 
-    // Отношение "HAS_ALGORITHM" — захардкодим строку для простоты
-    node_id_t rel_has_algo = djb2_hash("HAS_ALGORITHM");
-
-    // 1. Прямой поиск алгоритмов для цели
-    EdgeList edges = {0};
-    int rc = get_edges_from_node(txn, goal_id, &edges);
-    if (rc != MDB_SUCCESS) return rc;
+/* ---------------------------------------------------------------- */
+/* Главная функция планировщика                                      */
+/* ---------------------------------------------------------------- */
+int planner_select_algorithm(HyperMemory *hmem, node_id_t goal_id, VMContext *ctx, node_id_t *out_algo_id) {
+    if (!hmem || !out_algo_id) return -1;
 
     node_id_t candidates[MAX_CANDIDATES_ALGO];
     int cand_count = 0;
 
-    for (uint32_t i = 0; i < edges.count && cand_count < MAX_CANDIDATES_ALGO; i++) {
-        if (edges.items[i].key.relation == rel_has_algo) {
-            candidates[cand_count++] = edges.items[i].key.target;
-        }
-    }
-    free(edges.items);
+    // 1. Прямой поиск в гипер-атомах
+    cand_count = find_algorithms_for_goal(hmem, goal_id, candidates, MAX_CANDIDATES_ALGO);
 
-    // 2. Если нет прямых — ищем похожие цели и заимствуем их алгоритмы
+    // 2. Если не нашли — ищем похожие цели (только если есть эмбеддинг)
     if (cand_count == 0) {
-        uint64_t similar_goals[8];
-        int sim_count = find_similar_nodes(txn, NULL, 8, similar_goals); // передадим NULL как query_emb, пока заглушка
-        // find_similar_nodes требует query_emb, поэтому временно используем прямой вызов с пустым вектором
-        // В будущем заменим на search_by_node_id
-        if (sim_count > 0) {
-            for (int i = 0; i < sim_count && cand_count < MAX_CANDIDATES_ALGO; i++) {
-                EdgeList sim_edges = {0};
-                if (get_edges_from_node(txn, similar_goals[i], &sim_edges) == MDB_SUCCESS) {
-                    for (uint32_t j = 0; j < sim_edges.count && cand_count < MAX_CANDIDATES_ALGO; j++) {
-                        if (sim_edges.items[j].key.relation == rel_has_algo) {
-                            candidates[cand_count++] = sim_edges.items[j].key.target;
-                        }
-                    }
-                    free(sim_edges.items);
+        float query_emb[EMBEDDING_DIM];
+        if (load_embedding(ctx->memory.txn, goal_id, query_emb) == 0) { // транзакция не нужна, берём из кеша или глобальной БД
+            uint64_t similar_goals[8];
+            int sim_count = find_similar_nodes(ctx->memory.txn, query_emb, 8, similar_goals); // здесь txn=NULL, если load_embedding работает без txn
+            if (sim_count > 0) {
+                for (int i = 0; i < sim_count && cand_count < MAX_CANDIDATES_ALGO; i++) {
+                    cand_count += find_algorithms_for_goal(hmem, similar_goals[i],
+                                                          &candidates[cand_count],
+                                                          MAX_CANDIDATES_ALGO - cand_count);
                 }
             }
         }

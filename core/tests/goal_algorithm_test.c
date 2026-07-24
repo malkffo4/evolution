@@ -18,8 +18,10 @@
 #include "storage/edge/edge.h"
 #include "storage/graph/graph.h"
 #include "storage/string_pool/string_pool.h"
+#include "storage/hyper_atom/hyper_atom.h"
 #include "math/hash.h"
 #include "knowledge/knowledge_cache.h"
+#include "knowledge/algorithm_loader.h"
 #include "knowledge/algorithm_saver.h"
 #include "reasoning/algorithm_planner.h"
 
@@ -40,10 +42,9 @@ int main(void) {
 
     uint64_t algo_id = djb2_hash("CheckEdgeAlgo");
 
-    // Создаём Pipeline для сохранения
     Instruction algo_code[] = {
         { .operator_id = OP_CHECK_CACHED_EDGE, .arg[0] = 3, .arg[1] = 0, .arg[2] = 2, .arg[3] = 1 },
-        { .operator_id = OP_HALT }   // <-- используем HALT вместо RETURN
+        { .operator_id = OP_HALT }
     };
     Pipeline algo_pipeline;
     algo_pipeline.code = algo_code;
@@ -58,6 +59,28 @@ int main(void) {
     Edge link = { .key = { goal_id, rel_has_algo, algo_id }, .confidence = 1.0f, .evidence_count = 1 };
     assert(create_edge(txn, &link) == MDB_SUCCESS);
 
+    // Гипер-атом для планировщика
+    HyperMemory *hmem = hyper_memory_new(txn,
+        db.graph.hyper.atoms,
+        db.graph.hyper.idx_process,
+        db.graph.hyper.idx_args,
+        db.graph.hyper.idx_context);
+
+    HyperAtom goal_algo_atom = {
+        .id = 1000 + algo_id,
+        .process_id = rel_has_algo,
+        .args = {
+            { .raw = HYPER_MAKE_REF(goal_id) },
+            { .raw = HYPER_MAKE_REF(algo_id) },
+            { .raw = 0 }
+        },
+        .context_id = 0,
+        .time_tick = 0,
+        .cause_id = 0
+    };
+    int hrc = hyper_assert_unique(hmem, &goal_algo_atom);
+    assert(hrc == 0);
+
     // 2. Тестовые данные
     uint64_t A = djb2_hash("A");
     uint64_t B = djb2_hash("B");
@@ -68,18 +91,15 @@ int main(void) {
     assert(create_node(txn, &nb) == MDB_SUCCESS);
     Edge e = { .key = { A, REL, B }, .confidence = 1.0f, .evidence_count = 1 };
     assert(create_edge(txn, &e) == MDB_SUCCESS);
-    mdb_txn_commit(txn);
 
-    // 3. Virtual Mind: выбор алгоритма и предзагрузка
-    assert(mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) == 0);
-
+    // 3. VM и планировщик (всё в одной транзакции)
     VMContext ctx;
     WorkingMemory wm_stub = {0};
     assert(vm_init(&ctx, txn, &wm_stub) == VM_OK);
     operator_registry_init();
 
     node_id_t selected_algo = 0;
-    int rc = planner_select_algorithm(txn, goal_id, &ctx, &selected_algo);
+    int rc = planner_select_algorithm(hmem, goal_id, &ctx, &selected_algo);
     assert(rc == 0);
     assert(selected_algo == algo_id);
 
@@ -89,16 +109,26 @@ int main(void) {
     ctx.reg[1].type = REG_INT; ctx.reg[1].i = (int64_t)B;
     ctx.reg[2].type = REG_INT; ctx.reg[2].i = (int64_t)REL;
 
-    // Передаём ID алгоритма в регистр 5
     ctx.reg[5].type = REG_INT; ctx.reg[5].i = (int64_t)selected_algo;
 
-    // Запускаем OP_EXEC_ALGORITHM (не BY_GOAL)
     Instruction call = { .operator_id = OP_EXEC_ALGORITHM, .arg[0] = 5 };
     Pipeline outer = { .code = &call, .code_len = 1, .capacity = 1 };
     outer.constants.int_consts = NULL;
     outer.constants.int_count = 0;
 
     rc = vm_execute(&ctx, &outer);
+    if (rc != VM_OK) {
+        printf("vm_execute failed with status %d\n", rc);
+        // Дополнительно: проверим, загружается ли алгоритм вручную
+        Pipeline *test_load = NULL;
+        int load_rc = algorithm_load(ctx.memory.txn, algo_id, &test_load);
+        printf("algorithm_load returned %d\n", load_rc);
+        if (test_load) {
+            printf("Loaded pipeline code_len=%u\n", test_load->code_len);
+            free(test_load->code);
+            free(test_load);
+        }
+    }
     assert(rc == VM_OK);
 
     assert(ctx.reg[3].type == REG_BOOL);
@@ -107,6 +137,7 @@ int main(void) {
     printf("Goal algorithm test passed (VM clean, planner in Virtual Mind).\n");
 
     vm_destroy(&ctx);
+    hyper_memory_free(hmem);
     mdb_txn_abort(txn);
     close_lmdb();
     system("rm -rf ./test_goal_db");

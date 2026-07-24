@@ -1,4 +1,4 @@
-// runtime/ops/misc/nop.c
+// runtime/ops/misc.c
 #include "runtime/vm/vm.h"
 #include "runtime/ops/vm_ops.h"
 

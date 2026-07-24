@@ -9,6 +9,6 @@
 
 #define MAX_CANDIDATES_ALGO     16
 
-int planner_select_algorithm(MDB_txn *txn, node_id_t goal_id, VMContext *ctx, node_id_t *out_algo_id);
+int planner_select_algorithm(HyperMemory *txn, node_id_t goal_id, VMContext *ctx, node_id_t *out_algo_id);
 
 #endif

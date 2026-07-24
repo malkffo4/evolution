@@ -133,6 +133,21 @@ void* dmn_loop(void* arg) {
             int rc = vm_execute(&ctx, main_loop);
             if (rc != VM_OK) {
                 LOG_DEBUG("MainLoop execution failed with status %d", rc);
+                // struct TODO { int consecutive_failures, bool quarantined } node;
+                // // 1. Классифицируй статус: EXPECTED (VM_NOT_FOUND — нет алгоритма, это нормально)
+                // //    vs REAL_ERROR (VM_INVALID_REGISTER, VM_ERROR — баг в pipeline)
+                // // 2. Дедупликация лога: не пиши одинаковую ошибку чаще раза в N секунд
+                // // 3. Circuit breaker на уровне алгоритма/узла:
+                // if (node.consecutive_failures++ > 3) {
+                //     node.quarantined = true; // критик убирает узел из планирования
+                //     analyze_error("repeated VM failure", node->node_id, txn); // теперь critic реально вызывается
+                // }
+                // Плюс у тебя уже ЕСТЬ статистика по операторам — ctx->profile[op->id].failures/calls в VMContext. Critic должен читать именно её, а не голый error_log (который сейчас вообще не парсится в analyze_error — только проверяется на strlen > 0). Доработка critic'а:
+
+                // Принимать OperatorID/node_id_t algo_id + VMProfile вместо голой строки.
+                // Не создавать один общий FAILURE_STATE на всё — разные типы отказов (VM_INVALID_REGISTER — баг компиляции pipeline; VM_TIMEOUT — зависание; VM_NOT_FOUND — нормальный "не знаю") должны давать разные узлы/рёбра.
+                // Понижать confidence конкретного algorithm/edge, который выполнялся, а не абстрактного task_target_id.
+                // Триггерить карантин при N подряд отказах — это твой автоматический "исправить/остановить".
             }
 
             if (main_loop->code) free(main_loop->code);

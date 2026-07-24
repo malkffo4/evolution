@@ -33,9 +33,16 @@ VMStatus pipeline_add_instruction(Pipeline *p, const Instruction *ins) {
 }
 
 void pipeline_free(Pipeline *p) {
-    if (p == NULL)
-        return;
-    if (p->code)
-        free(p->code);
+    if (!p) return;
+    if (p->code) free(p->code);
+    if (p->constants.int_consts) free(p->constants.int_consts);
+    if (p->constants.float_consts) free(p->constants.float_consts);
+    if (p->constants.str_consts) {
+        for (uint32_t i = 0; i < p->constants.str_count; i++) {
+            if (p->constants.str_consts[i].data)
+                free((void*)p->constants.str_consts[i].data);
+        }
+        free(p->constants.str_consts);
+    }
     free(p);
 }
