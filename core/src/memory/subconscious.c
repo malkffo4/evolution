@@ -85,7 +85,7 @@ static Pipeline* build_critic_main_pipeline(void) {
 static Pipeline* build_main_loop_pipeline(void) {
     Pipeline *p = pipeline_create();
     if (!p) return NULL;
-
+    uint32_t critic_main_algo_id = 0; // TODO LOAD
     Instruction code[] = {
         { .operator_id = OP_LOAD_CONTEXT },
         { .operator_id = OP_SPREAD_ACTIVATION },

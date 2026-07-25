@@ -5,6 +5,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MAX_QUARANTINE_NODES            64
+#define QUARANTINE_BASE_COOLDOWN_SEC    60 // 1 минута отдыха для зациклившегося алгоритма
+
+typedef struct {
+    uint64_t algo_id;
+    int consecutive_failures;
+    time_t quarantined_until;
+} QuarantineEntry;
+
 void init_quarantine(void);
 
 bool is_quarantined(uint64_t algo_id);

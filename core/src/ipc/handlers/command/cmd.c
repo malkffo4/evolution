@@ -18,6 +18,7 @@
 #include "runtime/compiler/pipeline.h"
 #include "runtime/logging/logging.h"
 #include "storage/db/db.h"
+#include "storage/db/db_writer.h"
 #include "storage/hyper_atom/hyper_atom.h"
 
 typedef struct {

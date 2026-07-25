@@ -4,17 +4,9 @@
 #include <string.h>
 #include <time.h>
 
+#include "critic_state.h"
 #include "runtime/logging/logging.h"
 #include "runtime/vm/vm_status.h"
-
-#define MAX_QUARANTINE_NODES 64
-#define QUARANTINE_BASE_COOLDOWN_SEC 60 // 1 минута отдыха для зациклившегося алгоритма
-
-typedef struct {
-    uint64_t algo_id;
-    int consecutive_failures;
-    time_t quarantined_until;
-} QuarantineEntry;
 
 static QuarantineEntry quarantine_list[MAX_QUARANTINE_NODES];
 

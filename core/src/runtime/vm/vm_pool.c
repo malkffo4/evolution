@@ -1,8 +1,11 @@
 // runtime/vm/vm_pool.c
+#include <stdlib.h>
 #include <pthread.h>
+#include <string.h>
 
 #include "vm_pool.h"
 #include "vm.h"
+#include "core/globals.h"
 #include "storage/db/db.h"
 #include "storage/db/db_writer.h"
 #include "runtime/logging/logging.h"
