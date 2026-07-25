@@ -55,7 +55,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                         break;
                     }
                 }
-                printf("  [ВОСПРИЯТИЕ] Узел '%s' (Опасность: %.2f, Польза: %.2f)\n", label->valuestring, danger, utility);
+                LOG_PERCEPTION("[ВОСПРИЯТИЕ] Узел '%s' (Опасность: %.2f, Польза: %.2f)", label->valuestring, danger, utility);
             }
         }
     }

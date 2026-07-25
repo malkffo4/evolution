@@ -63,3 +63,4 @@ __pycache__/
 core/evolution_core
 core/test_vm_env-lock
 core.zip
+app/.ingest_checkpoint.json
