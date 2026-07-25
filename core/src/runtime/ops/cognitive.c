@@ -232,7 +232,7 @@ int vm_op_spread_activation(VMContext *ctx, const Instruction *ins) {
         engine_spread_activation(ctx->memory.wm, ctx->memory.txn);
     return VM_OK;
 }
-
+// TODO vm_op_evaluate_goals при VM_NOT_FOUND (нет алгоритма для цели) должен вызывать enqueue_research_task(goal_id, goal_name)
 int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
     (void)ins;
     if (!ctx->memory.wm || !ctx->memory.txn || !ctx->hyper_mem) return VM_ERROR;

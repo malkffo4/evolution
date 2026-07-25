@@ -90,6 +90,7 @@ typedef enum {
     OP_EVALUATE_GOALS,
 
     OP_LOAD_CONTEXT,
+    OP_READ_FAILURES,   // arg[0]=sp_offset, arg[1]=count_reg -> scratchpad[algo_id, fail_count]...
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

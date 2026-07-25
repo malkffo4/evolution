@@ -59,6 +59,26 @@ int get_pending_tasks(ResearchTask *buffer, int max_count) {
     return cnt;
 }
 
+static Pipeline* build_critic_main_pipeline(void) {
+    Pipeline *p = pipeline_create();
+
+    Instruction code[] = {
+        // R7 = сколько failures прочитано, scratchpad[0..] = (algo_id, count) пары
+        { .operator_id = OP_READ_FAILURES, .arg = {0, 7} },
+        // Дальше — цикл по failures: если count > 3, OP_ASSERT HAS_FLAW(algo_id)
+        // и OP_DERIVE CONFIDENCE_DELTA(algo_id, -0.2)
+        // (цикл на текущем ISA придётся развернуть через OP_JGE/OP_JMP —
+        //  ровно то, что у вас уже заложено в opcode.h)
+        { .operator_id = OP_HALT }
+    };
+
+    size_t num = sizeof(code)/sizeof(code[0]);
+    p->code_len = (uint32_t)num;
+    memcpy(p->code, code, sizeof(code));
+    p->capacity = (uint32_t)num;
+    return p;
+}
+
 /* -----------------------------------------------
  * Гипер-операторный MainLoop
  * ----------------------------------------------- */
@@ -70,6 +90,7 @@ static Pipeline* build_main_loop_pipeline(void) {
         { .operator_id = OP_LOAD_CONTEXT },
         { .operator_id = OP_SPREAD_ACTIVATION },
         { .operator_id = OP_EVALUATE_GOALS },
+        { .operator_id = OP_CALL, .arg[0] = critic_main_algo_id },
         { .operator_id = OP_HALT }
     };
 
@@ -101,6 +122,7 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
     }
 }
 
+// TODO в dmn_loop — параллельно с VM-циклом — читать get_pending_tasks() и слать executor_enqueue_script("python3", "app/knowledge/retrieval.py", argv_with_query, &task_id).
 /* -----------------------------------------------
  * Основной цикл демона
  * ----------------------------------------------- */

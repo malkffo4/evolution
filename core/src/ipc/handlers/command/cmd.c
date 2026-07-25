@@ -20,70 +20,53 @@
 #include "storage/db/db.h"
 #include "storage/hyper_atom/hyper_atom.h"
 
-void cmd_learn(IPCPacket *req, IPCPacket *resp) {
-    MDB_txn *txn;
-    int rc;
-    if (mdb_txn_begin(db.env, NULL, 0, &txn) == MDB_SUCCESS) {
-        cJSON *root = cJSON_Parse(req->payload);
-        if (root) {
-            cJSON *type = cJSON_GetObjectItem(root, "type");
-            if (cJSON_IsString(type) && strcmp(type->valuestring, "pipeline") == 0) {
-                uint64_t algo_id = 0;
+typedef struct {
+    IPCPacket *req;
+    uint64_t   algo_id;
+    Pipeline  *imported_pipeline; // если это pipeline-payload
+} LearnJob;
 
-                // 1. Создаем объект конвейера в куче
-                Pipeline *imported_pipeline = pipeline_from_json(root, &algo_id);
-                cJSON_Delete(root); // Удаляем JSON сразу, он больше не нужен
+static int learn_txn_fn(MDB_txn *txn, void *arg) {
+    LearnJob *job = arg;
 
-                if (imported_pipeline) {
-                    // 2. Сохраняем в LMDB
-                    rc = algorithm_save(txn, algo_id, imported_pipeline);
-
-                    // 3. Вот теперь вызываем нужную очистку!
-                    pipeline_free(imported_pipeline);
-
-                    if (rc == 0) {
-                        mdb_txn_commit(txn);
-                        resp->type = IPC_RESPONSE;
-                        snprintf(resp->name, sizeof(resp->name), "learn");
-                        snprintf(resp->payload, sizeof(resp->payload), "{\"ok\": true, \"msg\": \"pipeline saved\"}");
-                        resp->payload_size = (uint32_t)strlen(resp->payload);
-                        return;
-                    } else {
-                        mdb_txn_abort(txn);
-                        goto error;
-                    }
-                } else {
-                    mdb_txn_abort(txn);
-                    goto error;
-                }
-            }
-            cJSON_Delete(root);
-        }
-
-        // не pipeline – гипер‑атомы
-        if (perceive_hyper_json(req->payload, txn, global_hyper_mem) == 0) {
-            mdb_txn_commit(txn);
-            resp->type = IPC_RESPONSE;
-            snprintf(resp->name, sizeof(resp->name), "learn");
-            snprintf(resp->payload, sizeof(resp->payload), "{\"ok\": true}");
-            resp->payload_size = (uint32_t)strlen(resp->payload);
-            return;
-        }
-        if (perceive_and_activate(req->payload, &global_wm, txn, global_hyper_mem) == 0) {
-            mdb_txn_commit(txn);
-            resp->type = IPC_RESPONSE;
-            snprintf(resp->name, sizeof(resp->name), "learn");
-            snprintf(resp->payload, sizeof(resp->payload), "{\"ok\": true}");
-            resp->payload_size = (uint32_t)strlen(resp->payload);
-            return;
-        } else {
-            mdb_txn_abort(txn);
-        }
+    if (job->imported_pipeline) {
+        return algorithm_save(txn, job->algo_id, job->imported_pipeline) == MDB_SUCCESS ? 0 : -1;
     }
-error:
+
+    if (perceive_hyper_json(job->req->payload, txn, global_hyper_mem) == 0)
+        return 0;
+
+    if (perceive_and_activate(job->req->payload, &global_wm, txn, global_hyper_mem) == 0)
+        return 0;
+
+    return -1;
+}
+
+void cmd_learn(IPCPacket *req, IPCPacket *resp) {
+    LearnJob job = { .req = req };
+
+    cJSON *root = cJSON_Parse(req->payload);
+    if (root) {
+        cJSON *type = cJSON_GetObjectItem(root, "type");
+        if (cJSON_IsString(type) && strcmp(type->valuestring, "pipeline") == 0) {
+            job.imported_pipeline = pipeline_from_json(root, &job.algo_id);
+        }
+        cJSON_Delete(root);
+    }
+
+    int rc = db_write_sync(learn_txn_fn, &job);
+
+    if (job.imported_pipeline)
+        pipeline_free(job.imported_pipeline);
+
     resp->type = IPC_RESPONSE;
-    snprintf(resp->name, sizeof(resp->name), "error");
-    snprintf(resp->payload, sizeof(resp->payload), "Learn failed");
+    if (rc == 0) {
+        snprintf(resp->name, sizeof(resp->name), "learn");
+        snprintf(resp->payload, sizeof(resp->payload), "{\"ok\": true}");
+    } else {
+        snprintf(resp->name, sizeof(resp->name), "error");
+        snprintf(resp->payload, sizeof(resp->payload), "Learn failed");
+    }
     resp->payload_size = (uint32_t)strlen(resp->payload);
 }
 

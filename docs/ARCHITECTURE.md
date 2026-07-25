@@ -618,6 +618,7 @@ The following rules must never be violated.
 - VM manages active cognition.
 - Tools access the outside world.
 - Plugins extend functionality.
+- Любая write-транзакция LMDB создаётся только внутри db_writer потока. Все остальные места (subconscious.c, IPC-хендлеры, VM-worker'ы) либо (а) читают в MDB_RDONLY-транзакции, открытой в своём же потоке, либо (б) формируют DbWriteFn и кладут в очередь через db_write_sync/db_write_async.
 
 If a feature breaks these invariants, the architecture must be redesigned rather than patched.
 

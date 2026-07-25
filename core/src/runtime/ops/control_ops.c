@@ -1,4 +1,4 @@
-// runtime/ops/control.c
+// runtime/ops/control_ops.c
 #include <stdbool.h>
 
 #include "runtime/vm/vm_status.h"

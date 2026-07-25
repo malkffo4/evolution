@@ -168,6 +168,7 @@ int vm_op_trace(VMContext *ctx, const Instruction *ins) {
     return VM_OK;
 }
 
+// "думать" (OP_SPAWN_CTX/гипотезы/аналогии) можно параллельно и в RDONLY
 // OP_SPAWN_CTX: Создает ветку реальности
 int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
     ko_id_t child_id = generate_id(ctx);
@@ -191,6 +192,7 @@ int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
     return VM_OK;
 }
 
+// "верить" (перенос гипотезы в базовую реальность через OP_MERGE_CTX) — это всегда одна атомарная write-операция через db_writer.
 // OP_MERGE_CTX: Схлопывание гипотезы (возврат в реальность)
 int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     float threshold = *(float*)&ins->arg[0]; // Читаем порог из аргумента-поплавка

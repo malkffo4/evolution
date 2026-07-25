@@ -1,4 +1,4 @@
-// runtime/ops/memory.c
+// runtime/ops/memory_ops.c
 #include <stdint.h>
 #include <string.h>
 
