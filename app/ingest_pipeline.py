@@ -1,91 +1,93 @@
 #!/usr/bin/env python3
 """
-ingest_pipeline.py
-===================
+ingest_pipeline.py (v2)
+========================
 
 Единый конвейер поглощения знаний для NeuroCore.
 
-Заменяет разрозненные и частично сломанные скрипты:
-  app/perception/pdf.py
-  app/perception/book_ingester.py
-  app/perception/filesystem.py
-
-Идея
-----
-1. Источник -> Source Adapter (PDF / TXT-MD заметки / код) -> текст/структура.
-2. Код НЕ гоняем через LLM — парсим детерминированно (см. docs/05_Understanding.md:
-   "Не вся обработка должна выполняться LLM"). Это экономит единственный
-   дефицитный ресурс — время слабой локальной модели.
-3. Обычный текст (книги) режем на маленькие чанки и извлекаем ЛИТЕРАЛЬНЫЕ факты
-   в формате nodes/edges (тот же формат, что уже понимает C-ядро в perception.c).
-4. Личные заметки (messy notes) прогоняются ДВАЖДЫ:
-     - литеральный проход (что написано)
-     - интерпретирующий проход (что автор, ВЕРОЯТНО, имел в виду — несколько
-       гипотез с confidence, это прямо ложится в вашу модель Hypothesis)
-5. Всё отправляется в C-ядро через уже существующий IPCClient (`learn`),
-   ничего в ядре менять не нужно.
-6. Чекпоинт на диске — обработка медленная (3B модель), процесс может упасть,
-   не хотим пере-жевывать всё с начала.
-7. Один поток, один запрос к Ollama одновременно — чтобы не убивать машину.
+Изменения относительно v1:
+  - Поддержка облачных LLM (Gemini, OpenAI) наравне с локальной Ollama —
+    флаг --provider {ollama,openai,gemini}. Ключи берутся из переменных
+    окружения GEMINI_API_KEY / OPENAI_API_KEY.
+  - Параллельные запросы (--concurrency N). Для ollama по умолчанию 1
+    (локальная модель и так съедает все ресурсы), для облака можно 4-8.
+  - Пропуск фронт-страниц PDF (--skip-pages N) — титульники, списки
+    ревьюеров/редакторов, оглавление съедают время впустую и не несут знаний.
+  - Прогресс с ETA в консоли.
 
 Использование
 -------------
-    python3 ingest_pipeline.py /path/to/books --kind book
-    python3 ingest_pipeline.py /path/to/notes --kind note
-    python3 ingest_pipeline.py /path/to/src   --kind code
+    # Локально (медленно, бесплатно)
+    python3 ingest_pipeline.py book.pdf --kind book --provider ollama
 
-    Флаги:
-      --dry-run       не отправлять в ядро, только печатать извлечённое
-      --reset         забыть чекпоинт и начать заново
-      --model NAME    имя модели в Ollama (по умолчанию qwen2.5:3b)
-      --chunk-size N  размер чанка в символах (по умолчанию 700 — маленький,
-                       чтобы 3B модель не "плыла")
+    # Через Gemini (быстро, нужен ключ)
+    export GEMINI_API_KEY=...
+    python3 ingest_pipeline.py book.pdf --kind book --provider gemini \\
+        --model gemini-2.0-flash --concurrency 6 --skip-pages 15
+
+    # Через OpenAI
+    export OPENAI_API_KEY=...
+    python3 ingest_pipeline.py book.pdf --kind book --provider openai \\
+        --model gpt-4o-mini --concurrency 6 --skip-pages 15
 """
 
 import argparse
 import ast
 import hashlib
 import json
+import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
 
 sys.path.append(str(Path(__file__).resolve().parent))
-from runtime.ipc import IPCClient  # noqa: E402  (используем ваш существующий клиент)
+from runtime.ipc import IPCClient  # noqa: E402
 
 # --------------------------------------------------------------------------- #
-# Конфигурация
+# Конфигурация провайдеров
 # --------------------------------------------------------------------------- #
 
 OLLAMA_API = "http://localhost:11434/api/generate"
-DEFAULT_MODEL = "qwen2.5:3b"
-REQUEST_TIMEOUT = 180          # 3B модель на CPU может думать долго
-SLEEP_BETWEEN_CALLS = 0.3      # даём машине отдышаться между запросами
+OPENAI_API = "https://api.openai.com/v1/chat/completions"
+GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+DEFAULT_MODELS = {
+    "ollama": "qwen2.5:3b",
+    "openai": "gpt-4o-mini",
+    "gemini": "gemini-2.0-flash",
+}
+
+REQUEST_TIMEOUT = 180
+SLEEP_BETWEEN_CALLS = {"ollama": 0.3, "openai": 0.05, "gemini": 0.05}
 MAX_RETRIES = 2
 
 CHECKPOINT_PATH = Path(__file__).resolve().parent / ".ingest_checkpoint.json"
 
 # --------------------------------------------------------------------------- #
-# Промпты — ОДНА согласованная схема на весь конвейер.
-# Формат nodes/edges 1-в-1 совпадает с тем, что парсит core/src/perception/perception.c
-# (perceive_and_activate): id/label/danger/utility и source/target/relation.
+# Промпты — одна согласованная схема на весь конвейер (совпадает с тем,
+# что парсит core/src/perception/perception.c).
 # --------------------------------------------------------------------------- #
 
 LITERAL_PROMPT = """Ты — предельно точный и безэмоциональный экстрактор фактов.
 Читай ТОЛЬКО то, что явно написано в тексте. НИЧЕГО не додумывай и не обобщай.
+Игнорируй титульные данные, списки авторов/редакторов/ревьюеров, оглавления,
+посвящения — извлекай только техническое содержание (концепции, уязвимости,
+инструменты, техники, причинно-следственные связи).
 
 Извлеки:
 - "nodes": сущности, инструменты, техники, уязвимости, команды, концепции.
-  Поля: id (snake_case, англ.), label (как в тексте), danger (0..1, насколько
-  опасно/разрушительно), utility (0..1, насколько полезно как инструмент/приём).
+  Поля: id (snake_case, англ.), label (как в тексте), danger (0..1),
+  utility (0..1, насколько полезно как инструмент/приём).
 - "edges": явные отношения между узлами из текста.
-  Поля: source, target, relation (например CAUSES, USES, REQUIRES, EXPLOITS,
-  PART_OF, LEADS_TO — заглавными буквами, англ.).
+  Поля: source, target, relation (CAUSES, USES, REQUIRES, EXPLOITS, PART_OF,
+  LEADS_TO — заглавными, англ.).
 
-Если в тексте нет фактов — верни пустые списки. Не выдумывай.
+Если в тексте нет технических фактов (титульный лист, благодарности, список
+имён) — верни пустые списки.
 
 Верни СТРОГО валидный JSON и ничего кроме него:
 {{"nodes": [{{"id":"...", "label":"...", "danger":0.0, "utility":0.0}}],
@@ -95,21 +97,15 @@ LITERAL_PROMPT = """Ты — предельно точный и безэмоци
 \"\"\"{chunk}\"\"\"
 """
 
-# Для личных заметок: короткие, туманные, могут значить сразу несколько вещей.
-# Просим МОДЕЛЬ явно перечислить варианты толкования с уверенностью — это
-# ложится в вашу модель как Hypothesis (не Fact), что архитектурно корректно.
 INTERPRET_PROMPT = """Ты помогаешь восстановить смысл собственных черновых заметок
-автора по программированию/пентесту. Заметка написана "для себя" и может быть
+автора по программированию/пентесту. Заметка написана "для себя", может быть
 неполной, содержать сокращения или неочевидные ссылки на контекст.
 
-Не пытайся угадать ЕДИНСТВЕННЫЙ правильный смысл. Вместо этого предложи от 1 до 3
-РАЗНЫХ правдоподобных толкований того, что автор имел в виду и зачем это записал
-(идея? баг? todo? наблюдение? план атаки? архитектурное решение?).
+Предложи от 1 до 3 РАЗНЫХ правдоподобных толкований того, что автор имел в виду
+и зачем это записал (идея? баг? todo? наблюдение? план атаки? архитектурное
+решение?). Для каждого укажи confidence (0..1).
 
-Для каждого толкования укажи confidence (0..1) — насколько ты уверен, что именно
-это имел в виду автор.
-
-Верни СТРОГО валидный JSON и ничего кроме него, в формате гипер-атомов:
+Верни СТРОГО валидный JSON, формат гипер-атомов:
 {{"atoms": [
   {{"process": "MEANS", "args": ["<заметка_кратко>", "<толкование>"], "confidence": 0.6}}
 ]}}
@@ -119,8 +115,7 @@ INTERPRET_PROMPT = """Ты помогаешь восстановить смыс�
 """
 
 # --------------------------------------------------------------------------- #
-# Чекпоинт: что уже обработано (по хэшу содержимого чанка), чтобы не повторять
-# работу слабой модели заново после падения/прерывания.
+# Чекпоинт
 # --------------------------------------------------------------------------- #
 
 
@@ -139,8 +134,6 @@ class Checkpoint:
 
     def mark_done(self, key: str):
         self.done.add(key)
-        # Пишем после каждого чанка — обработка медленная, потеря прогресса
-        # при падении процесса недопустима.
         self.path.write_text(json.dumps(list(self.done)))
 
     def reset(self):
@@ -154,39 +147,18 @@ def chunk_key(text: str, tag: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Ollama: вызов + устойчивый парсинг JSON (модель иногда добавляет мусор
-# вокруг JSON или обрезает вывод — это норма для 3B модели, нужно уметь чинить).
+# LLM providers — единая точка вызова + устойчивый парсинг JSON
 # --------------------------------------------------------------------------- #
-
-
-def call_ollama(prompt: str, model: str) -> dict | None:
-    payload = {"model": model, "prompt": prompt, "format": "json", "stream": False}
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            resp = requests.post(OLLAMA_API, json=payload, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            raw = resp.json().get("response", "")
-            parsed = _repair_and_parse_json(raw)
-            if parsed is not None:
-                return parsed
-        except requests.exceptions.Timeout:
-            print(f"  [ollama] timeout (попытка {attempt + 1}/{MAX_RETRIES + 1})", file=sys.stderr)
-        except Exception as e:
-            print(f"  [ollama] ошибка: {e}", file=sys.stderr)
-        time.sleep(1.0)
-    return None
 
 
 def _repair_and_parse_json(raw: str) -> dict | None:
     raw = raw.strip()
-    # снять возможные ```json ... ``` обёртки
     raw = re.sub(r"^```(json)?", "", raw).strip()
     raw = re.sub(r"```$", "", raw).strip()
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
-    # попытка вытащить первый {...} блок, если модель дописала лишний текст
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if match:
         try:
@@ -196,9 +168,65 @@ def _repair_and_parse_json(raw: str) -> dict | None:
     return None
 
 
+def _call_ollama(prompt: str, model: str) -> str | None:
+    payload = {"model": model, "prompt": prompt, "format": "json", "stream": False}
+    resp = requests.post(OLLAMA_API, json=payload, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.json().get("response", "")
+
+
+def _call_openai(prompt: str, model: str) -> str | None:
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY не задан")
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.1,
+    }
+    resp = requests.post(OPENAI_API, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+
+def _call_gemini(prompt: str, model: str) -> str | None:
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY не задан")
+    url = GEMINI_API.format(model=model) + f"?key={key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
+    }
+    resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"]
+
+
+PROVIDER_CALLERS = {"ollama": _call_ollama, "openai": _call_openai, "gemini": _call_gemini}
+
+
+def call_llm(prompt: str, provider: str, model: str) -> dict | None:
+    caller = PROVIDER_CALLERS[provider]
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            raw = caller(prompt, model)
+            parsed = _repair_and_parse_json(raw) if raw else None
+            if parsed is not None:
+                return parsed
+        except requests.exceptions.Timeout:
+            print(f"  [{provider}] timeout (попытка {attempt + 1}/{MAX_RETRIES + 1})", file=sys.stderr)
+        except Exception as e:
+            print(f"  [{provider}] ошибка: {e}", file=sys.stderr)
+        time.sleep(1.0)
+    return None
+
+
 # --------------------------------------------------------------------------- #
-# Чанкинг текста. Маленькие чанки + небольшой overlap, чтобы не рвать мысль
-# ровно на границе, но и не перегружать контекст 3B модели.
+# Чанкинг
 # --------------------------------------------------------------------------- #
 
 
@@ -206,11 +234,9 @@ def chunk_text(text: str, size: int, overlap: int = 80):
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     if not text:
         return
-    start = 0
-    n = len(text)
+    start, n = 0, len(text)
     while start < n:
         end = min(start + size, n)
-        # стараемся резать по границе предложения/строки, а не посреди слова
         if end < n:
             cut = text.rfind("\n", start, end)
             if cut == -1 or cut <= start + size // 2:
@@ -218,20 +244,21 @@ def chunk_text(text: str, size: int, overlap: int = 80):
             if cut != -1 and cut > start + size // 3:
                 end = cut + 1
         piece = text[start:end].strip()
-        if len(piece) > 40:  # пропускаем совсем пустые обрывки
+        if len(piece) > 40:
             yield piece
         start = end - overlap if end - overlap > start else end
 
 
 # --------------------------------------------------------------------------- #
-# Source Adapters
+# Source adapters
 # --------------------------------------------------------------------------- #
 
 
-def read_pdf(path: Path) -> str:
-    import fitz  # PyMuPDF
+def read_pdf(path: Path, skip_pages: int = 0) -> str:
+    import fitz
     doc = fitz.open(path)
-    return "\n".join(page.get_text() for page in doc)
+    pages = list(doc)[skip_pages:]
+    return "\n".join(p.get_text() for p in pages)
 
 
 def read_text_file(path: Path) -> str:
@@ -239,11 +266,7 @@ def read_text_file(path: Path) -> str:
 
 
 def extract_code_structure(path: Path) -> dict:
-    """
-    Детерминированный (не-LLM) разбор кода: функции, классы, импорты, докстринги.
-    Экономит вызовы LLM там, где смысл извлекается парсингом, а не пониманием.
-    Пока полноценно поддержан Python (ast). Для C/H — простая эвристика.
-    """
+    """Детерминированный (не-LLM) разбор кода — экономит вызовы LLM."""
     nodes, edges = [], []
     text = read_text_file(path)
     mod_id = re.sub(r"[^a-zA-Z0-9_]", "_", path.stem)
@@ -269,7 +292,6 @@ def extract_code_structure(path: Path) -> dict:
                     nodes.append({"id": dep_id, "label": dep, "danger": 0.0, "utility": 0.3})
                     edges.append({"source": mod_id, "target": dep_id, "relation": "DEPENDS_ON"})
     else:
-        # C / H и прочее: грубая эвристика по #include и сигнатурам функций
         for inc in re.findall(r'#include\s*[<"]([^">]+)[">]', text):
             dep_id = re.sub(r"[^a-zA-Z0-9_]", "_", inc)
             nodes.append({"id": dep_id, "label": inc, "danger": 0.0, "utility": 0.3})
@@ -285,18 +307,39 @@ def extract_code_structure(path: Path) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Прогресс
+# --------------------------------------------------------------------------- #
+
+
+class Progress:
+    def __init__(self, total: int):
+        self.total = total
+        self.done = 0
+        self.start = time.time()
+
+    def tick(self):
+        self.done += 1
+        elapsed = time.time() - self.start
+        rate = self.done / elapsed if elapsed > 0 else 0
+        remaining = (self.total - self.done) / rate if rate > 0 else float("inf")
+        eta_min = remaining / 60
+        print(f"  [{self.done}/{self.total}] elapsed={elapsed/60:.1f}m ETA={eta_min:.1f}m", file=sys.stderr)
+
+
+# --------------------------------------------------------------------------- #
 # Основной конвейер
 # --------------------------------------------------------------------------- #
 
 
 class Ingestor:
-    def __init__(self, model: str, dry_run: bool, checkpoint: Checkpoint):
+    def __init__(self, provider: str, model: str, concurrency: int, dry_run: bool, checkpoint: Checkpoint):
+        self.provider = provider
         self.model = model
+        self.concurrency = concurrency
         self.dry_run = dry_run
         self.checkpoint = checkpoint
-        self.ipc = None
-        if not dry_run:
-            self.ipc = IPCClient()
+        self.ipc = None if dry_run else IPCClient()
+        if self.ipc:
             self.ipc.connect()
 
     def send_graph(self, payload: dict):
@@ -305,55 +348,72 @@ class Ingestor:
         if self.dry_run:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return
+        # ВАЖНО: IPCClient в текущем виде не потокобезопасен (один сокет).
+        # При параллельных запросах к LLM отправку в ядро всё равно
+        # сериализуем через этот же вызов из основного потока (см. process_book).
         resp = self.ipc.command("learn", json.dumps(payload))
-        ok = resp.get("payload", {})
-        print(f"  -> learn: {ok}")
+        print(f"  -> learn: {resp.get('payload', {})}")
 
-    def process_book(self, path: Path, chunk_size: int):
+    def _run_one(self, prompt: str) -> dict | None:
+        return call_llm(prompt, self.provider, self.model)
+
+    def process_book(self, path: Path, chunk_size: int, skip_pages: int):
         print(f"[BOOK] {path.name}")
-        text = read_pdf(path) if path.suffix.lower() == ".pdf" else read_text_file(path)
-        for i, chunk in enumerate(chunk_text(text, chunk_size)):
-            key = chunk_key(chunk, f"book:{path.name}")
-            if self.checkpoint.is_done(key):
-                continue
-            print(f"  чанк {i}: {len(chunk)} симв.")
-            result = call_ollama(LITERAL_PROMPT.format(chunk=chunk), self.model)
-            if result:
-                self.send_graph(result)
-            self.checkpoint.mark_done(key)
-            time.sleep(SLEEP_BETWEEN_CALLS)
+        text = read_pdf(path, skip_pages) if path.suffix.lower() == ".pdf" else read_text_file(path)
+        chunks = [
+            (i, c) for i, c in enumerate(chunk_text(text, chunk_size))
+            if not self.checkpoint.is_done(chunk_key(c, f"book:{path.name}"))
+        ]
+        if not chunks:
+            print("  всё уже обработано (см. чекпоинт)")
+            return
+        progress = Progress(len(chunks))
+
+        def work(item):
+            i, chunk = item
+            result = self._run_one(LITERAL_PROMPT.format(chunk=chunk))
+            return i, chunk, result
+
+        # Для ollama concurrency=1 обязателен (одна модель — один поток исполнения).
+        # Для облака можно параллелить сами запросы к LLM, но отправку в C-ядро
+        # всё равно делаем последовательно из главного потока (ниже).
+        with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
+            futures = [pool.submit(work, item) for item in chunks]
+            for fut in as_completed(futures):
+                i, chunk, result = fut.result()
+                if result:
+                    self.send_graph(result)
+                self.checkpoint.mark_done(chunk_key(chunk, f"book:{path.name}"))
+                progress.tick()
+                time.sleep(SLEEP_BETWEEN_CALLS[self.provider])
 
     def process_note(self, path: Path, chunk_size: int):
         print(f"[NOTE] {path.name}")
         text = read_text_file(path)
-        # заметки режем мельче книг — они и так плотные по смыслу
         for i, chunk in enumerate(chunk_text(text, min(chunk_size, 400))):
             lit_key = chunk_key(chunk, f"note-lit:{path.name}")
             int_key = chunk_key(chunk, f"note-int:{path.name}")
 
             if not self.checkpoint.is_done(lit_key):
-                print(f"  чанк {i} (литерально)")
-                result = call_ollama(LITERAL_PROMPT.format(chunk=chunk), self.model)
+                result = self._run_one(LITERAL_PROMPT.format(chunk=chunk))
                 if result:
                     self.send_graph(result)
                 self.checkpoint.mark_done(lit_key)
-                time.sleep(SLEEP_BETWEEN_CALLS)
+                time.sleep(SLEEP_BETWEEN_CALLS[self.provider])
 
             if not self.checkpoint.is_done(int_key):
-                print(f"  чанк {i} (интерпретация)")
-                result = call_ollama(INTERPRET_PROMPT.format(chunk=chunk), self.model)
+                result = self._run_one(INTERPRET_PROMPT.format(chunk=chunk))
                 if result:
                     self.send_graph(result)
                 self.checkpoint.mark_done(int_key)
-                time.sleep(SLEEP_BETWEEN_CALLS)
+                time.sleep(SLEEP_BETWEEN_CALLS[self.provider])
 
     def process_code(self, path: Path):
         key = chunk_key(path.name + str(path.stat().st_mtime), f"code:{path}")
         if self.checkpoint.is_done(key):
             return
         print(f"[CODE] {path}")
-        result = extract_code_structure(path)
-        self.send_graph(result)
+        self.send_graph(extract_code_structure(path))
         self.checkpoint.mark_done(key)
 
     def close(self):
@@ -370,13 +430,19 @@ EXT_BY_KIND = {
 
 def main():
     ap = argparse.ArgumentParser(description="Единый конвейер поглощения знаний NeuroCore")
-    ap.add_argument("path", type=str, help="Файл или папка с источниками")
+    ap.add_argument("path", type=str)
     ap.add_argument("--kind", choices=["book", "note", "code"], required=True)
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--chunk-size", type=int, default=700)
+    ap.add_argument("--provider", choices=["ollama", "openai", "gemini"], default="ollama")
+    ap.add_argument("--model", default=None, help="по умолчанию берётся из DEFAULT_MODELS")
+    ap.add_argument("--chunk-size", type=int, default=900)
+    ap.add_argument("--skip-pages", type=int, default=0, help="сколько первых страниц PDF пропустить (титульник и т.п.)")
+    ap.add_argument("--concurrency", type=int, default=None, help="1 для ollama, 4-8 для облака")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--reset", action="store_true")
     args = ap.parse_args()
+
+    model = args.model or DEFAULT_MODELS[args.provider]
+    concurrency = args.concurrency or (1 if args.provider == "ollama" else 5)
 
     checkpoint = Checkpoint(CHECKPOINT_PATH)
     if args.reset:
@@ -387,14 +453,15 @@ def main():
     files = [root] if root.is_file() else sorted(
         p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in exts
     )
-    print(f"Найдено файлов: {len(files)}")
+    print(f"Найдено файлов: {len(files)} | provider={args.provider} model={model} concurrency={concurrency}")
 
-    ingestor = Ingestor(model=args.model, dry_run=args.dry_run, checkpoint=checkpoint)
+    ingestor = Ingestor(provider=args.provider, model=model, concurrency=concurrency,
+                         dry_run=args.dry_run, checkpoint=checkpoint)
     try:
         for path in files:
             try:
                 if args.kind == "book":
-                    ingestor.process_book(path, args.chunk_size)
+                    ingestor.process_book(path, args.chunk_size, args.skip_pages)
                 elif args.kind == "note":
                     ingestor.process_note(path, args.chunk_size)
                 elif args.kind == "code":

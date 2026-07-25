@@ -2,6 +2,8 @@
 #ifndef RULE_H
 #define RULE_H
 
+#include "pattern.h"
+
 typedef struct {
     Pattern condition;
     Pattern conclusion;

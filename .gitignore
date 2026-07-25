@@ -35,7 +35,7 @@ cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
-Makefile
+# Makefile
 compile_commands.json
 
 # Autotools
@@ -47,20 +47,36 @@ configure
 libtool
 m4/
 
-# Other
-tree.txt
-tree.md
-*.mdb
-data/*
-venv
-venv/
-plugins/venv
-plugins/__pycache__
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
 *.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test/output files
 *.log
-/evolution_core
-core/evolution_core
-core/test_vm_env-lock
-core.zip
-app/.ingest_checkpoint.json
+
+# Other
+*.mdb
+data/
+logs/
+evolution_core
+test_vm_env-lock
+*.zip
+.ingest_checkpoint.json

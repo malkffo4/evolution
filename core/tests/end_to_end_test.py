@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """End-to-end test: запускает ядро, bootstrap, think, проверяет результат."""
-import subprocess, time, sys, os, json
+import subprocess, time, sys, os
+from pathlib import Path
 
 # Добавляем путь к app, чтобы импортировать IPCClient и bootstrap
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'app'))
 from runtime.ipc import IPCClient
 from bootstrap import bootstrap_knowledge
 
-CORE_BIN = os.path.join(os.path.dirname(__file__), '..', 'build', 'debug', 'bin', 'evolution_core')
+CORE_BIN = Path(__file__).resolve().parent.parent / "build" / "debug" / "bin" / "evolution_core"
+
+if not CORE_BIN.exists():
+    sys.exit(f"""[ERROR] Evolution core binary not found.\nExpected: {CORE_BIN}\nBuild the project first, for example: make debug""")
 
 def main():
     # Запускаем ядро
-    proc = subprocess.Popen([CORE_BIN], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen([str(CORE_BIN)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     time.sleep(1.5)  # ждём готовности IPC
 
     ipc = IPCClient()

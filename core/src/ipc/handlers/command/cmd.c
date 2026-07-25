@@ -34,11 +34,17 @@ static int learn_txn_fn(MDB_txn *txn, void *arg) {
         return algorithm_save(txn, job->algo_id, job->imported_pipeline) == MDB_SUCCESS ? 0 : -1;
     }
 
-    if (perceive_hyper_json(job->req->payload, txn, global_hyper_mem) == 0)
-        return 0;
+    // Смотрим на структуру payload, чтобы не дёргать заведомо неверный парсер
+    // и не засорять system.log ложными ERROR.
+    cJSON *probe = cJSON_Parse(job->req->payload);
+    bool has_atoms = probe && cJSON_HasObjectItem(probe, "atoms");
+    bool has_nodes = probe && cJSON_HasObjectItem(probe, "nodes");
+    if (probe) cJSON_Delete(probe);
 
-    if (perceive_and_activate(job->req->payload, &global_wm, txn, global_hyper_mem) == 0)
-        return 0;
+    if (has_atoms)
+        return perceive_hyper_json(job->req->payload, txn, global_hyper_mem) == 0 ? 0 : -1;
+    if (has_nodes)
+        return perceive_and_activate(job->req->payload, &global_wm, txn, global_hyper_mem) == 0 ? 0 : -1;
 
     return -1;
 }
