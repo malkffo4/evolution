@@ -11,6 +11,7 @@
 #include "memory/working.h"
 #include "memory/subconscious.h"
 #include "storage/db/db.h"
+#include "storage/db/db_writer.h"
 #include "ipc/ipc.h"
 #include "core/globals.h"
 #include "core/message_bus.h"
@@ -80,6 +81,7 @@ static void shutdown_everything(void) {
     wm_clear(&global_wm);
 
     // 5. Закрываем базу данных и файлы логов
+    db_writer_stop();
     close_lmdb();
     log_shutdown();
     release_lock();
@@ -121,6 +123,11 @@ static int init_everything(void) {
         return -1;
     }
 
+    if (db_writer_start() != 0) {
+        LOG_ERROR("Failed to start DB writer thread.");
+        return -1;
+    }
+
     // Инициализируем HyperMemory
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, 0, &txn) == MDB_SUCCESS) {
@@ -154,7 +161,7 @@ static int init_everything(void) {
 
 int main(void) {
     if (init_everything() != 0) {
-        wm_clear(&global_wm);
+        shutdown_everything();
         return EXIT_FAILURE;
     }
 
