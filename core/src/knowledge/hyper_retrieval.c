@@ -6,6 +6,20 @@
 #include "hyper_retrieval.h"
 #include <cjson/cJSON.h>
 #include "runtime/logging/logging.h"
+#include "storage/node/node.h"
+#include "storage/string_pool/string_pool.h"
+
+static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) {
+    Node n;
+    if (get_node(txn, id, &n) == MDB_SUCCESS) {
+        const char *label = get_string_from_pool(txn, n.name_hash);
+        if (label) {
+            snprintf(out, out_size, "%s", label);
+            return;
+        }
+    }
+    snprintf(out, out_size, "0x%llx", (unsigned long long)id);
+}
 
 char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_depth, int max_atoms) {
     cJSON *root = cJSON_CreateObject();
@@ -41,13 +55,19 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
                 snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].id);
                 cJSON_AddStringToObject(atom_json, "id", idbuf);
 
-                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].process_id);
-                cJSON_AddStringToObject(atom_json, "process", idbuf);
+                const char *proc_label = get_string_from_pool(hmem->txn, results[i].process_id);
+                cJSON_AddStringToObject(atom_json, "process", proc_label ? proc_label : "UNKNOWN");
 
                 cJSON *args_json = cJSON_AddArrayToObject(atom_json, "args");
                 for (int a = 0; a < 3; a++) {
                     if (results[i].args[a].raw != 0) {
-                        cJSON_AddItemToArray(args_json, cJSON_CreateNumber(results[i].args[a].raw));
+                        char label[128];
+                        if (HYPER_GET_TYPE(results[i].args[a].raw) == HYPER_TYPE_REF) {
+                            resolve_label(hmem->txn, HYPER_GET_ID(results[i].args[a].raw), label, sizeof(label));
+                        } else {
+                            snprintf(label, sizeof(label), "%lld", (long long)results[i].args[a].raw);
+                        }
+                        cJSON_AddItemToArray(args_json, cJSON_CreateString(label));
                     }
                 }
                 snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].context_id);

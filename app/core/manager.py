@@ -7,6 +7,7 @@ from core.ipc import IPCClient, DEFAULT_SOCKET, LOCK_FILE
 from core.help import show_help
 from core.llm import LLMClient
 from core.bootstrap import bootstrap_knowledge
+from services.chat_service import ChatService
 
 class EvolutionManager:
     def __init__(self):
@@ -18,10 +19,16 @@ class EvolutionManager:
         self.ipc = IPCClient()
         self.running = True
         self.core_started_by_manager = False
+        self.research_worker = self.root / "app" / "services" / "research_worker.py"
+        self.research_worker_process = None
+        self.chat = ChatService(self.ipc)
 
         # Добавляем файл для логов ядра, чтобы не ловить deadlock на пайпах
         self.core_log_path = "/tmp/evolution_core.log"
         self.core_log_fd = None
+
+        self.research_worker_log_path = "/tmp/evolution_research_worker.log"
+        self.research_worker_log_fd = None
 
     def initialize(self):
         print("[Manager] Initializing...")
@@ -34,13 +41,87 @@ class EvolutionManager:
             self.core_started_by_manager = False
             self.connect_ipc()
             print("[Manager] Ready.")
+        else:
+            # Ядро не отвечает – запускаем сами
+            self.start_core()
+            self.core_started_by_manager = True
+            self.wait_core()
+
+        try:
+            self.start_research_worker()
+        except Exception:
+            self.shutdown()
+            raise
+
+        print("[Manager] Ready.")
+
+    def start_research_worker(self):
+        print("[Manager] Starting ResearchWorker...")
+        try:
+            if self.research_worker_process and self.research_worker_process.poll() is None:
+                print("[Manager] ResearchWorker already running.")
+                return
+
+            if os.path.exists(self.research_worker_log_path):
+                try:
+                    os.unlink(self.research_worker_log_path)
+                except OSError:
+                    pass
+
+            self.research_worker_log_fd = open(self.research_worker_log_path, "w+")
+
+            self.research_worker_process = subprocess.Popen(
+                [sys.executable, "-u", str(self.research_worker)],
+                cwd=self.root,
+                stdout=self.research_worker_log_fd,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+
+            time.sleep(0.3)
+
+            if self.research_worker_process.poll() is not None:
+                tail = ""
+                try:
+                    self.research_worker_log_fd.flush()
+                    with open(self.research_worker_log_path, "r") as f:
+                        tail = f.read()[-2000:]
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    f"ResearchWorker exited during startup. Last logs:\n{tail or '(empty)'}"
+                )
+
+            print(f"[Manager] ResearchWorker started (pid={self.research_worker_process.pid}).")
+
+        except Exception as e:
+            self._stop_research_worker(force=True)
+            raise RuntimeError(f"Failed to start ResearchWorker: {e}") from e
+
+    def _stop_research_worker(self, force=False):
+        proc = self.research_worker_process
+        if not proc:
             return
 
-        # Ядро не отвечает – запускаем сами
-        self.start_core()
-        self.core_started_by_manager = True
-        self.wait_core()
-        print("[Manager] Ready.")
+        try:
+            if proc.poll() is None:
+                print("[Manager] Stopping ResearchWorker...")
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    if force:
+                        proc.kill()
+                        proc.wait(timeout=3)
+                    else:
+                        raise
+        finally:
+            if self.research_worker_log_fd:
+                try:
+                    self.research_worker_log_fd.close()
+                except Exception:
+                    pass
+                self.research_worker_log_fd = None
 
     def is_core_responding(self):
         """Живо ли ядро – проверяем только штатным пингом, без мусорных коннектов."""
@@ -225,18 +306,25 @@ class EvolutionManager:
                 print("\n[Manager] Bootstrap complete.")
             else:
                 try:
-                    resp = self.ipc.request("chat", {"text": text})
-                    self.format_and_print_response(resp)
+                    reply = self.chat.answer(text)
+                    print(f"\nAI: {reply}")
                 except Exception as e:
                     print(f"\n[ERROR] {e}")
 
     def shutdown(self):
+        if getattr(self, "_shutdown_done", False):
+            return
+        self._shutdown_done = True
         print("\n[Manager] Shutdown sequence initiated...")
+
         self.running = False
         try:
             self.ipc.close()
         except Exception:
             pass
+
+        # сначала гасим воркер, потом core
+        self._stop_research_worker(force=True)
 
         if self.core_started_by_manager:
             if self.core_process and self.core_process.poll() is None:

@@ -62,3 +62,16 @@ void record_execution_result(uint64_t algo_id, int rc) {
         quarantine_list[empty_slot].quarantined_until = 0;
     }
 }
+
+uint32_t critic_dump_failures(FailureSnapshot *out, int max) {
+    if (!out || max <= 0) return 0;
+    uint32_t n = 0;
+    for (int i = 0; i < MAX_QUARANTINE_NODES && (int)n < max; i++) {
+        if (quarantine_list[i].algo_id != 0 && quarantine_list[i].consecutive_failures > 0) {
+            out[n].algo_id = quarantine_list[i].algo_id;
+            out[n].consecutive_failures = quarantine_list[i].consecutive_failures;
+            n++;
+        }
+    }
+    return n;
+}

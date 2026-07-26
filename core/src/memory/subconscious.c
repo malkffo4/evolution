@@ -63,34 +63,44 @@ static Pipeline* build_critic_main_pipeline(void) {
     Pipeline *p = pipeline_create();
 
     Instruction code[] = {
-        // R7 = сколько failures прочитано, scratchpad[0..] = (algo_id, count) пары
-        { .operator_id = OP_READ_FAILURES, .arg = {0, 7} },
-        // Дальше — цикл по failures: если count > 3, OP_ASSERT HAS_FLAW(algo_id)
-        // и OP_DERIVE CONFIDENCE_DELTA(algo_id, -0.2)
-        // (цикл на текущем ISA придётся развернуть через OP_JGE/OP_JMP —
-        //  ровно то, что у вас уже заложено в opcode.h)
+        { .operator_id = OP_CRITIC_APPLY },
         { .operator_id = OP_HALT }
     };
 
     size_t num = sizeof(code)/sizeof(code[0]);
-    p->code_len = (uint32_t)num;
     memcpy(p->code, code, sizeof(code));
+    p->code_len = (uint32_t)num;
     p->capacity = (uint32_t)num;
     return p;
 }
 
-/* -----------------------------------------------
- * Гипер-операторный MainLoop
- * ----------------------------------------------- */
+static uint64_t g_critic_main_algo_id = 0;
+
+static void ensure_critic_main_exists(MDB_txn *txn) {
+    g_critic_main_algo_id = djb2_hash("CriticMain");
+
+    Pipeline *existing = NULL;
+    if (algorithm_load(txn, g_critic_main_algo_id, &existing) == 0) {
+        if (existing) pipeline_free(existing);
+        return;
+    }
+    Pipeline *cm = build_critic_main_pipeline();
+    if (cm) {
+        if (algorithm_save(txn, g_critic_main_algo_id, cm) != MDB_SUCCESS)
+            LOG_ERROR("Failed to save CriticMain algorithm");
+        pipeline_free(cm);
+    }
+}
+
 static Pipeline* build_main_loop_pipeline(void) {
     Pipeline *p = pipeline_create();
     if (!p) return NULL;
-    uint32_t critic_main_algo_id = 0; // TODO LOAD
+
     Instruction code[] = {
         { .operator_id = OP_LOAD_CONTEXT },
         { .operator_id = OP_SPREAD_ACTIVATION },
         { .operator_id = OP_EVALUATE_GOALS },
-        { .operator_id = OP_CALL, .arg[0] = critic_main_algo_id },
+        { .operator_id = OP_CALL, .arg[0] = (uint32_t)g_critic_main_algo_id },
         { .operator_id = OP_HALT }
     };
 
@@ -124,7 +134,8 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
     }
 }
 
-// TODO в dmn_loop — параллельно с VM-циклом — читать get_pending_tasks() и слать executor_enqueue_script("python3", "app/knowledge/retrieval.py", argv_with_query, &task_id).
+// TODO в dmn_loop — параллельно с VM-циклом — читать get_pending_tasks() и слать
+// executor_enqueue_script("python3", "app/knowledge/retrieval.py", argv_with_query, &task_id).
 /* -----------------------------------------------
  * Основной цикл демона
  * ----------------------------------------------- */
@@ -152,6 +163,7 @@ void* dmn_loop(void* arg) {
         if (global_hyper_mem)
             hyper_memory_set_txn(global_hyper_mem, txn);
 
+        ensure_critic_main_exists(txn);
         ensure_main_loop_exists(txn);
 
         // Проверка карантина ПЕРЕД выполнением

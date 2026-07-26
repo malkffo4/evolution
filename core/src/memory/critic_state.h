@@ -14,6 +14,13 @@ typedef struct {
     time_t quarantined_until;
 } QuarantineEntry;
 
+typedef struct {
+    uint64_t algo_id;
+    int consecutive_failures;
+} FailureSnapshot;
+
+uint32_t critic_dump_failures(FailureSnapshot *out, int max);
+
 void init_quarantine(void);
 
 bool is_quarantined(uint64_t algo_id);

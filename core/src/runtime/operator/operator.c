@@ -146,6 +146,8 @@ void operator_registry_init(void) {
     operator_register_native(OP_LOAD_CONTEXT, "load_context", 0, vm_op_load_context, NULL, 0, 0);
 
     operator_register_native(OP_VECTOR_SIM, "vector_sim", 0, vm_op_vector_sim, NULL, 0, 0);
+    operator_register_native(OP_CRITIC_APPLY, "critic_apply", 0, vm_op_critic_apply, NULL, 0, 0);
+
     // 2. Операторы с возможностями
     // ObjectType in_node[] = { REG_NODE };
     // operator_register_native(OP_GET_OUT_EDGES, "get_out_edges", CAP_GET_OUT_EDGES, vm_op_get_out_edges, in_node, 1, REG_EDGESET);

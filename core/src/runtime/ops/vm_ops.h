@@ -8,7 +8,6 @@
 
 int vm_op_nop(VMContext *,  const Instruction *);
 
-
 int vm_op_add(VMContext *, const Instruction *);
 
 int vm_op_clear(VMContext *, const Instruction *);
@@ -20,7 +19,6 @@ int vm_op_move(VMContext *, const Instruction *);
 int vm_op_set_tmp(VMContext *, const Instruction *);
 
 int vm_op_store(VMContext *, const Instruction *);
-
 
 // int vm_op_get_in_edges(VMContext *, const Instruction *);
 
@@ -39,7 +37,6 @@ int vm_op_call(VMContext *, const Instruction *);
 int vm_op_halt(VMContext *, const Instruction *);
 
 int vm_op_return(VMContext *, const Instruction *);
-
 
 int vm_op_check_cached_edge(VMContext *, const Instruction *);
 
@@ -65,11 +62,12 @@ int vm_op_spawn_ctx(VMContext *, const Instruction *);
 int vm_op_merge_ctx(VMContext *, const Instruction *);
 
 // Заглушки (пока просто вызывают старые функции)
-int vm_op_spread_activation(VMContext *ctx, const Instruction *ins);
-int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins);
+int vm_op_spread_activation(VMContext *, const Instruction *);
+int vm_op_evaluate_goals(VMContext *, const Instruction *);
 
-int vm_op_load_context(VMContext *ctx, const Instruction *ins);
+int vm_op_load_context(VMContext *, const Instruction *);
 
-int vm_op_vector_sim(VMContext *ctx, const Instruction *ins);
+int vm_op_vector_sim(VMContext *, const Instruction *);
+int vm_op_critic_apply(VMContext *, const Instruction *);
 
 #endif
