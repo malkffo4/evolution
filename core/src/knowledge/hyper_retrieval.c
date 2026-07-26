@@ -37,17 +37,28 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
             for (size_t i = 0; i < count && (int)(q_tail + 1) < max_atoms; i++) {
                 // Добавляем атом в результат
                 cJSON *atom_json = cJSON_CreateObject();
-                cJSON_AddNumberToObject(atom_json, "id", results[i].id);
-                cJSON_AddNumberToObject(atom_json, "process", results[i].process_id);
+                char idbuf[32];
+                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].id);
+                cJSON_AddStringToObject(atom_json, "id", idbuf);
+
+                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].process_id);
+                cJSON_AddStringToObject(atom_json, "process", idbuf);
+
                 cJSON *args_json = cJSON_AddArrayToObject(atom_json, "args");
                 for (int a = 0; a < 3; a++) {
                     if (results[i].args[a].raw != 0) {
                         cJSON_AddItemToArray(args_json, cJSON_CreateNumber(results[i].args[a].raw));
                     }
                 }
-                cJSON_AddNumberToObject(atom_json, "context", results[i].context_id);
-                cJSON_AddNumberToObject(atom_json, "time", results[i].time_tick);
-                cJSON_AddNumberToObject(atom_json, "cause", results[i].cause_id);
+                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].context_id);
+                cJSON_AddStringToObject(atom_json, "context", idbuf);
+
+                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].time_tick);
+                cJSON_AddStringToObject(atom_json, "time", idbuf);
+
+                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].cause_id);
+                cJSON_AddStringToObject(atom_json, "cause", idbuf);
+
                 cJSON_AddItemToArray(atoms_arr, atom_json);
 
                 // Добавляем новых участников в очередь

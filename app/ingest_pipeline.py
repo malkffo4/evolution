@@ -36,6 +36,7 @@ import ast
 import hashlib
 import json
 import os
+from dotenv import load_dotenv
 import re
 import sys
 import time
@@ -50,6 +51,8 @@ from runtime.ipc import IPCClient  # noqa: E402
 # --------------------------------------------------------------------------- #
 # Конфигурация провайдеров
 # --------------------------------------------------------------------------- #
+
+load_dotenv()  # читает .env
 
 OLLAMA_API = "http://localhost:11434/api/generate"
 OPENAI_API = "https://api.openai.com/v1/chat/completions"
@@ -176,7 +179,7 @@ def _call_ollama(prompt: str, model: str) -> str | None:
 
 
 def _call_openai(prompt: str, model: str) -> str | None:
-    key = os.environ.get("OPENAI_API_KEY")
+    key = os.getenv("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY не задан")
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
@@ -192,7 +195,7 @@ def _call_openai(prompt: str, model: str) -> str | None:
 
 
 def _call_gemini(prompt: str, model: str) -> str | None:
-    key = os.environ.get("GEMINI_API_KEY")
+    key = os.getenv("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY не задан")
     url = GEMINI_API.format(model=model) + f"?key={key}"
