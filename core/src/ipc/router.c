@@ -14,6 +14,7 @@ static const Route request_routes[] = {
     { "retrieve",       req_retrieve },
     { "execute",        req_execute_command},
     { "get_result",     req_get_command_result},
+    { "get_res_tasks",  req_get_research_tasks},
     { "embedding",      req_embedding },
     { "rerank",         req_rerank },
     { NULL, NULL }

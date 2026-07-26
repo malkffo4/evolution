@@ -70,4 +70,6 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins);
 
 int vm_op_load_context(VMContext *ctx, const Instruction *ins);
 
+int vm_op_vector_sim(VMContext *ctx, const Instruction *ins);
+
 #endif

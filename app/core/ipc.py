@@ -1,4 +1,4 @@
-# app/runtime/ipc.py
+# app/core/ipc.py
 import socket
 import itertools
 import struct

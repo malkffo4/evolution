@@ -1,7 +1,6 @@
 // runtime/ops/cognitive.c
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <stddef.h>
 #include <math.h>
 
@@ -10,9 +9,13 @@
 #include "runtime/vm/vm.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
+#include "runtime/logging/logging.h"
 #include "knowledge/algorithm_loader.h"
 #include "storage/vector_store/vector_store.h"
+#include "storage/string_pool/string_pool.h"
 #include "memory/working.h"
+#include "memory/critic_state.h"
+#include "memory/subconscious.h"
 #include "reasoning/planner.h"
 #include "reasoning/algorithm_planner.h"
 
@@ -241,25 +244,81 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
     planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
 
     // 2. Находим самую приоритетную цель
-    node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm);
-    if (goal_id == 0) return VM_OK; // нет активных целей
+    node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem);
+    if (goal_id == 0) return VM_NOT_FOUND; // нет активных целей
 
     // 3. Планировщик выбирает алгоритм
     node_id_t algo_id = 0;
     int rc = planner_select_algorithm(ctx->hyper_mem, goal_id, ctx, &algo_id);
-    if (rc != 0) return VM_NOT_FOUND;
+    if (rc != 0) {
+        const char *goal_name = get_string_from_pool(ctx->memory.txn, goal_id);
+        if (goal_name) enqueue_research_task(goal_id, goal_name);
+        set_goal_cooldown(goal_id);                  // ← добавить
+        // Опционально: уменьшить активацию цели в WM
+        // wm_deactivate(ctx->memory.wm, goal_id);      // если есть такая функция
+        return VM_OK;
+    }
 
     // 4. Загружаем и выполняем алгоритм
     Pipeline *algo = NULL;
     rc = algorithm_load(ctx->memory.txn, algo_id, &algo);
-    if (rc != 0) return VM_NOT_FOUND;
+    if (rc != 0) {
+        LOG_WARN("Failed to load algorithm %lu for goal %lu", algo_id, goal_id);
+        return VM_OK;
+    }
 
     // Запускаем в том же контексте (не порождая новый фрейм вручную)
     rc = vm_execute(ctx, algo);
+    if (rc != VM_OK) {
+        LOG_WARN("Algorithm %lu execution failed with status %d", algo_id, rc);
+        record_execution_result(algo_id, rc); // Передаём в критик
+    }
     pipeline_free(algo);   // освобождаем загруженный пайплайн
 
-    return rc;
+    return VM_OK; // Всегда завершаем ОК для MainLoop
 }
+// OR??? !!ВЫБРАТЬ ЛУЧШУЮ!!
+// int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
+//     (void)ins;
+//     if (!ctx->memory.wm || !ctx->memory.txn || !ctx->hyper_mem) return VM_ERROR;
+
+//     planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
+
+//     node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem);
+//     if (goal_id == 0) return VM_OK;
+
+//     // Получаем всех кандидатов
+//     node_id_t candidates[MAX_CANDIDATES_ALGO];
+//     int cand_count = 0;
+//     int rc = planner_select_all_algorithms(ctx->hyper_mem, goal_id, ctx, candidates, &cand_count);
+//     if (rc != 0 || cand_count == 0) {
+//         const char *goal_name = get_string_from_pool(ctx->memory.txn, goal_id);
+//         if (goal_name) enqueue_research_task(goal_id, goal_name);
+//         return VM_OK;
+//     }
+
+//     // Перебираем кандидатов, пока не найдём работающий
+//     for (int i = 0; i < cand_count; i++) {
+//         node_id_t algo_id = candidates[i];
+//         Pipeline *algo = NULL;
+//         rc = algorithm_load(ctx->memory.txn, algo_id, &algo);
+//         if (rc != 0) continue;
+
+//         rc = vm_execute(ctx, algo);
+//         pipeline_free(algo);
+
+//         if (rc == VM_OK) return VM_OK; // Успешно выполнили
+
+//         // Иначе логируем и пробуем следующий
+//         LOG_WARN("Algorithm %lu failed with status %d, trying next candidate", algo_id, rc);
+//         record_execution_result(algo_id, rc);
+//     }
+
+//     // Все кандидаты провалились
+//     const char *goal_name = get_string_from_pool(ctx->memory.txn, goal_id);
+//     if (goal_name) enqueue_research_task(goal_id, goal_name);
+//     return VM_NOT_FOUND;
+// }
 
 int vm_op_read_sp(VMContext *ctx, const Instruction *ins) {
     uint32_t dst_reg = ins->arg[0];
@@ -278,7 +337,7 @@ int vm_op_load_context(VMContext *ctx, const Instruction *ins) {
     (void)ins;
     if (!ctx->hyper_mem || !ctx->memory.wm) return VM_ERROR;
 
-    node_id_t goal = wm_get_highest_goal(ctx->memory.wm);
+    node_id_t goal = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem);
     if (!goal) return VM_OK;
 
     ctx->preloaded_edge_count = 0;

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-# app/runtime/manager.py
+# app/core/manager.py
 
 import signal, subprocess, time, os, sys, json
 from pathlib import Path
-from runtime.ipc import IPCClient, DEFAULT_SOCKET, LOCK_FILE
-from runtime.help import show_help
+from core.ipc import IPCClient, DEFAULT_SOCKET, LOCK_FILE
+from core.help import show_help
+from core.llm import LLMClient
+from core.bootstrap import bootstrap_knowledge
 
 class EvolutionManager:
     def __init__(self):
@@ -208,10 +210,9 @@ class EvolutionManager:
                 if not text_to_learn:
                     print("\nUsage: learn <text to extract knowledge from>")
                     continue
-                from models.learner import CognitiveLearner
-                learner = CognitiveLearner()
+                llm = LLMClient()
                 print("\n[Learner] Processing...")
-                learner.learn_text(text_to_learn)
+                llm.learn_text(text_to_learn)
                 print("[Learner] Done.")
             elif text.lower() == "think":
                 try:
@@ -220,7 +221,6 @@ class EvolutionManager:
                 except Exception as e:
                     print(f"\n[ERROR] {e}")
             elif text.lower() == "bootstrap":
-                from bootstrap import bootstrap_knowledge
                 bootstrap_knowledge(self.ipc, force=True)
                 print("\n[Manager] Bootstrap complete.")
             else:

@@ -16,5 +16,6 @@ typedef struct {
 } cognitive_chain_t;
 
 void planner_evaluate_goals(WorkingMemory *wm, void *txn);
+void set_goal_cooldown(uint64_t goal_id);
 
 #endif // REASON_PLANNER_H

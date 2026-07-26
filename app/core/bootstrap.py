@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+# загрузка начальных знаний
+# app/core/bootstrap.py
 import json, sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from runtime.ipc import IPCClient
+from core.ipc import IPCClient
 
 def is_already_bootstrapped(ipc: IPCClient) -> bool:
     resp = ipc.request("retrieve", {"query": "MetaType"})
@@ -24,7 +26,7 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
         {"process": "IS_A", "args": ["Algorithm", "MetaType"], "confidence": 1.0},
         {"process": "IS_A", "args": ["Relation", "MetaType"], "confidence": 1.0},
         {"process": "SOLVES", "args": ["Algorithm", "Goal"], "confidence": 1.0},
-        # {"process": "HAS_ALGORITHM", "args": ["Goal", "Algorithm"], "confidence": 1.0},  <-- удалить эту строку
+        {"process": "IS_A", "args": ["HAS_ALGORITHM", "GoalAlgorithmRelation"], "confidence": 1.0},
     ]
     resp = ipc.command("learn", json.dumps({"atoms": meta_atoms}))
     print(f"[Bootstrap] Meta-types: {resp}")
@@ -48,7 +50,7 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
     # Цель
     goal_atoms = [
         {"process": "IS_A", "args": ["FindVulnerability", "Goal"], "confidence": 1.0},
-        {"process": "HAS_ALGORITHM", "args": ["FindVulnerability", "CheckEdgeAlgo"], "confidence": 1.0},
+        {"process": "HAS_ALGORITHM", "args": ["CheckEdgeAlgo", "FindVulnerability"], "confidence": 1.0},
     ]
     resp = ipc.command("learn", json.dumps({"atoms": goal_atoms}))
     print(f"[Bootstrap] Goal: {resp}")
@@ -57,8 +59,8 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
         "type": "pipeline",
         "algo_name": "CheckEdgeAlgo",
         "code": [
-            {"operator_id": "OP_CHECK_CACHED_EDGE", "arg": [3, 0, 2, 1]},
-            {"operator_id": "OP_HALT"}
+            {"operator_id": "check_cached_edge", "arg": [3, 0, 2, 1]},
+            {"operator_id": "halt"}
         ],
         "constants": {
             "str_consts": ["A", "B", "CAUSES"]

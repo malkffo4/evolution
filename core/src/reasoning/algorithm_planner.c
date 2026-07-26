@@ -10,6 +10,34 @@
 #include "runtime/vm/vm_context.h"
 #include "runtime/ops/opcode.h"
 #include "math/hash.h"
+#include "memory/critic_state.h"
+
+// Ищет все идентификаторы процессов, которые связывают Goal и Algorithm.
+// Возвращает количество найденных отношений.
+size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size_t max_rels) {
+    // 1. Ищем все атомы типа IS_A, где значение — GoalAlgorithmRelation
+    node_id_t is_a = djb2_hash("IS_A");
+    node_id_t goal_algo_rel = djb2_hash("GoalAlgorithmRelation");
+
+    HyperAtom *isa_atoms = NULL;
+    size_t isa_count = 0;
+    if (hyper_find_by_process(hmem, is_a, 0, 0, &isa_atoms, &isa_count) != 0 || !isa_atoms)
+        return 0;
+
+    size_t found = 0;
+    for (size_t i = 0; i < isa_count && found < max_rels; i++) {
+        // Проверяем, что аргумент[1] (тип) == GoalAlgorithmRelation
+        if (isa_atoms[i].args[1].raw != goal_algo_rel) continue;
+
+        // args[0] содержит конкретный процесс (например, HAS_ALGORITHM, SOLVES, ...)
+        node_id_t rel_id = isa_atoms[i].args[0].raw;
+        if (rel_id != 0) {
+            rel_ids[found++] = rel_id;
+        }
+    }
+    free(isa_atoms);
+    return found;
+}
 
 /* ---------------------------------------------------------------- */
 /* Вспомогательная функция: поиск всех алгоритмов, связанных с целью */
@@ -28,19 +56,17 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
     int found = 0;
     for (size_t i = 0; i < count && found < max_out; i++) {
         HyperAtom *a = &atoms[i];
-        printf("DEBUG 1: atom args: [0]=0x%016lx, [1]=0x%016lx, [2]=0x%016lx, goal_id=0x%016lx\n",
-               a->args[0].raw, a->args[1].raw, a->args[2].raw, goal_id);
         // Проверяем, есть ли goal_id среди аргументов (обычно первый аргумент – цель)
         for (int arg_idx = 0; arg_idx < 3; arg_idx++) {
             if (HYPER_GET_TYPE(a->args[arg_idx].raw) == HYPER_TYPE_REF && HYPER_GET_ID(a->args[arg_idx].raw) == goal_id) {
-                printf("DEBUG 2: atom args: [0]=0x%016lx, [1]=0x%016lx, [2]=0x%016lx, goal_id=0x%016lx\n",
-                       a->args[0].raw, a->args[1].raw, a->args[2].raw, goal_id);
                 // Второй аргумент (или другой, в зависимости от модели) — алгоритм
                 for (int algo_idx = 0; algo_idx < 3; algo_idx++) {
                     if (algo_idx == arg_idx) continue;
                     if (HYPER_GET_TYPE(a->args[algo_idx].raw) == HYPER_TYPE_REF) {
                         node_id_t algo_id = HYPER_GET_ID(a->args[algo_idx].raw);
-                        out[found++] = algo_id;
+                        if (!is_quarantined(algo_id)) {
+                            out[found++] = algo_id;
+                        }
                         break;  // берём только один алгоритм на атом
                     }
                 }
@@ -92,4 +118,10 @@ int planner_select_algorithm(HyperMemory *hmem, node_id_t goal_id, VMContext *ct
 
     *out_algo_id = pick_best(ctx, candidates, cand_count);
     return 0;
+}
+
+int planner_select_all_algorithms(HyperMemory *hmem, node_id_t goal_id, VMContext *ctx,
+                                  node_id_t *candidates, int *cand_count) {
+    *cand_count = find_algorithms_for_goal(hmem, goal_id, candidates, MAX_CANDIDATES_ALGO);
+    return (*cand_count > 0) ? 0 : -2;
 }

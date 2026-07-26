@@ -1,6 +1,7 @@
 // memory/working.c
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "working.h"
 #include "storage/db/db.h"
@@ -8,6 +9,8 @@
 #include "storage/node/node.h"
 #include "storage/edge/edge.h"
 #include "types/id.h"
+#include "storage/hyper_atom/hyper_atom.h"
+#include "reasoning/algorithm_planner.h"
 
 int wm_init(WorkingMemory *wm, uint32_t node_cap, uint32_t edge_cap) {
     if (!wm) return 1;
@@ -240,7 +243,7 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
     return result;
 }
 
-node_id_t wm_get_highest_goal(WorkingMemory *wm) {
+node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem) {
     if (!wm) return 0;
 
     pthread_rwlock_rdlock(&wm->lock);
@@ -253,12 +256,31 @@ node_id_t wm_get_highest_goal(WorkingMemory *wm) {
     float best_score = -1.0f;
     for (uint32_t i = 0; i < wm->count; i++) {
         WorkingNode *n = &wm->nodes[i];
-        if (n->activation > 0.6f && n->state.usefulness > 0.7f) {
-            float score = n->activation * n->state.usefulness;
-            if (score > best_score) {
-                best_score = score;
-                best_id = n->node_id;
+        if (n->activation < 0.6f || n->state.usefulness < 0.7f) continue;
+
+        // Динамическая проверка: есть ли атом отношения Goal-Algorithm?
+        node_id_t rel_ids[16];
+        size_t rel_count = find_goal_algorithm_relations(hmem, rel_ids, 16);
+
+        bool is_goal = false;
+        for (size_t r = 0; r < rel_count; r++) {
+            HyperAtom *atoms = NULL;
+            size_t count = 0;
+            if (hyper_find_by_process(hmem, rel_ids[r], n->node_id, 0, &atoms, &count) == 0 && count > 0) {
+                free(atoms);
+                is_goal = true;
+                break;
             }
+            if (atoms) free(atoms);
+        }
+        if (!is_goal) {
+            continue;
+        }
+
+        float score = n->activation * n->state.usefulness;
+        if (score > best_score) {
+            best_score = score;
+            best_id = n->node_id;
         }
     }
 

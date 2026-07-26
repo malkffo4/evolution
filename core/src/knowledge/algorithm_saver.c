@@ -7,6 +7,7 @@
 #include "algorithm_saver.h"
 #include "types/id.h"
 #include "storage/db/db.h"
+#include "runtime/logging/logging.h"
 
 int algorithm_save(MDB_txn *txn, node_id_t algo_id, const Pipeline *pipeline) {
     if (!pipeline) return -1;

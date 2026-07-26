@@ -24,6 +24,7 @@ static AnalogyEvaluation analogy_fast_score(
     EdgeList *cand_out,
     const ReasoningStrategy *strategy);
 
+// TODO vm_op_vector_sim переиспользовать вместо C-шной node_similarity().
 // Простая метрика похожести двух узлов: 0..1
 static float node_similarity(MDB_txn *txn, node_id_t a, node_id_t b) {
     if (a == b) return 1.0f;

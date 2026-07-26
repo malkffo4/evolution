@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from runtime.manager import EvolutionManager
+from core.manager import EvolutionManager
 
 def main():
     manager = EvolutionManager()

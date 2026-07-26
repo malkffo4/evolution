@@ -51,20 +51,21 @@ static int learn_txn_fn(MDB_txn *txn, void *arg) {
 
 void cmd_learn(IPCPacket *req, IPCPacket *resp) {
     LearnJob job = { .req = req };
-
+    int rc = -1;
     cJSON *root = cJSON_Parse(req->payload);
     if (root) {
         cJSON *type = cJSON_GetObjectItem(root, "type");
         if (cJSON_IsString(type) && strcmp(type->valuestring, "pipeline") == 0) {
             job.imported_pipeline = pipeline_from_json(root, &job.algo_id);
+            if (job.imported_pipeline) {
+                LOG_DEBUG("Importing pipeline '%s', algo_id=%lu",
+                          cJSON_GetStringValue(cJSON_GetObjectItem(root, "algo_name")), job.algo_id);
+                rc = db_write_sync(learn_txn_fn, &job);
+                pipeline_free(job.imported_pipeline);
+            }
         }
         cJSON_Delete(root);
     }
-
-    int rc = db_write_sync(learn_txn_fn, &job);
-
-    if (job.imported_pipeline)
-        pipeline_free(job.imported_pipeline);
 
     resp->type = IPC_RESPONSE;
     if (rc == 0) {

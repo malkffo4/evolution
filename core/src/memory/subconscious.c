@@ -117,7 +117,9 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
 
     Pipeline *ml = build_main_loop_pipeline();
     if (ml) {
-        algorithm_save(txn, main_loop_algo_id, ml);
+        int rc = algorithm_save(txn, main_loop_algo_id, ml);
+        if (rc != MDB_SUCCESS)
+            LOG_ERROR("main_loop_algo_id not saved.");
         pipeline_free(ml);
     }
 }
@@ -129,14 +131,17 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
 void* dmn_loop(void* arg) {
     (void)arg;
     int rc;
+    int idle_cycles = 0;
 
     while(dmn_running && g_running) {
         // Уступаем процессор, если нет явного триггера
         if (!g_think_trigger) {
-            struct timespec ts = {0, 100000000}; // 100 мс
+            int delay_ms = 100 * (1 << (idle_cycles > 5 ? 5 : idle_cycles));
+            struct timespec ts = {delay_ms / 1000, (delay_ms % 1000) * 1000000};
             nanosleep(&ts, NULL);
+        } else {
+            g_think_trigger = 0;
         }
-        g_think_trigger = 0;
 
         if (!dmn_running || !g_running) break;
 
@@ -157,7 +162,7 @@ void* dmn_loop(void* arg) {
             nanosleep(&ts, NULL);
             continue;
         }
-
+        bool main_loop_executed_ok = false;
         Pipeline *main_loop = NULL;
         if (algorithm_load(txn, main_loop_algo_id, &main_loop) == 0 && main_loop) {
             VMContext ctx;
@@ -174,18 +179,25 @@ void* dmn_loop(void* arg) {
                 // Делегируем анализ успеха/провала Критику
                 record_execution_result(main_loop_algo_id, rc);
 
-                if (rc != VM_OK && rc != VM_NOT_FOUND) {
+                if (rc == VM_OK) {
                     // TODO: Здесь можно добавить генерацию fail_atom в БД,
                     // когда структура HyperAtom будет полностью утверждена.
+                    main_loop_executed_ok = true;   // успешное выполнение
+                } else if (rc == VM_NOT_FOUND) {
+                    // нет целей – цикл был холостым, не сбрасываем idle_cycles
+                } else {
                     LOG_DEBUG("MainLoop execution halted with status %d", rc);
                 }
-
                 vm_destroy(&ctx);
             } else {
                 LOG_ERROR("Error vm_init()");
             }
             pipeline_free(main_loop);
         }
+        if (main_loop_executed_ok)   // введите признак "была полезная работа"
+            idle_cycles = 0;
+        else
+            idle_cycles++;
 
         // Коммитим транзакцию, чтобы сохранить возможные полезные изменения
         // рабочей памяти до момента таймаута

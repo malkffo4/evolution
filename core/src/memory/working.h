@@ -8,6 +8,7 @@
 #include "types/id.h"
 #include "memory/cognitive.h"
 #include "storage/graph/graph.h"
+#include "storage/hyper_atom/hyper_atom.h"
 
 // Динамическое свойство узла (ключ-значение)
 typedef struct DynamicProperty {
@@ -48,7 +49,7 @@ void wm_decay(WorkingMemory *wm);
 
 void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn);
 
-node_id_t wm_get_highest_goal(WorkingMemory *wm);
+node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem);
 
 void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const char *value);
 const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key);

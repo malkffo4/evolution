@@ -207,7 +207,6 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
         if (result != 0 && result != 1) {   // <-- разрешаем уже существующие атомы
             LOG_ERROR("Failed to assert atom");
         } else {
-            LOG_DEBUG("Asserted atom: id=%lu process=%lu", atom.id, atom.process_id);
             if (atom.process_id == djb2_hash("HAS_ALGORITHM")) {
                 ko_id_t goal = HYPER_GET_ID(atom.args[0].raw);
                 ko_id_t algo = HYPER_GET_ID(atom.args[1].raw);

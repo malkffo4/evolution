@@ -5,8 +5,8 @@ from pathlib import Path
 
 # Добавляем путь к app, чтобы импортировать IPCClient и bootstrap
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'app'))
-from runtime.ipc import IPCClient
-from bootstrap import bootstrap_knowledge
+from core.ipc import IPCClient
+from core.bootstrap import bootstrap_knowledge
 
 CORE_BIN = Path(__file__).resolve().parent.parent / "build" / "debug" / "bin" / "evolution_core"
 

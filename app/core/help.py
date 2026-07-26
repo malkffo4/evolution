@@ -1,4 +1,4 @@
-# app/runtime/help.py
+# app/core/help.py
 # -*- coding: utf-8 -*-
 
 GENERAL_HELP = """

@@ -12,6 +12,7 @@
 #include "execution/executor.h"     // executor_run_sync()
 #include "types/exec.h"             // EXEC
 #include "core/globals.h"
+#include "memory/subconscious.h"
 
 void req_ping(IPCPacket *req, IPCPacket *resp) {
     LOG_IPC("Handling ping request id=%lu", req->id);
@@ -249,4 +250,24 @@ void req_get_command_result(IPCPacket *req, IPCPacket *resp) {
         strncpy(resp->payload, pending, sizeof(resp->payload)-1);
         resp->payload_size = (uint32_t)strlen(pending);
     }
+}
+
+void req_get_research_tasks(IPCPacket *req, IPCPacket *resp) {
+    (void)req;
+    ResearchTask tasks[MAX_PENDING_TASKS];
+    int count = get_pending_tasks(tasks, MAX_PENDING_TASKS);
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < count; i++) {
+        cJSON *t = cJSON_CreateObject();
+        cJSON_AddNumberToObject(t, "node_id", tasks[i].node_id);
+        cJSON_AddStringToObject(t, "query", tasks[i].query);
+        cJSON_AddItemToArray(arr, t);
+    }
+    char *json_str = cJSON_PrintUnformatted(arr);
+    snprintf(resp->payload, sizeof(resp->payload), "%s", json_str);
+    resp->payload_size = (uint32_t)strlen(resp->payload);
+    free(json_str);
+    cJSON_Delete(arr);
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "get_research_tasks", sizeof(resp->name)-1);
 }
