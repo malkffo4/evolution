@@ -31,6 +31,7 @@ static const Route command_routes[] = {
     { "learn",          cmd_learn },
     { "shutdown",       cmd_shutdown },
     { "think",          cmd_think },
+    { "execute_op",     cmd_execute_op },
     { NULL, NULL }
 };
 

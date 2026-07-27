@@ -19,6 +19,7 @@ typedef struct {
             MDB_dbi idx_process;
             MDB_dbi idx_args;
             MDB_dbi idx_context;
+            MDB_dbi patterns;
         } hyper;
         struct {
             MDB_dbi edges_by_source;

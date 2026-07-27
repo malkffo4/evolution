@@ -80,3 +80,4 @@ evolution_core
 test_vm_env-lock
 *.zip
 .ingest_checkpoint.json
+.neurocore_history

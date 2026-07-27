@@ -2,6 +2,8 @@
 # app/core/manager.py
 
 import signal, subprocess, time, os, sys, json
+import readline
+import atexit
 from pathlib import Path
 from core.ipc import IPCClient, DEFAULT_SOCKET, LOCK_FILE
 from core.help import show_help
@@ -29,6 +31,8 @@ class EvolutionManager:
 
         self.research_worker_log_path = "/tmp/evolution_research_worker.log"
         self.research_worker_log_fd = None
+
+        self.histfile = self.root / "app" / ".neurocore_history"
 
     def initialize(self):
         print("[Manager] Initializing...")
@@ -246,6 +250,14 @@ class EvolutionManager:
             print(f"\nAI (Raw): {response}")
 
     def run(self):
+        # Настройка истории команд
+        try:
+            readline.read_history_file(self.histfile)
+            readline.set_history_length(1000)
+        except FileNotFoundError:
+            pass
+        atexit.register(readline.write_history_file, self.histfile)
+
         print("\n" + "="*60)
         print("  NeuroCore Runtime")
         print("  Type 'help' for commands, 'exit' to quit")
@@ -257,6 +269,9 @@ class EvolutionManager:
             except (EOFError, KeyboardInterrupt):
                 print("\n")
                 break
+            except UnicodeDecodeError:
+                # Нажаты клавиши, которые не декодируются (стрелки и т.п.) – игнорируем
+                continue
 
             if not user_input:
                 continue
@@ -293,7 +308,10 @@ class EvolutionManager:
                     continue
                 llm = LLMClient()
                 print("\n[Learner] Processing...")
-                llm.learn_text(text_to_learn)
+                try:
+                    llm.learn_text(text_to_learn)
+                except Exception as e:
+                    print(f"\n[ERROR] {e}")
                 print("[Learner] Done.")
             elif text.lower() == "think":
                 try:

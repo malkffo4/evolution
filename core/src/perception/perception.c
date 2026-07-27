@@ -33,8 +33,9 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
             cJSON *danger_json = cJSON_GetObjectItemCaseSensitive(node, "danger");
             cJSON *utility_json = cJSON_GetObjectItemCaseSensitive(node, "utility");
 
-            float danger = (float)cJSON_IsNumber(danger_json) ? danger_json->valuedouble : 0.1f;
-            float utility = (float)cJSON_IsNumber(utility_json) ? utility_json->valuedouble : 0.1f;
+            // ИСПРАВЛЕНИЕ: Правильный каст типов в тернарном операторе
+            float danger = cJSON_IsNumber(danger_json) ? (float)danger_json->valuedouble : 0.1f;
+            float utility = cJSON_IsNumber(utility_json) ? (float)utility_json->valuedouble : 0.1f;
 
             if (cJSON_IsString(id) && cJSON_IsString(label)) {
                 uint64_t node_id = djb2_hash(id->valuestring);
@@ -79,14 +80,14 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 logic_edge.context = 0;
                 upsert_edge(txn, &logic_edge);
 
-                // Создаём гипер-атом EDGE
+                // ИСПРАВЛЕНИЕ: Явное указание полей union для массива args (убирает -Wmissing-braces)
                 HyperAtom edge_atom = {
                     .id = 0,  // будет присвоен в hyper_assert_unique
                     .process_id = djb2_hash("EDGE"),
                     .args = {
-                        HYPER_MAKE_REF(logic_edge.key.source),
-                        HYPER_MAKE_REF(logic_edge.key.relation),
-                        HYPER_MAKE_REF(logic_edge.key.target)
+                        { .raw = HYPER_MAKE_REF(logic_edge.key.source) },
+                        { .raw = HYPER_MAKE_REF(logic_edge.key.relation) },
+                        { .raw = HYPER_MAKE_REF(logic_edge.key.target) }
                     },
                     .context_id = 0,
                     .time_tick = (uint64_t)time(NULL),
@@ -129,12 +130,15 @@ static ko_id_t resolve_arg(cJSON *arg_item) {
             return u.i | HYPER_TYPE_FLOAT;
         }
     } else if (cJSON_IsBool(arg_item)) {
-        return (ko_id_t)(arg_item->valueint) | HYPER_TYPE_INT;
+        // ИСПРАВЛЕНИЕ: Явный каст через int64_t (убирает -Wsign-conversion)
+        return (ko_id_t)(int64_t)(arg_item->valueint) | HYPER_TYPE_INT;
     }
     return 0; // неизвестный тип
 }
 
 int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
+    (void)txn; // ИСПРАВЛЕНИЕ: Подавляем ворнинг о неиспользуемом параметре
+
     if (!json_str || !hmem) return -1;
 
     cJSON *root = cJSON_Parse(json_str);
@@ -150,6 +154,9 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
         return -1;
     }
 
+    // ИСПРАВЛЕНИЕ: Выносим счетчик на уровень функции, чтобы он был доступен во всех блоках
+    static uint64_t next_id = 1;
+
     cJSON *atom_item;
     cJSON_ArrayForEach(atom_item, atoms) {
         // Читаем process (обязательно)
@@ -162,7 +169,7 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
         if (!cJSON_IsArray(args_json)) continue;
 
         HyperAtom atom = {0};
-        atom.id = 0; // будет сгенерирован позже (пока можно автоинкремент из хелпера)
+        atom.id = 0;
         atom.process_id = process_id;
 
         int arg_count = cJSON_GetArraySize(args_json);
@@ -170,7 +177,6 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             cJSON *arg = cJSON_GetArrayItem(args_json, i);
             atom.args[i].raw = resolve_arg(arg);
         }
-        // Если аргументов больше 3 – используем продолжение (но пока не реализовано)
 
         // Контекст (опционально)
         cJSON *ctx_json = cJSON_GetObjectItem(atom_item, "context");
@@ -190,18 +196,17 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             atom.cause_id = 0;
         }
 
-        // Уверенность (опционально, сохраним отдельным атомом BELIEF, если нужно)
+        // Уверенность (confidence) мы сейчас распарсим только для последующего использования в BELIEF
         cJSON *conf_json = cJSON_GetObjectItem(atom_item, "confidence");
-        if (conf_json && cJSON_IsNumber(conf_json)) {
-            float conf = (float)conf_json->valuedouble;
-            // Создаём атом BELIEF: (atom.id, ID_BELIEF, atom.id, conf)
-            // Но atom.id ещё не известен – сначала сохраним атом, потом добавим оценку
-            // Упростим: запомним, что нужно создать BELIEF после
-        }
 
         // Генерация ID
-        static uint64_t next_id = 0;
-        atom.id = ++next_id; // временное решение, потом заменим на глобальный счетчик
+        cJSON *id_json = cJSON_GetObjectItem(atom_item, "id");
+        if (cJSON_IsString(id_json)) {
+            atom.id = djb2_hash(id_json->valuestring);
+        } else {
+            // старший бит зарезервирован под "безымянные" авто-атомы
+            atom.id = (0x2000000000000000ULL | (next_id++)) & HYPER_VALUE_MASK;
+        }
 
         int result = hyper_assert_unique(hmem, &atom);
         if (result != 0 && result != 1) {   // <-- разрешаем уже существующие атомы
@@ -211,13 +216,14 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
                 ko_id_t goal = HYPER_GET_ID(atom.args[0].raw);
                 ko_id_t algo = HYPER_GET_ID(atom.args[1].raw);
                 wm_activate(&global_wm, goal, 0.8f, 0.9f);   // цель
-                wm_activate(&global_wm, algo, 0.5f, 0.5f);   // алгоритм (чтобы был в WM, но с меньшим приоритетом)
+                wm_activate(&global_wm, algo, 0.5f, 0.5f);   // алгоритм
             }
-            // Если была confidence, создаём атом BELIEF
+
+            // Если была confidence, создаём атом BELIEF (используя next_id, который теперь виден)
             if (conf_json && cJSON_IsNumber(conf_json)) {
                 HyperAtom belief_atom = {0};
                 belief_atom.id = ++next_id;
-                belief_atom.process_id = 0x0002; // ID_BELIEF (должно быть определено)
+                belief_atom.process_id = 0x0002; // ID_BELIEF
                 belief_atom.args[0].raw = HYPER_MAKE_REF(atom.id);
                 union { float f; uint32_t i; } u;
                 u.f = (float)conf_json->valuedouble;

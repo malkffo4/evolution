@@ -90,6 +90,8 @@ typedef enum {
 
     OP_VECTOR_SIM,
     OP_CRITIC_APPLY,
+
+    OP_MATCH_PATTERN,
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

@@ -30,5 +30,6 @@ void evt_rerank(IPCPacket *req, IPCPacket *resp);
 void cmd_learn(IPCPacket *req, IPCPacket *resp);
 void cmd_shutdown(IPCPacket *req, IPCPacket *resp);
 void cmd_think(IPCPacket *req, IPCPacket *resp);
+void cmd_execute_op(IPCPacket *req, IPCPacket *resp);
 
 #endif // IPC_HANDLERS_H

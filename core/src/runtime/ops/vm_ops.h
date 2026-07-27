@@ -70,4 +70,6 @@ int vm_op_load_context(VMContext *, const Instruction *);
 int vm_op_vector_sim(VMContext *, const Instruction *);
 int vm_op_critic_apply(VMContext *, const Instruction *);
 
+int vm_op_match_pattern(VMContext *, const Instruction *);
+
 #endif
