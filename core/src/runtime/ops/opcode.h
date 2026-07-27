@@ -61,17 +61,13 @@ typedef enum {
 
     // --- ПРИЧИННО-СЛЕДСТВЕННЫЙ ДВИЖОК (HYPER-OPS) ---
 
-    // OP_QUERY: (process_id, arg_filter, context_id) -> Массив ID в scratchpad
-    OP_QUERY,
+    OP_QUERY, // (process_id, arg_filter, context_id) -> Массив ID в scratchpad
 
-    // OP_ASSERT: Создает новый факт. ID генерируется, cause_id берется из текущего эпизода
-    OP_ASSERT,
+    OP_ASSERT, // Создает новый факт. ID генерируется, cause_id берется из текущего эпизода
 
-    // OP_DERIVE: Как ASSERT, но cause_id = ID аргументов (указывает логический вывод)
-    OP_DERIVE,
+    OP_DERIVE, // Как ASSERT, но cause_id = ID аргументов (указывает логический вывод)
 
-    // OP_TRACE: Выгружает цепочку cause_id (Откуда мы это знаем?)
-    OP_TRACE,
+    OP_TRACE, // Выгружает цепочку cause_id (Откуда мы это знаем?)
 
     // --- УПРАВЛЕНИЕ РЕАЛЬНОСТЬЮ (КОНТЕКСТАМИ) ---
     OP_SPAWN_CTX, // Создает ветку реальности (гипотезу)
