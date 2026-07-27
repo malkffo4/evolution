@@ -1,0 +1,41 @@
+// TODO Перепишите промпт для LLM (cybersec_analyzer.txt), чтобы он возвращал фреймы, а не просто тройки. У вас уже есть хороший пример в app/models/prompts/cybersec_analyzer.txt.
+
+Ты – анализатор кибербезопасности. Разложи следующий текст на фреймы (события/атаки/процессы) с ролями.
+Каждый фрейм – это отдельное событие (например, "Kerberoasting", "SQL Injection").
+Для каждого фрейма укажи:
+- "event_id": уникальный snake_case идентификатор события (например, "kerberoasting_attack").
+- "event_label": короткое описание события.
+- "roles": словарь ролей, где ключ – тип роли (AGENT, PATIENT, TECHNIQUE, CONDITION, RESULT, TOOL, TARGET), значение – объект узла с полями:
+    "id": snake_case идентификатор,
+    "label": человекочитаемое имя,
+    "type": один из: ENTITY, EVENT, TOOL, CONDITION, RESULT, VULNERABILITY,
+    "danger": число от 0 до 1 (насколько опасно),
+    "utility": число от 0 до 1 (насколько полезно).
+- "edges": список связей между ролями и событием. Каждая связь – объект: {{"source": "...", "target": "...", "relation": "HAS_AGENT" и т.п.}}.
+
+Также добавь глобальный список "nodes" с уникальными узлами (каждый узел со своим id).
+Текст: {text_chunk}
+
+Верни СТРОГО JSON в формате:
+{{
+    "frames": [
+        {{
+            "event_id": "...",
+            "event_label": "...",
+            "roles": {{
+                "AGENT": {{"id": "...", "label": "...", "type": "ENTITY", "danger": 0.0, "utility": 0.0}},
+                "TECHNIQUE": {{"id": "...", "label": "...", "type": "TOOL", "danger": 0.7, "utility": 0.8}},
+                "CONDITION": {{"id": "...", "label": "...", "type": "CONDITION", "danger": 0.2, "utility": 0.1}},
+                "RESULT": {{"id": "...", "label": "...", "type": "RESULT", "danger": 0.9, "utility": 0.9}}
+            }},
+            "edges": [
+                {{"source": "event_id", "target": "role_id", "relation": "HAS_AGENT"}},
+                {{"source": "event_id", "target": "role_id", "relation": "HAS_TECHNIQUE"}},
+                ...
+                ]
+        }}
+        ],
+        "nodes": [
+            {{"id": "some_node", "label": "...", "type": "...", "danger": 0.5, "utility": 0.5}}
+            ]
+}}
