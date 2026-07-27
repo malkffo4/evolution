@@ -5,6 +5,7 @@ import json, sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from core.ipc import IPCClient
+from knowledge.patterns import install_patterns
 
 def is_already_bootstrapped(ipc: IPCClient) -> bool:
     resp = ipc.request("retrieve", {"query": "MetaType"})
@@ -68,3 +69,5 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
     }
     resp = ipc.command("learn", json.dumps(pipeline_payload))
     print(f"[Bootstrap] Algorithm: {resp}")
+
+    install_patterns(ipc)

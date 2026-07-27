@@ -9,6 +9,17 @@
 #include "runtime/operator/operator.h"
 #include "runtime/logging/logging.h"
 #include "math/hash.h"
+#include "storage/hyper_atom/hyper_atom.h"
+
+static int find_var(cJSON *vars_arr, const char *name) {
+    int idx = 0;
+    cJSON *v;
+    cJSON_ArrayForEach(v, vars_arr) {
+        if (cJSON_IsString(v) && strcmp(v->valuestring, name) == 0) return idx;
+        idx++;
+    }
+    return -1;
+}
 
 static bool parse_constant_pool(cJSON *const_json, ConstantPool *c) {
     memset(c, 0, sizeof(ConstantPool));
@@ -83,4 +94,58 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
 
     parse_constant_pool(cJSON_GetObjectItem(root, "constants"), &p->constants);
     return p;
+}
+
+// Args schema: {"var": "name"} | {"const": "STRING_TO_HASH"} | {"any": true}
+int hyper_pattern_from_json(cJSON *root, HyperPattern *out) {
+    if (!root || !out) return -1;
+    memset(out, 0, sizeof(*out));
+
+    cJSON *id_json = cJSON_GetObjectItem(root, "pattern_id");
+    if (!cJSON_IsNumber(id_json)) return -1;
+    out->id = (ko_id_t)id_json->valuedouble;
+
+    cJSON *vars_arr = cJSON_GetObjectItem(root, "vars");
+    out->var_count = cJSON_IsArray(vars_arr) ? (uint32_t)cJSON_GetArraySize(vars_arr) : 0;
+    if (out->var_count > MAX_PATTERN_VARS) return -1;
+
+    cJSON *cond_arr = cJSON_GetObjectItem(root, "conditions");
+    if (!cJSON_IsArray(cond_arr)) return -1;
+    int cc = cJSON_GetArraySize(cond_arr);
+    if (cc <= 0 || cc > MAX_PATTERN_CONDITIONS) return -1;
+    out->condition_count = (uint32_t)cc;
+
+    for (int i = 0; i < cc; i++) {
+        cJSON *c = cJSON_GetArrayItem(cond_arr, i);
+        PatternCondition *pc = &out->conditions[i];
+
+        cJSON *proc = cJSON_GetObjectItem(c, "process");
+        if (!cJSON_IsString(proc)) return -1;
+        pc->process_id = djb2_hash(proc->valuestring);
+
+        cJSON *args = cJSON_GetObjectItem(c, "args");
+        if (!cJSON_IsArray(args) || cJSON_GetArraySize(args) != 3) return -1;
+
+        for (int s = 0; s < 3; s++) {
+            cJSON *a = cJSON_GetArrayItem(args, s);
+            cJSON *var = cJSON_GetObjectItem(a, "var");
+            cJSON *cst = cJSON_GetObjectItem(a, "const");
+            cJSON *any = cJSON_GetObjectItem(a, "any");
+
+            if (cJSON_IsString(var)) {
+                int vi = find_var(vars_arr, var->valuestring);
+                if (vi < 0) return -1;
+                pc->kind[s] = PARG_VAR;
+                pc->var_index[s] = (uint8_t)vi;
+            } else if (cJSON_IsString(cst)) {
+                pc->kind[s] = PARG_CONST;
+                pc->value[s] = HYPER_MAKE_REF(djb2_hash(cst->valuestring));
+            } else if (any && cJSON_IsTrue(any)) {
+                pc->kind[s] = PARG_ANY;
+            } else {
+                return -1;
+            }
+        }
+    }
+    return 0;
 }

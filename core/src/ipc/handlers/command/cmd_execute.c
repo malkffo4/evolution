@@ -84,16 +84,24 @@ static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
     cJSON_AddNumberToObject(job->response_payload, "status", (double)job->vm_status);
 
     cJSON *out_regs = cJSON_AddObjectToObject(job->response_payload, "regs");
-    cJSON_AddNumberToObject(out_regs, "3", (double)ctx.reg[3].i); // Явное приведение к double
-    cJSON_AddNumberToObject(out_regs, "4", (double)ctx.reg[4].i); // Явное приведение к double
+    int sp_base = (int)ins.arg[2];
+    uint32_t r_count    = ins.arg[3];
+    uint32_t r_varcount = ins.arg[4];
+    int64_t count_val    = (r_count    < VM_MAX_REGISTERS) ? ctx.reg[r_count].i    : 0;
+    int64_t varcount_val = (r_varcount < VM_MAX_REGISTERS) ? ctx.reg[r_varcount].i : 0;
 
     cJSON *scratchpad_json = cJSON_AddArrayToObject(job->response_payload, "scratchpad");
-    int count = (int)ctx.reg[3].i;
-    int var_count = (int)ctx.reg[4].i;
-    int sp_base = (int)ins.arg[2];
+
+    cJSON_AddNumberToObject(out_regs, "count", (double)count_val);
+    cJSON_AddNumberToObject(out_regs, "var_count", (double)varcount_val);
+    int count = (int)count_val;
+    int var_count = (int)varcount_val;
+
 
     for (int i = 0; i < count * var_count && (sp_base + i) < MAX_SCRATCHPAD; i++) {
-        cJSON_AddItemToArray(scratchpad_json, cJSON_CreateNumber((double)ctx.scratchpad[sp_base + i].value)); // Явное приведение к double
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%llu", (unsigned long long)ctx.scratchpad[sp_base + i].value);
+        cJSON_AddItemToArray(scratchpad_json, cJSON_CreateString(buf));
     }
 
     // Очистка выделенной памяти и уничтожение VM

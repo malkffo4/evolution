@@ -19,22 +19,25 @@
 #include "storage/db/db.h"
 #include "storage/db/db_writer.h"
 #include "storage/hyper_atom/hyper_atom.h"
+#include "storage/hyper_atom/hyper_pattern.h"
 
 typedef struct {
     IPCPacket *req;
     uint64_t   algo_id;
-    Pipeline  *imported_pipeline; // если это pipeline-payload
+    Pipeline  *imported_pipeline;
+    bool       is_pattern;
+    HyperPattern pattern;
 } LearnJob;
 
 static int learn_txn_fn(MDB_txn *txn, void *arg) {
     LearnJob *job = arg;
 
-    if (job->imported_pipeline) {
+    if (job->imported_pipeline)
         return algorithm_save(txn, job->algo_id, job->imported_pipeline) == MDB_SUCCESS ? 0 : -1;
-    }
 
-    // Смотрим на структуру payload, чтобы не дёргать заведомо неверный парсер
-    // и не засорять system.log ложными ERROR.
+    if (job->is_pattern)
+        return hyper_pattern_save(txn, db.graph.hyper.patterns, &job->pattern) == MDB_SUCCESS ? 0 : -1;
+
     cJSON *probe = cJSON_Parse(job->req->payload);
     bool has_atoms = probe && cJSON_HasObjectItem(probe, "atoms");
     bool has_nodes = probe && cJSON_HasObjectItem(probe, "nodes");
@@ -50,27 +53,27 @@ static int learn_txn_fn(MDB_txn *txn, void *arg) {
 
 void cmd_learn(IPCPacket *req, IPCPacket *resp) {
     LearnJob job = { .req = req };
-    cJSON *root = cJSON_Parse(req->payload);
+    cJSON *root = cJSON_Parse((char *)req->payload);
     if (root) {
         cJSON *type = cJSON_GetObjectItem(root, "type");
         if (cJSON_IsString(type) && strcmp(type->valuestring, "pipeline") == 0) {
             job.imported_pipeline = pipeline_from_json(root, &job.algo_id);
+        } else if (cJSON_IsString(type) && strcmp(type->valuestring, "hyper_pattern") == 0) {
+            job.is_pattern = (hyper_pattern_from_json(root, &job.pattern) == 0);
         }
         cJSON_Delete(root);
     }
 
-    // ВАЖНО: раньше db_write_sync вызывался ТОЛЬКО внутри if(pipeline).
-    // atoms/nodes payload никогда не коммитился.
     int rc = db_write_sync(learn_txn_fn, &job);
     if (job.imported_pipeline) pipeline_free(job.imported_pipeline);
 
     resp->type = IPC_RESPONSE;
     if (rc == 0) {
         snprintf(resp->name, sizeof(resp->name), "learn");
-        snprintf(resp->payload, sizeof(resp->payload), "{\"ok\": true}");
+        snprintf((char *)resp->payload, sizeof(resp->payload), "{\"ok\": true}");
     } else {
         snprintf(resp->name, sizeof(resp->name), "error");
-        snprintf(resp->payload, sizeof(resp->payload), "Learn failed");
+        snprintf((char *)resp->payload, sizeof(resp->payload), "Learn failed");
     }
     resp->payload_size = (uint32_t)strlen(resp->payload);
 }
