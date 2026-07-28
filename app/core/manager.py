@@ -10,6 +10,7 @@ from core.help import show_help
 from core.llm import LLMClient
 from core.bootstrap import bootstrap_knowledge
 from services.chat_service import ChatService
+from services.mvp_agent import MvpAgent
 
 class EvolutionManager:
     def __init__(self):
@@ -24,6 +25,7 @@ class EvolutionManager:
         self.research_worker = self.root / "app" / "services" / "research_worker.py"
         self.research_worker_process = None
         self.chat = ChatService(self.ipc)
+        self.mvp = MvpAgent(self.ipc, LLMClient())
 
         # Добавляем файл для логов ядра, чтобы не ловить deadlock на пайпах
         self.core_log_path = "/tmp/evolution_core.log"
@@ -306,10 +308,12 @@ class EvolutionManager:
                 if not text_to_learn:
                     print("\nUsage: learn <text to extract knowledge from>")
                     continue
-                llm = LLMClient()
-                print("\n[Learner] Processing...")
+                print("\n[Learner] Extracting triplets and writing to C-core...")
                 try:
-                    llm.learn_text(text_to_learn)
+                    graph = self.mvp.extract_triplets(text_to_learn)
+                    resp = self.mvp.store_graph(graph)
+                    print(f"[Learner] nodes={len(graph.get('nodes', []))} "
+                          f"edges={len(graph.get('edges', []))} -> {resp.get('payload')}")
                 except Exception as e:
                     print(f"\n[ERROR] {e}")
                 print("[Learner] Done.")
@@ -322,6 +326,16 @@ class EvolutionManager:
             elif text.lower() == "bootstrap":
                 bootstrap_knowledge(self.ipc, force=True)
                 print("\n[Manager] Bootstrap complete.")
+            elif text.lower().startswith("ask "):
+                query = text[4:].strip()
+                if not query:
+                    print("\nUsage: ask <question>")
+                    continue
+                try:
+                    reply = self.mvp.step(query)
+                    print(f"\nAI (MVP): {reply}")
+                except Exception as e:
+                    print(f"\n[ERROR] {e}")
             else:
                 try:
                     reply = self.chat.answer(text)

@@ -27,7 +27,10 @@ class NeuroSymbolicRAG:
         for a in atoms[:max_lines]:
             args = a.get("args", [])
             proc = a.get("process", "?")
-            if len(args) >= 2:
+            if proc == "EDGE" and len(args) >= 3:
+                # схема perceive_and_activate: args = [source, relation, target]
+                lines.append(f"{args[0]} --{args[1]}--> {args[2]}")
+            elif len(args) >= 2:
                 lines.append(f"{args[0]} --{proc}--> {args[1]}")
             elif args:
                 lines.append(f"{proc}({args[0]})")

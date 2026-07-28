@@ -3,6 +3,13 @@ import json
 from core.base_service import BaseService
 
 class KnowledgeService(BaseService):
+    def run(self, *args, **kwargs):
+            """Точка входа BaseService. Делегирует на learn_from_text."""
+            text = kwargs.get("text") if "text" in kwargs else (args[0] if args else None)
+            if not text:
+                raise ValueError("KnowledgeService.run() requires 'text'")
+            return self.learn_from_text(text)
+
     def get_graph_context(self, keyword: str) -> str:
         """Запрашивает семантический подграф у C-ядра"""
         try:

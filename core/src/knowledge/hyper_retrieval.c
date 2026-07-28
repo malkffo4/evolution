@@ -18,6 +18,13 @@ static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) 
             return;
         }
     }
+    // Это не узел (например, ID отношения relation или процесса EDGE) —
+    // пробуем найти строку напрямую в string_pool по её собственному хэшу.
+    const char *pooled = get_string_from_pool(txn, id);
+    if (pooled) {
+        snprintf(out, out_size, "%s", pooled);
+        return;
+    }
     snprintf(out, out_size, "0x%llx", (unsigned long long)id);
 }
 

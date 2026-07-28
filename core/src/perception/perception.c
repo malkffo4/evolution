@@ -80,6 +80,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 logic_edge.context = 0;
                 upsert_edge(txn, &logic_edge);
 
+                add_string_to_pool(txn, "EDGE"); // чтобы process-label резолвился при retrieve
                 // ИСПРАВЛЕНИЕ: Явное указание полей union для массива args (убирает -Wmissing-braces)
                 HyperAtom edge_atom = {
                     .id = 0,  // будет присвоен в hyper_assert_unique
