@@ -277,48 +277,6 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
 
     return VM_OK; // Всегда завершаем ОК для MainLoop
 }
-// OR??? !!ВЫБРАТЬ ЛУЧШУЮ!!
-// int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
-//     (void)ins;
-//     if (!ctx->memory.wm || !ctx->memory.txn || !ctx->hyper_mem) return VM_ERROR;
-
-//     planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
-
-//     node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem);
-//     if (goal_id == 0) return VM_OK;
-
-//     // Получаем всех кандидатов
-//     node_id_t candidates[MAX_CANDIDATES_ALGO];
-//     int cand_count = 0;
-//     int rc = planner_select_all_algorithms(ctx->hyper_mem, goal_id, ctx, candidates, &cand_count);
-//     if (rc != 0 || cand_count == 0) {
-//         const char *goal_name = get_string_from_pool(ctx->memory.txn, goal_id);
-//         if (goal_name) enqueue_research_task(goal_id, goal_name);
-//         return VM_OK;
-//     }
-
-//     // Перебираем кандидатов, пока не найдём работающий
-//     for (int i = 0; i < cand_count; i++) {
-//         node_id_t algo_id = candidates[i];
-//         Pipeline *algo = NULL;
-//         rc = algorithm_load(ctx->memory.txn, algo_id, &algo);
-//         if (rc != 0) continue;
-
-//         rc = vm_execute(ctx, algo);
-//         pipeline_free(algo);
-
-//         if (rc == VM_OK) return VM_OK; // Успешно выполнили
-
-//         // Иначе логируем и пробуем следующий
-//         LOG_WARN("Algorithm %lu failed with status %d, trying next candidate", algo_id, rc);
-//         record_execution_result(algo_id, rc);
-//     }
-
-//     // Все кандидаты провалились
-//     const char *goal_name = get_string_from_pool(ctx->memory.txn, goal_id);
-//     if (goal_name) enqueue_research_task(goal_id, goal_name);
-//     return VM_NOT_FOUND;
-// }
 
 int vm_op_read_sp(VMContext *ctx, const Instruction *ins) {
     uint32_t dst_reg = ins->arg[0];

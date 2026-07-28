@@ -285,17 +285,17 @@ int vm_op_wm_activate(VMContext *ctx, const Instruction *ins) {
   }
 
   node_id_t node_id = ctx->reg[node_reg].node;
-  // float activation = (float)ctx->reg[act_reg].fval;
-  // float priming = (float)ctx->reg[prime_reg].fval;
+  float activation = (float)ctx->reg[act_reg].f;
+  float priming = (float)ctx->reg[prime_reg].f;
 
-  // WorkingMemory *wm = ctx->memory.wm;
-  // if (!wm) {
-  //   LOG_ERROR("VM Engine: Working Memory context is missing");
-  //   return VM_ERROR;
-  // }
+  WorkingMemory *wm = ctx->memory.wm;
+  if (!wm) {
+    LOG_ERROR("VM Engine: Working Memory context is missing");
+    return VM_ERROR;
+  }
 
-  // // Возбуждаем узел в ассоциативной памяти
-  // wm_activate(wm, node_id, activation, priming);
+  // Возбуждаем узел в ассоциативной памяти
+  wm_activate(wm, node_id, activation, priming);
   return VM_OK;
 }
 
@@ -363,40 +363,33 @@ int vm_op_edge_write(VMContext *ctx, const Instruction *ins) {
  * векторов (similarity) > 0.75, перейти к созданию связи". Это превращает
  * виртуальную когнитивную машину в Тьюринг-полный граф-автомат. */
 int vm_op_cond_branch(VMContext *ctx, const Instruction *ins) {
-  uint32_t reg_a = ins->arg[0];
-  uint32_t reg_b = ins->arg[1];
-  int32_t offset = (int32_t)ins->arg[2]; // Смещение для IP
+    uint32_t reg_a = ins->arg[0];
+    uint32_t reg_b = ins->arg[1];
+    int32_t offset = (int32_t)ins->arg[2]; // смещение IP
 
-  if (!check_registers(reg_a, reg_b))
-    return VM_INVALID_REGISTER;
+    if (reg_a >= VM_MAX_REGISTERS || reg_b >= VM_MAX_REGISTERS)
+        return VM_INVALID_REGISTER;
 
-  bool condition_met = false;
+    VMFrame *frame = &ctx->frames[ctx->frame];
+    bool condition_met = false;
 
-  // Сравниваем значения в регистрах
-  // if (ctx->reg[reg_a].type == REG_FLOAT && ctx->reg[reg_b].type == REG_FLOAT) {
-  //   if (ctx->reg[reg_a].fval > ctx->reg[reg_b].fval) {
-  //     condition_met = true;
-  //   }
-  // } else if (ctx->reg[reg_a].type == REG_INT &&
-  //            ctx->reg[reg_b].type == REG_INT) {
-  //   if (ctx->reg[reg_a].ival > ctx->reg[reg_b].ival) {
-  //     condition_met = true;
-  //   }
-  // } else if (ctx->reg[reg_a].type == REG_FLOAT &&
-  //            ctx->reg[reg_b].type == REG_INT) {
-  //   if (ctx->reg[reg_a].fval > (double)ctx->reg[reg_b].ival) {
-  //     condition_met = true;
-  //   }
-  // }
+    // Сравнение значений в регистрах
+    Register *ra = &ctx->reg[reg_a];
+    Register *rb = &ctx->reg[reg_b];
 
-  // if (condition_met) {
-  //   // Меняем Instruction Pointer в контексте VM
-  //   // Минус 1 делается потому, что главный цикл VM инкрементирует IP после
-  //   // выполнения инструкции
-  //   ctx->ip += offset - 1;
-  //   LOG_DEBUG("VM Engine: Condition met, branching by offset %d (new IP: %u)",
-  //             offset, ctx->ip);
-  // }
+    if (ra->type == REG_FLOAT && rb->type == REG_FLOAT) {
+        if (ra->f > rb->f) condition_met = true;
+    } else if (ra->type == REG_INT && rb->type == REG_INT) {
+        if (ra->i > rb->i) condition_met = true;
+    } else if (ra->type == REG_FLOAT && rb->type == REG_INT) {
+        if (ra->f > (double)rb->i) condition_met = true;
+    } else if (ra->type == REG_INT && rb->type == REG_FLOAT) {
+        if ((double)ra->i > rb->f) condition_met = true;
+    }
 
-  return VM_OK;
+    if (condition_met) {
+        // Минус 1, т.к. IP уже инкрементирован перед выполнением инструкции
+        frame->ip += (uint32_t)((int32_t)frame->ip + offset - 1);
+    }
+    return VM_OK;
 }

@@ -71,7 +71,7 @@ static int match_edges(MDB_txn *txn, EdgeList *query, EdgeList *candidate,
             float sim = edge_similarity(txn, &query->items[i], &candidate->items[j]);
             if (sim > best) {
                 best = sim;
-                best_j = j;
+                best_j = (int)j;
             }
         }
         if (best_j >= 0) {
@@ -143,8 +143,8 @@ static AnalogyEvaluation analogy_fast_score(
     float out_sum = 0.f;
     for (int i = 0; i < out_count; i++) out_sum += out_matches[i].similarity;
 
-    eval.score.incoming = in_count ? in_sum / in_count : 0.f;
-    eval.score.outgoing = out_count ? out_sum / out_count : 0.f;
+    eval.score.incoming = in_count ? in_sum / (float)in_count : 0.f;
+    eval.score.outgoing = out_count ? out_sum / (float)out_count : 0.f;
     eval.score.center = node_similarity(txn, query_node, candidate);
 
     float in_cov = coverage_score(in_count, in_edges->count, cand_in->count);

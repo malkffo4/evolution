@@ -53,7 +53,7 @@ int main() {
     int rc;
 
     // ASSERT fire CAUSES smoke
-    // vm_op_assert: arg[0]=process_reg, arg[1]=arg0_reg, arg[2]=arg1_reg, arg[3]=dst_id_reg
+    // Сигнатура: arg[0]=process_reg, arg[1]=arg0_reg, arg[2]=arg1_reg, arg[3]=dst_id_reg
     ctx.reg[1].i = ID_CAUSES;
     ctx.reg[2].i = HYPER_MAKE_REF(ID_FIRE);
     ctx.reg[3].i = HYPER_MAKE_REF(ID_SMOKE);
@@ -72,7 +72,7 @@ int main() {
     ko_id_t smoke_alarm_id = ctx.reg[11].i;
 
     // DERIVE fire CAUSES alarm с причиной smoke_alarm_id
-    // vm_op_derive: arg[0]=process, arg[1]=arg0, arg[2]=arg1, arg[3]=cause_reg, arg[4]=dst_id_reg
+    // Сигнатура: arg[0]=process, arg[1]=arg0, arg[2]=arg1, arg[3]=cause_reg, arg[4]=dst_id_reg
     ctx.reg[1].i = ID_CAUSES;
     ctx.reg[2].i = HYPER_MAKE_REF(ID_FIRE);
     ctx.reg[3].i = HYPER_MAKE_REF(ID_ALARM);

@@ -124,9 +124,9 @@ int hyper_pattern_from_json(cJSON *root, HyperPattern *out) {
         pc->process_id = djb2_hash(proc->valuestring);
 
         cJSON *args = cJSON_GetObjectItem(c, "args");
-        if (!cJSON_IsArray(args) || cJSON_GetArraySize(args) != 3) return -1;
+        if (!cJSON_IsArray(args) || cJSON_GetArraySize(args) != PATTERN_ARG_SLOTS) return -1;
 
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < PATTERN_ARG_SLOTS; s++) {
             cJSON *a = cJSON_GetArrayItem(args, s);
             cJSON *var = cJSON_GetObjectItem(a, "var");
             cJSON *cst = cJSON_GetObjectItem(a, "const");

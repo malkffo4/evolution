@@ -10,6 +10,8 @@
 #define ID_IS_CHILD_OF 0x0001
 #define ID_BELIEF      0x0002
 
+typedef struct { ko_id_t old_id; ko_id_t new_id; } IdMap;
+
 static ko_id_t generate_id(VMContext *ctx) {
     (void)ctx;
     static uint64_t counter = 1;
@@ -196,6 +198,61 @@ int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
     return VM_OK;
 }
 
+// Вспомогательная функция: ремап причинного индекса
+static void remap_causal_index(HyperMemory *hmem, const IdMap *id_map, size_t map_size) {
+    if (!hmem->dbi_idx_causal) return;
+
+    MDB_cursor *cur;
+    if (mdb_cursor_open(hmem->txn, hmem->dbi_idx_causal, &cur) != MDB_SUCCESS)
+        return;
+
+    for (size_t m = 0; m < map_size; m++) {
+        ko_id_t old_id = id_map[m].old_id;
+        ko_id_t new_id = id_map[m].new_id;
+
+        // --- old_id как child (причина для других) ---
+        MDB_val key = { sizeof(ko_id_t), &old_id };
+        MDB_val val;
+        if (mdb_cursor_get(cur, &key, &val, MDB_SET) == MDB_SUCCESS) {
+            do {
+                MDB_val cause_val = val;  // копируем значение (cause_id)
+                // Вставляем запись с new_id
+                key.mv_data = &new_id;
+                mdb_put(hmem->txn, hmem->dbi_idx_causal, &key, &cause_val, MDB_APPENDDUP);
+                // Удаляем старую запись (курсор всё ещё на old_id)
+                mdb_cursor_del(cur, 0);
+            } while (mdb_cursor_get(cur, &key, &val, MDB_NEXT_DUP) == MDB_SUCCESS);
+        }
+
+        // --- old_id как parent (следствие для других) ---
+        // Ищем все записи, где в значении (mv_data) указан old_id.
+        // Поскольку DUPSORT, мы не можем искать по значению напрямую.
+        // Приходится сканировать весь индекс, но только один раз за merge – приемлемо.
+        MDB_val scan_key, scan_val;
+        if (mdb_cursor_get(cur, &scan_key, &scan_val, MDB_FIRST) == MDB_SUCCESS) {
+            do {
+                if (scan_val.mv_size == sizeof(ko_id_t)) {
+                    ko_id_t cause = *(ko_id_t*)scan_val.mv_data;
+                    if (cause == old_id) {
+                        ko_id_t child = *(ko_id_t*)scan_key.mv_data;
+                        // Удаляем старую пару (child, old_id)
+                        mdb_cursor_del(cur, 0);
+                        // Добавляем новую пару (child, new_id)
+                        MDB_val new_key = { sizeof(ko_id_t), &child };
+                        MDB_val new_val = { sizeof(ko_id_t), &new_id };
+                        mdb_put(hmem->txn, hmem->dbi_idx_causal, &new_key, &new_val, MDB_APPENDDUP);
+                        // Перезапускаем курсор на FIRST, т.к. мы изменили данные
+                        mdb_cursor_get(cur, &scan_key, &scan_val, MDB_FIRST);
+                        continue;
+                    }
+                }
+            } while (mdb_cursor_get(cur, &scan_key, &scan_val, MDB_NEXT) == MDB_SUCCESS);
+        }
+    }
+
+    mdb_cursor_close(cur);
+}
+
 // OP_MERGE_CTX: схлопывание гипотезы. Теперь ремапит id и в idx_causal тоже.
 int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     float threshold = *(float*)&ins->arg[0];
@@ -208,13 +265,10 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
 
     ko_id_t parent = get_parent_context(ctx->hyper_mem, ctx->current_context);
 
-    typedef struct { ko_id_t old_id; ko_id_t new_id; } IdMap;
     IdMap *id_map = count > 0 ? malloc(sizeof(IdMap) * count) : NULL;
     size_t map_size = 0;
 
     for (size_t i = 0; i < count; i++) {
-        // Используем truth_confidence как критерий принятия гипотезы —
-        // это заменяет старую get_confidence(atom_id) через process=ID_BELIEF.
         float conf = atoms[i].truth_confidence;
         if (conf >= threshold) {
             ko_id_t new_id = generate_id(ctx);
@@ -229,26 +283,30 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
         }
     }
 
-    for (size_t i = 0; i < count; i++) {
-        if (atoms[i].id == 0) continue;
+    // **РЕМАП ПРИЧИННОСТИ И ИНДЕКСОВ**
+    if (map_size > 0) {
+        remap_causal_index(ctx->hyper_mem, id_map, map_size);
 
-        // Ремапим ссылки-аргументы (args[0], args[1])
-        for (int arg_idx = 0; arg_idx < 2; arg_idx++) {
-            if (HYPER_GET_TYPE(atoms[i].args[arg_idx].raw) == HYPER_TYPE_REF) {
-                ko_id_t ref_val = HYPER_GET_ID(atoms[i].args[arg_idx].raw);
-                for (size_t m = 0; m < map_size; m++) {
-                    if (ref_val == id_map[m].old_id) {
-                        atoms[i].args[arg_idx].raw = HYPER_MAKE_REF(id_map[m].new_id);
-                        break;
+        // --- НОВЫЙ БЛОК: Ремаппинг ссылок внутри самой базы атомов и индексов ---
+        for (size_t i = 0; i < count; i++) {
+            if (atoms[i].id == 0) continue;
+
+            // Ремапим ссылки-аргументы (args[0], args[1]) внутри самого атома
+            for (int arg_idx = 0; arg_idx < HYPER_VAL_SLOTS; arg_idx++) {
+                if (HYPER_GET_TYPE(atoms[i].args[arg_idx].raw) == HYPER_TYPE_REF) {
+                    ko_id_t ref_val = HYPER_GET_ID(atoms[i].args[arg_idx].raw);
+                    for (size_t m = 0; m < map_size; m++) {
+                        if (ref_val == id_map[m].old_id) {
+                            atoms[i].args[arg_idx].raw = HYPER_MAKE_REF(id_map[m].new_id);
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        hyper_assert_unique(ctx->hyper_mem, &atoms[i]);
-        // NB: ремап idx_causal для перенесённых атомов опущен для краткости —
-        // в проде нужно пройтись по dbi_idx_causal для каждого old_id и
-        // перезаписать под new_id аналогично indexes в decay.c (см. TASK 2).
+            // Фиксируем обновленный атом в базе
+            hyper_assert_unique(ctx->hyper_mem, &atoms[i]);
+        }
     }
 
     if (id_map) free(id_map);

@@ -10,7 +10,7 @@ def build_chat_relevant_facts_pattern() -> dict:
         "pattern_id": 1,
         "vars": ["subject", "category"],
         "conditions": [
-            {"process": "IS_A", "args": [{"var": "subject"}, {"var": "category"}, {"any": True}]}
+            {"process": "IS_A", "args": [{"var": "subject"}, {"var": "category"}]}
         ]
     }
 

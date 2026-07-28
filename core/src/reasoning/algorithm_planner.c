@@ -81,8 +81,9 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
 /* Выбор лучшего алгоритма по статистике (упрощённо)                */
 /* ---------------------------------------------------------------- */
 static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
-    // Пока статистика не накоплена, берём первый
+    // TODO: Пока статистика не накоплена, берём первый
     (void)ctx;
+    (void)count;
     return candidates[0];
 }
 
@@ -122,6 +123,7 @@ int planner_select_algorithm(HyperMemory *hmem, node_id_t goal_id, VMContext *ct
 
 int planner_select_all_algorithms(HyperMemory *hmem, node_id_t goal_id, VMContext *ctx,
                                   node_id_t *candidates, int *cand_count) {
+    (void)ctx;
     *cand_count = find_algorithms_for_goal(hmem, goal_id, candidates, MAX_CANDIDATES_ALGO);
     return (*cand_count > 0) ? 0 : -2;
 }

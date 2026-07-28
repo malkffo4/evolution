@@ -13,9 +13,10 @@
 void analyze_error(const char *error_log, uint64_t algo_id, MDB_txn *txn) {
     // 1. Найти все связи, которые ВЕДУТ к этому algo_id
     //    (т.е. ребра, где algo_id является целью)
+    (void)error_log;
     EdgeList edges_to_algo;
     if (get_edges_to_node(txn, algo_id, &edges_to_algo) == MDB_SUCCESS) {
-        for (int i = 0; i < edges_to_algo.count; i++) {
+        for (uint32_t i = 0; i < edges_to_algo.count; i++) {
             // 2. Понизить уверенность в этих связях
             edges_to_algo.items[i].confidence *= 0.8f; // Уменьшаем на 20%
             update_edge(txn, &edges_to_algo.items[i]);

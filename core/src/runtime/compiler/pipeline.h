@@ -13,7 +13,7 @@
 
 /* Строковое представление */
 typedef struct {
-    const char *data;
+    char *data;
     uint32_t    len;
 } StringView;
 
