@@ -98,7 +98,6 @@ typedef struct {
 _Static_assert(sizeof(NeuroAtom) == 64, "NeuroAtom must be exactly 64 bytes");
 _Static_assert(_Alignof(NeuroAtom) == 8, "NeuroAtom must be 8-byte aligned for LMDB mmap access");
 
-// storage/hyper_atom/hyper_atom.h — добавить в HyperMemory:
 typedef struct HyperMemory {
     MDB_txn *txn;
     MDB_dbi dbi_atoms;

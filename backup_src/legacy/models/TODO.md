@@ -1,4 +1,0 @@
-embedding
-reranker
-classifier
-vision-модель
