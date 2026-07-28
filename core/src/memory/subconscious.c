@@ -171,6 +171,42 @@ static void ensure_main_loop_exists(MDB_txn *txn) {
     }
 }
 
+static Pipeline* build_core_planner_pipeline(void) {
+    Pipeline *p = pipeline_create();
+    if (!p) return NULL;
+
+    // Пока CorePlanner — просто заглушка.
+    // В будущем сюда будет добавлен байт-код для обратного вывода.
+    Instruction code[] = {
+        { .operator_id = OP_LOAD_CONTEXT },
+        { .operator_id = OP_HALT }
+    };
+
+    size_t num = sizeof(code) / sizeof(code[0]);
+    p->code_len = (uint32_t)num;
+    memcpy(p->code, code, sizeof(code));
+    p->capacity = (uint32_t)num;
+    p->constants.int_consts = NULL;
+    p->constants.int_count = 0;
+    return p;
+}
+
+// В ensure_main_loop_exists (или рядом) добавить:
+static void ensure_core_planner_exists(MDB_txn *txn) {
+    uint64_t core_planner_id = djb2_hash("CorePlanner");
+    Pipeline *existing = NULL;
+    if (algorithm_load(txn, core_planner_id, &existing) == 0) {
+        if (existing) pipeline_free(existing);
+        return;
+    }
+    Pipeline *cp = build_core_planner_pipeline();
+    if (cp) {
+        if (algorithm_save(txn, core_planner_id, cp) != MDB_SUCCESS)
+            LOG_ERROR("Failed to save CorePlanner algorithm");
+        pipeline_free(cp);
+    }
+}
+
 // TODO в dmn_loop — параллельно с VM-циклом — читать get_pending_tasks() и слать
 // executor_enqueue_script("python3", "app/knowledge/retrieval.py", argv_with_query, &task_id).
 /* -----------------------------------------------
@@ -201,6 +237,7 @@ void* dmn_loop(void* arg) {
             hyper_memory_set_txn(global_hyper_mem, txn);
 
         ensure_critic_main_exists(txn);
+        ensure_core_planner_exists(txn);
         ensure_main_loop_exists(txn);
 
         // Проверка карантина ПЕРЕД выполнением

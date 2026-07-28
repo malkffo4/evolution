@@ -120,6 +120,9 @@ int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cau
 HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx);
 void hyper_memory_free(HyperMemory *mem);
 void hyper_memory_set_txn(HyperMemory *mem, MDB_txn *txn);
+void hyper_memory_set_db_archive(HyperMemory *mem, MDB_dbi archive);
+void hyper_memory_set_db_causal(HyperMemory *mem, MDB_dbi causal);
+void hyper_memory_set_db_vectors(HyperMemory *mem, MDB_dbi vectors);
 
 int hyper_assert(HyperMemory *mem, const NeuroAtom *atom);
 int hyper_assert_unique(HyperMemory *mem, const NeuroAtom *atom);

@@ -234,31 +234,66 @@ int vm_op_spread_activation(VMContext *ctx, const Instruction *ins) {
         engine_spread_activation(ctx->memory.wm, ctx->memory.txn);
     return VM_OK;
 }
-// TODO vm_op_evaluate_goals при VM_NOT_FOUND (нет алгоритма для цели) должен вызывать enqueue_research_task(goal_id, goal_name)
+
 int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
     (void)ins;
     if (!ctx->memory.wm || !ctx->memory.txn || !ctx->hyper_mem) return VM_ERROR;
 
-    // 1. Оцениваем цели (backward chaining и аналогии)
+    // 1. Пытаемся загрузить CorePlanner из LMDB
+    uint64_t core_planner_id = djb2_hash("CorePlanner");
+    Pipeline *planner_pipeline = NULL;
+    if (algorithm_load(ctx->memory.txn, core_planner_id, &planner_pipeline) == 0 && planner_pipeline) {
+        // Проверяем, не является ли CorePlanner пустой заглушкой
+        // Если там только OP_HALT, то пропускаем и используем старый планировщик
+        bool has_logic = false;
+        for (uint32_t i = 0; i < planner_pipeline->code_len; i++) {
+            if (planner_pipeline->code[i].operator_id != OP_HALT) {
+                has_logic = true;
+                break;
+            }
+        }
+
+        if (has_logic) {
+            // Выполняем CorePlanner
+            if (ctx->frame + 1 >= VM_MAX_CALL_DEPTH) {
+                pipeline_free(planner_pipeline);
+                return VM_STACK_OVERFLOW;
+            }
+            uint32_t prev_frame = ctx->frame;
+            bool prev_halted = ctx->halted;
+            ctx->frame++;
+            VMFrame *f = &ctx->frames[ctx->frame];
+            f->pipeline = planner_pipeline;
+            f->code = planner_pipeline->code;
+            f->ip = 0;
+            ctx->halted = false;
+            int rc = vm_execute(ctx, planner_pipeline);
+            ctx->frame = prev_frame;
+            ctx->halted = prev_halted;
+            pipeline_free(planner_pipeline);
+            return rc;
+        }
+        pipeline_free(planner_pipeline);
+    }
+
+    // 2. Fallback на старый C-планировщик
     planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
 
-    // 2. Находим самую приоритетную цель
+    // 3. Находим самую приоритетную цель
     node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem);
-    if (goal_id == 0) return VM_NOT_FOUND; // нет активных целей
+    if (goal_id == 0) return VM_NOT_FOUND;
 
-    // 3. Планировщик выбирает алгоритм
+    // 4. Планировщик выбирает алгоритм
     node_id_t algo_id = 0;
     int rc = planner_select_algorithm(ctx->hyper_mem, goal_id, ctx, &algo_id);
     if (rc != 0) {
         const char *goal_name = get_string_from_pool(ctx->memory.txn, goal_id);
         if (goal_name) enqueue_research_task(goal_id, goal_name);
-        set_goal_cooldown(goal_id);                  // ← добавить
-        // Опционально: уменьшить активацию цели в WM
-        // wm_deactivate(ctx->memory.wm, goal_id);      // если есть такая функция
+        set_goal_cooldown(goal_id);
         return VM_OK;
     }
 
-    // 4. Загружаем и выполняем алгоритм
+    // 5. Загружаем и выполняем алгоритм
     Pipeline *algo = NULL;
     rc = algorithm_load(ctx->memory.txn, algo_id, &algo);
     if (rc != 0) {
@@ -266,15 +301,13 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
         return VM_OK;
     }
 
-    // Запускаем в том же контексте (не порождая новый фрейм вручную)
     rc = vm_execute(ctx, algo);
     if (rc != VM_OK) {
         LOG_WARN("Algorithm %lu execution failed with status %d", algo_id, rc);
-        record_execution_result(algo_id, rc); // Передаём в критик
+        record_execution_result(algo_id, rc);
     }
-    pipeline_free(algo);   // освобождаем загруженный пайплайн
-
-    return VM_OK; // Всегда завершаем ОК для MainLoop
+    pipeline_free(algo);
+    return VM_OK;
 }
 
 int vm_op_read_sp(VMContext *ctx, const Instruction *ins) {

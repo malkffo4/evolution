@@ -9,14 +9,14 @@
 
 /* Инициализация — должна вызываться после открытия DBI в db.c */
 HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx) {
-    HyperMemory *mem = malloc(sizeof(HyperMemory));
+    HyperMemory *mem = calloc(1, sizeof(HyperMemory));
+    if (!mem) return NULL;
     mem->txn = txn;
     mem->dbi_atoms = atoms;
     mem->dbi_idx_process = idx_proc;
     mem->dbi_idx_args = idx_args;
     mem->dbi_idx_context = idx_ctx;
-    // mem->dbi_idx_causal = ;
-    // mem->dbi_archive = ;
+    // dbi_idx_causal, dbi_archive, dbi_idx_vectors останутся 0
     return mem;
 }
 
@@ -26,6 +26,15 @@ void hyper_memory_free(HyperMemory *mem) {
 
 void hyper_memory_set_txn(HyperMemory *mem, MDB_txn *txn) {
     if (mem) mem->txn = txn;
+}
+void hyper_memory_set_db_archive(HyperMemory *mem, MDB_dbi archive) {
+    if (mem) mem->dbi_archive = archive;
+}
+void hyper_memory_set_db_causal(HyperMemory *mem, MDB_dbi causal) {
+    if (mem) mem->dbi_idx_causal = causal;
+}
+void hyper_memory_set_db_vectors(HyperMemory *mem, MDB_dbi vectors) {
+    if (mem) mem->dbi_idx_vectors = vectors;
 }
 
 // Проверка на существование атома с таким же process_id и аргументами
