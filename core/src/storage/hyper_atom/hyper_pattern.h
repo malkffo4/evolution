@@ -7,18 +7,19 @@
 
 #define MAX_PATTERN_CONDITIONS 8
 #define MAX_PATTERN_VARS       16
+#define PATTERN_ARG_SLOTS      HYPER_VAL_SLOTS
 
 typedef enum {
-    PARG_CONST = 0,  // конкретное значение (уже с HYPER_TYPE_* тегом)
-    PARG_VAR   = 1,  // переменная паттерна
-    PARG_ANY   = 2   // wildcard
+    PARG_CONST = 0,
+    PARG_VAR   = 1,
+    PARG_ANY   = 2
 } PatternArgKind;
 
 typedef struct {
     ko_id_t process_id;
-    PatternArgKind kind[3];
-    ko_id_t value[3];      // valid при PARG_CONST
-    uint8_t var_index[3];  // valid при PARG_VAR
+    PatternArgKind kind[PATTERN_ARG_SLOTS];
+    ko_id_t value[PATTERN_ARG_SLOTS];
+    uint8_t var_index[PATTERN_ARG_SLOTS];
 } PatternCondition;
 
 typedef struct {

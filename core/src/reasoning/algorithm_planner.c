@@ -19,7 +19,7 @@ size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size
     node_id_t is_a = djb2_hash("IS_A");
     node_id_t goal_algo_rel = djb2_hash("GoalAlgorithmRelation");
 
-    HyperAtom *isa_atoms = NULL;
+    NeuroAtom *isa_atoms = NULL;
     size_t isa_count = 0;
     if (hyper_find_by_process(hmem, is_a, 0, 0, &isa_atoms, &isa_count) != 0 || !isa_atoms)
         return 0;
@@ -46,7 +46,7 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
     if (!hmem || !out) return 0;
 
     node_id_t rel_has_algo = djb2_hash("HAS_ALGORITHM");
-    HyperAtom *atoms = NULL;
+    NeuroAtom *atoms = NULL;
     size_t count = 0;
 
     // Ищем все атомы, где process_id == HAS_ALGORITHM и один из аргументов == goal_id
@@ -55,12 +55,12 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
 
     int found = 0;
     for (size_t i = 0; i < count && found < max_out; i++) {
-        HyperAtom *a = &atoms[i];
+        NeuroAtom *a = &atoms[i];
         // Проверяем, есть ли goal_id среди аргументов (обычно первый аргумент – цель)
-        for (int arg_idx = 0; arg_idx < 3; arg_idx++) {
+        for (int arg_idx = 0; arg_idx < HYPER_VAL_SLOTS; arg_idx++) {
             if (HYPER_GET_TYPE(a->args[arg_idx].raw) == HYPER_TYPE_REF && HYPER_GET_ID(a->args[arg_idx].raw) == goal_id) {
                 // Второй аргумент (или другой, в зависимости от модели) — алгоритм
-                for (int algo_idx = 0; algo_idx < 3; algo_idx++) {
+                for (int algo_idx = 0; algo_idx < HYPER_VAL_SLOTS; algo_idx++) {
                     if (algo_idx == arg_idx) continue;
                     if (HYPER_GET_TYPE(a->args[algo_idx].raw) == HYPER_TYPE_REF) {
                         node_id_t algo_id = HYPER_GET_ID(a->args[algo_idx].raw);

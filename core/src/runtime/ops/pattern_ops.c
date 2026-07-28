@@ -9,7 +9,7 @@
 #include "storage/db/db.h"
 #include "runtime/logging/logging.h"
 
-#define MATCH_BUDGET 4096  // лимит просмотренных атомов за один вызов — защита от runaway backtracking
+#define MATCH_BUDGET 4096
 
 typedef struct {
     ko_id_t bound[MAX_PATTERN_VARS];
@@ -58,6 +58,8 @@ static void emit_match(MatchSink *sink, const Bindings *b) {
     sink->found++;
 }
 
+// NOTE: NeuroAtom имеет ровно 2 аргумента (args[0], args[1]).
+// PatternCondition тоже теперь строго бинарен (PATTERN_ARG_SLOTS == 2).
 static int match_recursive(HyperMemory *hmem, const HyperPattern *pat, uint32_t cond_idx,
                             ko_id_t context_filter, Bindings *b, MatchSink *sink, uint32_t *budget) {
     if (sink->found >= sink->max_results) return VM_OK;
@@ -69,10 +71,11 @@ static int match_recursive(HyperMemory *hmem, const HyperPattern *pat, uint32_t 
 
     const PatternCondition *cond = &pat->conditions[cond_idx];
 
-    // Если один из слотов уже известен как REF (константа или уже связанная переменная) —
-    // используем его как participant-фильтр, чтобы не сканировать весь process_id.
+    // Эвристика для сужения скана: если один из двух слотов уже известен
+    // (константа или уже связанная переменная и это REF) — используем его
+    // как participant-фильтр по dbi_idx_args.
     ko_id_t known_participant = 0;
-    for (int s = 0; s < 3; s++) {
+    for (int s = 0; s < PATTERN_ARG_SLOTS; s++) {
         if (cond->kind[s] == PARG_CONST && HYPER_GET_TYPE(cond->value[s]) == HYPER_TYPE_REF) {
             known_participant = HYPER_GET_ID(cond->value[s]); break;
         }
@@ -82,23 +85,23 @@ static int match_recursive(HyperMemory *hmem, const HyperPattern *pat, uint32_t 
         }
     }
 
-    HyperAtom *candidates = NULL;
+    NeuroAtom *candidates = NULL;
     size_t count = 0;
     if (hyper_find_by_process(hmem, cond->process_id, known_participant, context_filter,
                                &candidates, &count) != 0)
-        return VM_OK; // тупиковая ветка — не ошибка VM
+        return VM_OK;
 
     int rc = VM_OK;
     for (size_t i = 0; i < count; i++) {
         if (*budget == 0) { rc = VM_TIMEOUT; break; }
         (*budget)--;
 
-        HyperAtom *a = &candidates[i];
-        if (context_filter != 0 && a->context_id != context_filter) continue;
+        NeuroAtom *a = &candidates[i];
+        if (context_filter != 0 && a->context_or_time_link != context_filter) continue;
 
-        bool prebound[3];
+        bool prebound[PATTERN_ARG_SLOTS];
         bool ok = true;
-        for (int s = 0; s < 3 && ok; s++) {
+        for (int s = 0; s < PATTERN_ARG_SLOTS && ok; s++) {
             prebound[s] = (cond->kind[s] == PARG_VAR) && b->is_bound[cond->var_index[s]];
             ok = unify_slot(cond, s, a->args[s].raw, b);
         }
@@ -108,7 +111,7 @@ static int match_recursive(HyperMemory *hmem, const HyperPattern *pat, uint32_t 
             if (rc != VM_OK) break;
         }
 
-        for (int s = 0; s < 3; s++) unbind_slot(cond, s, b, prebound[s]);
+        for (int s = 0; s < PATTERN_ARG_SLOTS; s++) unbind_slot(cond, s, b, prebound[s]);
         if (sink->found >= sink->max_results) break;
     }
 
@@ -116,8 +119,8 @@ static int match_recursive(HyperMemory *hmem, const HyperPattern *pat, uint32_t 
     return rc;
 }
 
-// arg[0]=reg(pattern_id) arg[1]=reg(context_id, 0=без фильтра) arg[2]=sp_base
-// arg[3]=reg<-match_count arg[4]=reg<-var_count arg[5]=max_results (immediate)
+// arg[0]=reg(pattern_id) arg[1]=reg(context_id) arg[2]=sp_base
+// arg[3]=reg<-match_count arg[4]=reg<-var_count arg[5]=max_results
 int vm_op_match_pattern(VMContext *ctx, const Instruction *ins) {
     uint32_t r_pattern = ins->arg[0], r_ctx = ins->arg[1], sp_base = ins->arg[2];
     uint32_t r_count = ins->arg[3], r_varcount = ins->arg[4], max_results = ins->arg[5];

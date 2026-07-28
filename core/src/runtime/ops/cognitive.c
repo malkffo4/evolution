@@ -337,25 +337,36 @@ int vm_op_load_context(VMContext *ctx, const Instruction *ins) {
     (void)ins;
     if (!ctx->hyper_mem || !ctx->memory.wm) return VM_ERROR;
 
-    node_id_t goal = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem);
-    if (!goal) return VM_OK;
-
+    // Всегда загружаем контекст для всех активных узлов WM,
+    // наличие цели необязательно — алгоритмы могут работать с любыми узлами.
     ctx->preloaded_edge_count = 0;
     for (uint32_t i = 0; i < ctx->memory.wm->count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; i++) {
         node_id_t nid = ctx->memory.wm->nodes[i].node_id;
-        HyperAtom *edges = NULL;
-        size_t ec = 0;
-        if (hyper_find_by_participant(ctx->hyper_mem, nid, 0, &edges, &ec) == 0) {
-            for (size_t j = 0; j < ec && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; j++) {
-                if (edges[j].process_id == djb2_hash("EDGE")) {
-                    ctx->preloaded_edges[ctx->preloaded_edge_count++] = (CachedEdge){
-                        .source = HYPER_GET_ID(edges[j].args[0].raw),
-                        .relation = HYPER_GET_ID(edges[j].args[1].raw),
-                        .target = HYPER_GET_ID(edges[j].args[2].raw)
-                    };
+
+        NeuroAtom *fwd_atoms = NULL;
+        size_t fwd_count = 0;
+        if (hyper_find_by_participant(ctx->hyper_mem, nid, 0, &fwd_atoms, &fwd_count) == 0) {
+            for (size_t j = 0; j < fwd_count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; j++) {
+                if (fwd_atoms[j].process_id == djb2_hash("EDGE_FWD")) {
+                    node_id_t rel = HYPER_GET_ID(fwd_atoms[j].args[1].raw);
+                    NeuroAtom *rev_atoms = NULL;
+                    size_t rev_count = 0;
+                    if (hyper_find_by_participant(ctx->hyper_mem, rel, 0, &rev_atoms, &rev_count) == 0) {
+                        for (size_t k = 0; k < rev_count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; k++) {
+                            if (rev_atoms[k].process_id == djb2_hash("EDGE_REV") &&
+                                HYPER_GET_ID(rev_atoms[k].args[0].raw) == rel) {
+                                ctx->preloaded_edges[ctx->preloaded_edge_count++] = (CachedEdge){
+                                    .source = nid,
+                                    .relation = rel,
+                                    .target = HYPER_GET_ID(rev_atoms[k].args[1].raw)
+                                };
+                            }
+                        }
+                        free(rev_atoms);
+                    }
                 }
             }
-            free(edges);
+            free(fwd_atoms);
         }
     }
     return VM_OK;

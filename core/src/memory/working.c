@@ -264,7 +264,7 @@ node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem) {
 
         bool is_goal = false;
         for (size_t r = 0; r < rel_count; r++) {
-            HyperAtom *atoms = NULL;
+            NeuroAtom *atoms = NULL;
             size_t count = 0;
             if (hyper_find_by_process(hmem, rel_ids[r], n->node_id, 0, &atoms, &count) == 0 && count > 0) {
                 free(atoms);

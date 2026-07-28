@@ -69,6 +69,7 @@ static void shutdown_everything(void) {
     LOG_INFO("Graceful shutdown initiated...");
 
     // 1. Останавливаем подсознание (чтобы не дергало транзакции LMDB)
+    stop_decay_timer();
     stop_subconscious_daemon();
 
     // 2. Останавливаем фоновый экзекьютор скриптов
@@ -152,6 +153,7 @@ static int init_everything(void) {
 
     // Запуск фонового демона подсознания (когнитивные процессы)
     start_subconscious_daemon();
+    start_decay_timer();
 
     // Запуск демона выполнения внешних скриптов
     executor_start_daemon();

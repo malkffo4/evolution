@@ -18,8 +18,6 @@ static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) 
             return;
         }
     }
-    // Это не узел (например, ID отношения relation или процесса EDGE) —
-    // пробуем найти строку напрямую в string_pool по её собственному хэшу.
     const char *pooled = get_string_from_pool(txn, id);
     if (pooled) {
         snprintf(out, out_size, "%s", pooled);
@@ -32,12 +30,13 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
     cJSON *root = cJSON_CreateObject();
     cJSON *atoms_arr = cJSON_AddArrayToObject(root, "atoms");
 
-    // Очередь для BFS: массив participant_id для следующего уровня
     node_id_t *queue = malloc((size_t)max_atoms * sizeof(node_id_t));
     node_id_t *visited = malloc((size_t)max_atoms * sizeof(node_id_t));
     if (!queue || !visited) {
-        if(queue) free(queue); if(visited) free(visited);
-        cJSON_Delete(root); return NULL;
+        free(queue);
+        free(visited);
+        cJSON_Delete(root);
+        return NULL;
     }
 
     int q_head = 0, q_tail = 0, v_count = 0;
@@ -51,22 +50,24 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
         node_id_t current_participant = queue[q_head++];
         nodes_current--;
 
-        // Ищем все атомы, где current_participant является участником
-        HyperAtom *results = NULL;
+        NeuroAtom *results = NULL;
         size_t count = 0;
         if (hyper_find_by_participant(hmem, current_participant, 0, &results, &count) == 0) {
             for (size_t i = 0; i < count && (int)(q_tail + 1) < max_atoms; i++) {
-                // Добавляем атом в результат
                 cJSON *atom_json = cJSON_CreateObject();
+
+                // id
                 char idbuf[32];
                 snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].id);
                 cJSON_AddStringToObject(atom_json, "id", idbuf);
 
+                // process
                 const char *proc_label = get_string_from_pool(hmem->txn, results[i].process_id);
                 cJSON_AddStringToObject(atom_json, "process", proc_label ? proc_label : "UNKNOWN");
 
+                // args (только 2 слота)
                 cJSON *args_json = cJSON_AddArrayToObject(atom_json, "args");
-                for (int a = 0; a < 3; a++) {
+                for (int a = 0; a < 2; a++) {
                     if (results[i].args[a].raw != 0) {
                         char label[128];
                         if (HYPER_GET_TYPE(results[i].args[a].raw) == HYPER_TYPE_REF) {
@@ -77,19 +78,27 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
                         cJSON_AddItemToArray(args_json, cJSON_CreateString(label));
                     }
                 }
-                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].context_id);
+
+                // context_or_time_link
+                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].context_or_time_link);
                 cJSON_AddStringToObject(atom_json, "context", idbuf);
 
-                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].time_tick);
-                cJSON_AddStringToObject(atom_json, "time", idbuf);
+                // truth_mean / truth_confidence
+                cJSON_AddNumberToObject(atom_json, "truth_mean", results[i].truth_mean);
+                cJSON_AddNumberToObject(atom_json, "truth_confidence", results[i].truth_confidence);
 
-                snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].cause_id);
-                cJSON_AddStringToObject(atom_json, "cause", idbuf);
+                // sti / lti
+                cJSON_AddNumberToObject(atom_json, "sti", results[i].sti);
+                cJSON_AddNumberToObject(atom_json, "lti", results[i].lti);
+
+                // utility / valence
+                cJSON_AddNumberToObject(atom_json, "utility", results[i].utility);
+                cJSON_AddNumberToObject(atom_json, "valence", results[i].valence);
 
                 cJSON_AddItemToArray(atoms_arr, atom_json);
 
                 // Добавляем новых участников в очередь
-                for (int a = 0; a < 3; a++) {
+                for (int a = 0; a < 2; a++) {
                     if (HYPER_GET_TYPE(results[i].args[a].raw) == HYPER_TYPE_REF) {
                         node_id_t new_participant = HYPER_GET_ID(results[i].args[a].raw);
                         int found = 0;

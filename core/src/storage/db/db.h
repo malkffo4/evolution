@@ -19,7 +19,9 @@ typedef struct {
             MDB_dbi idx_process;
             MDB_dbi idx_args;
             MDB_dbi idx_context;
+            MDB_dbi idx_causal;   // NEW: source_atom_id -> cause_atom_id (DUPSORT)
             MDB_dbi patterns;
+            MDB_dbi archive;
         } hyper;
         struct {
             MDB_dbi edges_by_source;
@@ -43,7 +45,7 @@ typedef struct {
 
 extern Database db;
 
-#define LMDB_MAX_DBS      20
+#define LMDB_MAX_DBS      24
 #define LMDB_MAPSIZE_MB   100
 
 int init_lmdb(const char *db_path);

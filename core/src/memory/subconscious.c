@@ -14,7 +14,9 @@
 #include "critic_state.h"
 #include "storage/db/db.h"
 #include "storage/string_pool/string_pool.h"
+#include "storage/db/db_writer.h"
 #include "memory/working.h"
+#include "memory/decay.h"
 #include "reasoning/planner.h"
 #include "knowledge/algorithm_loader.h"
 #include "knowledge/algorithm_saver.h"
@@ -33,9 +35,44 @@ static int dmn_running = 0;
 static pthread_t dmn_thread;
 static uint64_t main_loop_algo_id = 0;
 
-/* -----------------------------------------------
- * Очередь задач
- * ----------------------------------------------- */
+static pthread_t decay_timer_thread;
+static volatile int decay_timer_running = 0;
+
+static int decay_txn_fn(MDB_txn *txn, void *arg) {
+    (void)arg;
+    if (!global_hyper_mem) return -1;
+
+    hyper_memory_set_txn(global_hyper_mem, txn);
+
+    DecayStats stats;
+    int rc = subconscious_decay_cycle(global_hyper_mem, &DECAY_POLICY_DEFAULT, &stats);
+    return rc; // 0 -> commit, !=0 -> abort (см. db_writer.h::DbWriteFn)
+}
+
+static void *decay_timer_loop(void *arg) {
+    (void)arg;
+    while (decay_timer_running && g_running) {
+        struct timespec ts = {10, 0}; // раз в 10 секунд, независимо от MainLoop
+        nanosleep(&ts, NULL);
+        if (!decay_timer_running || !g_running) break;
+
+        int rc = db_write_sync(decay_txn_fn, NULL);
+        if (rc != 0) LOG_WARN("[SUBCONSCIOUS] Timed decay cycle failed rc=%d", rc);
+    }
+    return NULL;
+}
+
+void start_decay_timer(void) {
+    decay_timer_running = 1;
+    pthread_create(&decay_timer_thread, NULL, decay_timer_loop, NULL);
+}
+
+void stop_decay_timer(void) {
+    decay_timer_running = 0;
+    pthread_join(decay_timer_thread, NULL);
+}
+
+
 void enqueue_research_task(uint64_t node_id, const char *query) {
     pthread_mutex_lock(&task_mutex);
     if (task_count < MAX_PENDING_TASKS) {

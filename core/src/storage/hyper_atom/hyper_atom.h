@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <lmdb.h>
 
 // 64-битный универсальный идентификатор
@@ -24,43 +25,106 @@ typedef uint64_t ko_id_t;
 #define HYPER_GET_ID(val)   ((val) & HYPER_VALUE_MASK)
 #define HYPER_MAKE_REF(id)  (((id) & HYPER_VALUE_MASK) | HYPER_TYPE_REF)
 
+// --- МАСКА ТИПА УЗЛА В process_id (старшие 8 бит зарезервированы) ---
+#define PROC_TYPE_SHIFT      56
+#define PROC_TYPE_MASK       (0xFFULL << PROC_TYPE_SHIFT)
+#define PROC_ID_MASK         (~PROC_TYPE_MASK)
+
+#define HYPER_VAL_SLOTS      2
+
+typedef enum {
+    PROC_KIND_RELATION = 0,  // обычное отношение (CAUSES, USES, ...)
+    PROC_KIND_CONCEPT  = 1,
+    PROC_KIND_RULE     = 2,
+    PROC_KIND_GOAL     = 3,
+    PROC_KIND_EVENT    = 4,
+    PROC_KIND_HYPOTHESIS = 5
+} ProcKind;
+
+static inline ko_id_t proc_make(ko_id_t base_id, ProcKind kind) {
+    return (base_id & PROC_ID_MASK) | ((ko_id_t)kind << PROC_TYPE_SHIFT);
+}
+static inline ProcKind proc_kind(ko_id_t process_id) {
+    return (ProcKind)((process_id & PROC_TYPE_MASK) >> PROC_TYPE_SHIFT);
+}
 
 typedef union {
-    ko_id_t raw;        // Для побитовых масок и проверок
-    ko_id_t ref;        // Чистый ID при HYPER_TYPE_REF
-    double  f_val;      // Требует аккуратной упаковки без потери старших битов NaN
+    ko_id_t raw;
+    ko_id_t ref;
+    double  f_val;
     int64_t i_val;
-    char    s_val[8];   // Универсальное значение (8 байт)
+    char    s_val[8];
 } HyperVal;
 
-// 64-байтная структура AGI-Атома
-typedef struct __attribute__((packed)) {
-    ko_id_t  id;
-    ko_id_t  process_id;
-    HyperVal args[3];
-    ko_id_t  context_id;
-    uint64_t time_tick;
-    ko_id_t  cause_id;
-} HyperAtom;
+/*
+ * NeuroAtom — когнитивная триада: Truth (эпистемика) + Attention (внимание)
+ * + Utility/Valence (телеология/аффект). Строго 64 байта, C11, без padding'а
+ * при 8-байтном выравнивании uint64_t/double.
+ *
+ * Layout (offset : size):
+ *   0  : id                    (8)
+ *   8  : process_id            (8)
+ *   16 : args[0]                (8)
+ *   24 : args[1]                (8)
+ *   32 : truth_mean             (4)
+ *   36 : truth_confidence       (4)
+ *   40 : sti                    (4)
+ *   44 : lti                    (4)
+ *   48 : utility                (4)
+ *   52 : valence                (4)
+ *   56 : context_or_time_link   (8)
+ *   = 64 bytes total
+ */
+typedef struct {
+    ko_id_t  id;                     // 8
+    ko_id_t  process_id;             // 8  (старший байт = ProcKind)
+    HyperVal args[HYPER_VAL_SLOTS];                // 16 (было 3 — теперь бинарные отношения)
 
+    // --- Epistemic Vector (PLN-style) ---
+    float truth_mean;                // 4  0.0..1.0 — насколько это истинно
+    float truth_confidence;          // 4  0.0..1.0 — насколько мы уверены в оценке
+
+    // --- Attentional Vector ---
+    float sti;                       // 4  Short-Term Importance (контекст/фокус)
+    float lti;                       // 4  Long-Term Importance (выживание в памяти)
+
+    // --- Teleological / Affective Vector ---
+    float utility;                   // 4  0.0..1.0 — полезность для текущих целей
+    float valence;                   // 4  -1.0..1.0 — "эмоция": опасно/безопасно
+
+    ko_id_t context_or_time_link;    // 8  ссылка на контекст/временную обёртку
+} NeuroAtom;
+
+_Static_assert(sizeof(NeuroAtom) == 64, "NeuroAtom must be exactly 64 bytes");
+_Static_assert(_Alignof(NeuroAtom) == 8, "NeuroAtom must be 8-byte aligned for LMDB mmap access");
+
+// storage/hyper_atom/hyper_atom.h — добавить в HyperMemory:
 typedef struct HyperMemory {
     MDB_txn *txn;
     MDB_dbi dbi_atoms;
     MDB_dbi dbi_idx_process;
     MDB_dbi dbi_idx_args;
     MDB_dbi dbi_idx_context;
+    MDB_dbi dbi_idx_causal;   // NEW: child_id -> cause_id (DUPSORT)
+    MDB_dbi dbi_archive;      // NEW: холодное хранилище архивных атомов
 } HyperMemory;
+
+int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id);
 
 HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx);
 void hyper_memory_free(HyperMemory *mem);
 void hyper_memory_set_txn(HyperMemory *mem, MDB_txn *txn);
 
-int hyper_assert(HyperMemory *mem, const HyperAtom *atom);
-int hyper_assert_unique(HyperMemory *mem, const HyperAtom *atom);
+int hyper_assert(HyperMemory *mem, const NeuroAtom *atom);
+int hyper_assert_unique(HyperMemory *mem, const NeuroAtom *atom);
 
-int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, HyperAtom **results, size_t *count);
-int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t context_id, HyperAtom **results, size_t *count);
+int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count);
+int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count);
 
-int hyper_trace_cause(HyperMemory *mem, ko_id_t start_id, HyperAtom **chain, size_t max_depth, size_t *count);
+// Взвешенный по STI/Utility поиск — для агентного цикла (см. п.4)
+int hyper_find_top_by_score(HyperMemory *mem, ko_id_t context_id, float w_sti, float w_utility,
+                             int top_k, NeuroAtom **results, size_t *count);
+
+int hyper_trace_cause(HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, size_t max_depth, size_t *count);
 
 #endif // HYPER_ATOM_H

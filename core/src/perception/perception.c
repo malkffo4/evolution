@@ -15,6 +15,12 @@
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
 
+static float clampf(float v, float lo, float hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
 // Загрузка знаний из JSON напрямую в Рабочую Память (Working Memory)
 int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn, HyperMemory *hmem) {
     cJSON *json = cJSON_Parse(json_str);
@@ -81,22 +87,47 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 upsert_edge(txn, &logic_edge);
 
                 add_string_to_pool(txn, "EDGE"); // чтобы process-label резолвился при retrieve
-                // ИСПРАВЛЕНИЕ: Явное указание полей union для массива args (убирает -Wmissing-braces)
-                HyperAtom edge_atom = {
-                    .id = 0,  // будет присвоен в hyper_assert_unique
-                    .process_id = djb2_hash("EDGE"),
-                    .args = {
-                        { .raw = HYPER_MAKE_REF(logic_edge.key.source) },
-                        { .raw = HYPER_MAKE_REF(logic_edge.key.relation) },
-                        { .raw = HYPER_MAKE_REF(logic_edge.key.target) }
-                    },
-                    .context_id = 0,
-                    .time_tick = (uint64_t)time(NULL),
-                    .cause_id = 0
-                };
-                static uint64_t next_edge_id = 10000;  // отдельный счётчик
-                edge_atom.id = ++next_edge_id;
-                hyper_assert_unique(hmem, &edge_atom);
+
+                // NeuroAtom edge_atom = {
+                //     .id = 0, // будет присвоен в hyper_assert_with_cause
+                //     .process_id =
+                //         proc_make(logic_edge.key.relation, PROC_KIND_RELATION),
+                //     .args = {{.raw = HYPER_MAKE_REF(logic_edge.key.source)},
+                //              {.raw = HYPER_MAKE_REF(logic_edge.key.target)}},
+                //     .context_or_time_link = 0,
+
+                //     // Дефолтные значения векторов для новых связей из Perception
+                //     .truth_mean = 1.0f,
+                //     .truth_confidence = 0.5f,
+                //     .sti = 0.8f, // Горячий факт
+                //     .lti = 0.1f,
+                //     .utility = 0.0f,
+                //     .valence = 0.0f};
+
+                static uint64_t next_edge_id = 10000;
+                // edge_atom.id = ++next_edge_id;
+
+                // // Используем 0 как cause_id (внешнее восприятие)
+                // hyper_assert_with_cause(hmem, &edge_atom, 0);
+                //
+                // Вместо одного атома с process_id = relation, создаём два
+                NeuroAtom fwd = {0};
+                fwd.id = next_edge_id++;
+                fwd.process_id = djb2_hash("EDGE_FWD");
+                fwd.args[0].raw = HYPER_MAKE_REF(djb2_hash(source->valuestring));
+                fwd.args[1].raw = HYPER_MAKE_REF(djb2_hash(relation->valuestring));
+                fwd.truth_mean = 1.0f;
+                fwd.truth_confidence = 0.5f;
+                hyper_assert_unique(hmem, &fwd);
+
+                NeuroAtom rev = {0};
+                rev.id = next_edge_id++;
+                rev.process_id = djb2_hash("EDGE_REV");
+                rev.args[0].raw = HYPER_MAKE_REF(djb2_hash(relation->valuestring));
+                rev.args[1].raw = HYPER_MAKE_REF(djb2_hash(target->valuestring));
+                rev.truth_mean = 1.0f;
+                rev.truth_confidence = 0.5f;
+                hyper_assert_unique(hmem, &rev);
             }
         }
     }
@@ -138,99 +169,110 @@ static ko_id_t resolve_arg(cJSON *arg_item) {
 }
 
 int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
-    (void)txn; // ИСПРАВЛЕНИЕ: Подавляем ворнинг о неиспользуемом параметре
-
+    (void)txn;
     if (!json_str || !hmem) return -1;
 
     cJSON *root = cJSON_Parse(json_str);
-    if (!root) {
-        LOG_ERROR("perceive_hyper_json: failed to parse JSON");
-        return -1;
-    }
+    if (!root) { LOG_ERROR("perceive_hyper_json: bad JSON"); return -1; }
 
     cJSON *atoms = cJSON_GetObjectItem(root, "atoms");
-    if (!cJSON_IsArray(atoms)) {
-        cJSON_Delete(root);
-        LOG_ERROR("perceive_hyper_json: missing 'atoms' array");
-        return -1;
-    }
+    if (!cJSON_IsArray(atoms)) { cJSON_Delete(root); return -1; }
 
-    // ИСПРАВЛЕНИЕ: Выносим счетчик на уровень функции, чтобы он был доступен во всех блоках
     static uint64_t next_id = 1;
-
     cJSON *atom_item;
+
     cJSON_ArrayForEach(atom_item, atoms) {
-        // Читаем process (обязательно)
         cJSON *process_json = cJSON_GetObjectItem(atom_item, "process");
         if (!cJSON_IsString(process_json)) continue;
-        ko_id_t process_id = djb2_hash(process_json->valuestring);
 
-        // Аргументы (обязательно)
+        // Тип узла из необязательного поля "kind" (concept/rule/goal/event/hypothesis)
+        ProcKind kind = PROC_KIND_RELATION;
+        cJSON *kind_json = cJSON_GetObjectItem(atom_item, "kind");
+        if (cJSON_IsString(kind_json)) {
+            const char *k = kind_json->valuestring;
+            if      (!strcmp(k, "concept"))    kind = PROC_KIND_CONCEPT;
+            else if (!strcmp(k, "rule"))       kind = PROC_KIND_RULE;
+            else if (!strcmp(k, "goal"))       kind = PROC_KIND_GOAL;
+            else if (!strcmp(k, "event"))      kind = PROC_KIND_EVENT;
+            else if (!strcmp(k, "hypothesis")) kind = PROC_KIND_HYPOTHESIS;
+        }
+
+        NeuroAtom atom = {0};
+        atom.process_id = proc_make(djb2_hash(process_json->valuestring), kind);
+
         cJSON *args_json = cJSON_GetObjectItem(atom_item, "args");
-        if (!cJSON_IsArray(args_json)) continue;
-
-        HyperAtom atom = {0};
-        atom.id = 0;
-        atom.process_id = process_id;
-
-        int arg_count = cJSON_GetArraySize(args_json);
-        for (int i = 0; i < arg_count && i < 3; i++) {
-            cJSON *arg = cJSON_GetArrayItem(args_json, i);
-            atom.args[i].raw = resolve_arg(arg);
+        if (cJSON_IsArray(args_json)) {
+            int n = cJSON_GetArraySize(args_json);
+            for (int i = 0; i < n && i < HYPER_VAL_SLOTS; i++) {   // строго 2 слота
+                atom.args[i].raw = resolve_arg(cJSON_GetArrayItem(args_json, i));
+            }
         }
 
-        // Контекст (опционально)
-        cJSON *ctx_json = cJSON_GetObjectItem(atom_item, "context");
-        atom.context_id = ctx_json ? (ko_id_t)cJSON_GetNumberValue(ctx_json) : 0;
-
-        // Время (опционально, иначе текущее)
-        cJSON *time_json = cJSON_GetObjectItem(atom_item, "time");
-        atom.time_tick = time_json ? (uint64_t)cJSON_GetNumberValue(time_json) : (uint64_t)time(NULL);
-
-        // Причина (опционально)
-        cJSON *cause_json = cJSON_GetObjectItem(atom_item, "cause");
-        if (cJSON_IsString(cause_json)) {
-            atom.cause_id = djb2_hash(cause_json->valuestring);
-        } else if (cJSON_IsNumber(cause_json)) {
-            atom.cause_id = (ko_id_t)cJSON_GetNumberValue(cause_json);
+        // --- Epistemic Vector ---
+        cJSON *truth_json = cJSON_GetObjectItem(atom_item, "truth");
+        if (cJSON_IsObject(truth_json)) {
+            cJSON *m = cJSON_GetObjectItem(truth_json, "mean");
+            cJSON *c = cJSON_GetObjectItem(truth_json, "confidence");
+            atom.truth_mean       = cJSON_IsNumber(m) ? clampf((float)m->valuedouble, 0.f, 1.f) : 1.0f;
+            atom.truth_confidence = cJSON_IsNumber(c) ? clampf((float)c->valuedouble, 0.f, 1.f) : 0.5f;
         } else {
-            atom.cause_id = 0;
+            // fuzzy-дефолт: считаем истинным, но не сильно уверенным
+            atom.truth_mean = 1.0f;
+            atom.truth_confidence = 0.5f;
         }
 
-        // Уверенность (confidence) мы сейчас распарсим только для последующего использования в BELIEF
-        cJSON *conf_json = cJSON_GetObjectItem(atom_item, "confidence");
+        // --- Attentional Vector ---
+        cJSON *attn_json = cJSON_GetObjectItem(atom_item, "attention");
+        if (cJSON_IsObject(attn_json)) {
+            cJSON *sti = cJSON_GetObjectItem(attn_json, "sti");
+            cJSON *lti = cJSON_GetObjectItem(attn_json, "lti");
+            atom.sti = cJSON_IsNumber(sti) ? (float)sti->valuedouble : 0.5f;
+            atom.lti = cJSON_IsNumber(lti) ? clampf((float)lti->valuedouble, 0.f, 1.f) : 0.1f;
+        } else {
+            atom.sti = 0.5f;  // новый факт по умолчанию слегка "в фокусе"
+            atom.lti = 0.1f;
+        }
 
-        // Генерация ID
+        // --- Teleological / Affective Vector ---
+        cJSON *util_json = cJSON_GetObjectItem(atom_item, "utility");
+        cJSON *val_json  = cJSON_GetObjectItem(atom_item, "valence");
+        atom.utility = cJSON_IsNumber(util_json) ? clampf((float)util_json->valuedouble, 0.f, 1.f) : 0.0f;
+        atom.valence = cJSON_IsNumber(val_json)  ? clampf((float)val_json->valuedouble, -1.f, 1.f) : 0.0f;
+
+        // --- context_or_time_link ---
+        cJSON *ctx_json = cJSON_GetObjectItem(atom_item, "context");
+        atom.context_or_time_link = ctx_json ? (ko_id_t)cJSON_GetNumberValue(ctx_json) : 0;
+
+        // ID
         cJSON *id_json = cJSON_GetObjectItem(atom_item, "id");
         if (cJSON_IsString(id_json)) {
             atom.id = djb2_hash(id_json->valuestring);
         } else {
-            // старший бит зарезервирован под "безымянные" авто-атомы
             atom.id = (0x2000000000000000ULL | (next_id++)) & HYPER_VALUE_MASK;
         }
 
         int result = hyper_assert_unique(hmem, &atom);
-        if (result != 0 && result != 1) {   // <-- разрешаем уже существующие атомы
-            LOG_ERROR("Failed to assert atom");
-        } else {
-            if (atom.process_id == djb2_hash("HAS_ALGORITHM")) {
-                ko_id_t goal = HYPER_GET_ID(atom.args[0].raw);
-                ko_id_t algo = HYPER_GET_ID(atom.args[1].raw);
-                wm_activate(&global_wm, goal, 0.8f, 0.9f);   // цель
-                wm_activate(&global_wm, algo, 0.5f, 0.5f);   // алгоритм
-            }
+        if (result != 0 && result != 1) {
+            LOG_ERROR("Failed to assert NeuroAtom");
+            continue;
+        }
 
-            // Если была confidence, создаём атом BELIEF (используя next_id, который теперь виден)
-            if (conf_json && cJSON_IsNumber(conf_json)) {
-                HyperAtom belief_atom = {0};
-                belief_atom.id = ++next_id;
-                belief_atom.process_id = 0x0002; // ID_BELIEF
-                belief_atom.args[0].raw = HYPER_MAKE_REF(atom.id);
-                union { float f; uint32_t i; } u;
-                u.f = (float)conf_json->valuedouble;
-                belief_atom.args[1].raw = (ko_id_t)u.i | HYPER_TYPE_FLOAT;
-                hyper_assert_unique(hmem, &belief_atom);
+        // Причинность — отдельный индекс, не в горячей структуре
+        cJSON *cause_json = cJSON_GetObjectItem(atom_item, "cause");
+        if (cause_json) {
+            ko_id_t cause_id = cJSON_IsString(cause_json)
+                ? djb2_hash(cause_json->valuestring)
+                : (ko_id_t)cJSON_GetNumberValue(cause_json);
+            if (cause_id) {
+                MDB_val k = { sizeof(ko_id_t), &atom.id };
+                MDB_val v = { sizeof(ko_id_t), &cause_id };
+                mdb_put(hmem->txn, /* db.graph.hyper.idx_causal */ hmem->dbi_idx_context, &k, &v, MDB_APPENDDUP);
+                // NB: в реальном коде используй отдельный dbi_idx_causal, а не idx_context
             }
+        }
+
+        if (proc_kind(atom.process_id) == PROC_KIND_GOAL) {
+            wm_activate(&global_wm, atom.id, atom.sti, atom.valence);
         }
     }
 
