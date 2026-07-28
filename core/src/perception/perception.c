@@ -271,6 +271,15 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             }
         }
 
+        cJSON *embed_json = cJSON_GetObjectItem(atom_item, "embedding");
+        if (cJSON_IsArray(embed_json) && cJSON_GetArraySize(embed_json) == VECTOR_DIM) {
+            Vector128 vec;
+            for (int d = 0; d < VECTOR_DIM; d++) {
+                vec.data[d] = (float)cJSON_GetNumberValue(cJSON_GetArrayItem(embed_json, d));
+            }
+            hyper_vector_save(txn, db.graph.hyper.idx_vectors, atom.id, &vec);
+        }
+
         if (proc_kind(atom.process_id) == PROC_KIND_GOAL) {
             wm_activate(&global_wm, atom.id, atom.sti, atom.valence);
         }

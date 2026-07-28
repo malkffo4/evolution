@@ -3,6 +3,7 @@
 #include <lmdb.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "hyper_atom.h"
 
@@ -215,4 +216,107 @@ int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cau
         mdb_put(mem->txn, mem->dbi_idx_causal, &k, &v, MDB_APPENDDUP);
     }
     return rc;
+}
+
+int hyper_vector_save(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, const Vector128 *vec) {
+    if (!txn || !vec) return -1;
+    MDB_val key = { sizeof(ko_id_t), (void*)&atom_id };
+    MDB_val data = { sizeof(Vector128), (void*)vec };
+    return mdb_put(txn, dbi, &key, &data, 0);
+}
+
+int hyper_vector_load(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, Vector128 *out) {
+    if (!txn || !out) return -1;
+    MDB_val key = { sizeof(ko_id_t), (void*)&atom_id };
+    MDB_val data;
+    int rc = mdb_get(txn, dbi, &key, &data);
+    if (rc != MDB_SUCCESS) return rc;
+    if (data.mv_size != sizeof(Vector128)) return -1;
+    memcpy(out, data.mv_data, sizeof(Vector128));
+    return 0;
+}
+
+float vector_cosine_similarity(const Vector128 *a, const Vector128 *b) {
+    float dot = 0.0f, norm_a = 0.0f, norm_b = 0.0f;
+    for (int i = 0; i < VECTOR_DIM; i++) {
+        dot   += a->data[i] * b->data[i];
+        norm_a += a->data[i] * a->data[i];
+        norm_b += b->data[i] * b->data[i];
+    }
+    if (norm_a < 1e-8f || norm_b < 1e-8f) return 0.0f;
+    return dot / (sqrtf(norm_a) * sqrtf(norm_b));
+}
+
+int hyper_find_by_process_sti(HyperMemory *mem, ko_id_t process_id,
+                               ko_id_t participant_id, ko_id_t context_id,
+                               float sti_threshold,
+                               NeuroAtom **results, size_t *count) {
+    MDB_cursor *cursor;
+    MDB_val key = { sizeof(ko_id_t), &process_id };
+    MDB_val val_id;
+    if (mdb_cursor_open(mem->txn, mem->dbi_idx_process, &cursor) != MDB_SUCCESS)
+        return -1;
+
+    *count = 0;
+    size_t capacity = 16;
+    *results = malloc(sizeof(NeuroAtom) * capacity);
+    if (!*results) {
+        mdb_cursor_close(cursor);
+        return -1;
+    }
+
+    int rc = mdb_cursor_get(cursor, &key, &val_id, MDB_SET);
+    while (rc == MDB_SUCCESS) {
+        MDB_val val_atom;
+        if (mdb_get(mem->txn, mem->dbi_atoms, &val_id, &val_atom) == MDB_SUCCESS) {
+            NeuroAtom *atom = (NeuroAtom *)val_atom.mv_data;
+
+            // ── STI‑фильтр (самый дешёвый – отсекаем холодные атомы сразу) ──
+            if (sti_threshold > 0.0f && atom->sti < sti_threshold) {
+                rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+                continue;
+            }
+
+            // ── Фильтр по контексту ──
+            if (context_id != 0 && atom->context_or_time_link != context_id) {
+                rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+                continue;
+            }
+
+            // ── Фильтр по участнику (проверяем оба слота args) ──
+            if (participant_id != 0) {
+                bool found = false;
+                for (int i = 0; i < HYPER_VAL_SLOTS; i++) {
+                    if (HYPER_GET_TYPE(atom->args[i].raw) == HYPER_TYPE_REF &&
+                        HYPER_GET_ID(atom->args[i].raw) == participant_id) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+                    continue;
+                }
+            }
+
+            // ── Добавляем в результат ──
+            if (*count >= capacity) {
+                capacity *= 2;
+                NeuroAtom *tmp = realloc(*results, sizeof(NeuroAtom) * capacity);
+                if (!tmp) {
+                    free(*results);
+                    *results = NULL;
+                    mdb_cursor_close(cursor);
+                    return -1;
+                }
+                *results = tmp;
+            }
+            memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
+            (*count)++;
+        }
+        rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+    }
+
+    mdb_cursor_close(cursor);
+    return 0;
 }

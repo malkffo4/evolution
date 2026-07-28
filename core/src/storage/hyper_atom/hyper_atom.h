@@ -32,6 +32,8 @@ typedef uint64_t ko_id_t;
 
 #define HYPER_VAL_SLOTS      2
 
+#define VECTOR_DIM 128
+
 typedef enum {
     PROC_KIND_RELATION = 0,  // обычное отношение (CAUSES, USES, ...)
     PROC_KIND_CONCEPT  = 1,
@@ -55,6 +57,10 @@ typedef union {
     int64_t i_val;
     char    s_val[8];
 } HyperVal;
+
+typedef struct {
+    float data[VECTOR_DIM];
+} Vector128;
 
 /*
  * NeuroAtom — когнитивная триада: Truth (эпистемика) + Attention (внимание)
@@ -106,6 +112,7 @@ typedef struct HyperMemory {
     MDB_dbi dbi_idx_context;
     MDB_dbi dbi_idx_causal;   // NEW: child_id -> cause_id (DUPSORT)
     MDB_dbi dbi_archive;      // NEW: холодное хранилище архивных атомов
+    MDB_dbi dbi_idx_vectors;
 } HyperMemory;
 
 int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id);
@@ -125,5 +132,16 @@ int hyper_find_top_by_score(HyperMemory *mem, ko_id_t context_id, float w_sti, f
                              int top_k, NeuroAtom **results, size_t *count);
 
 int hyper_trace_cause(HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, size_t max_depth, size_t *count);
+
+// Сохранить/загрузить эмбеддинг для атома
+int hyper_vector_save(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, const Vector128 *vec);
+int hyper_vector_load(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, Vector128 *out);
+
+// Косинусное сходство
+float vector_cosine_similarity(const Vector128 *a, const Vector128 *b);
+
+int hyper_find_by_process_sti(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id,
+                               ko_id_t context_id, float sti_threshold,
+                               NeuroAtom **results, size_t *count);
 
 #endif // HYPER_ATOM_H

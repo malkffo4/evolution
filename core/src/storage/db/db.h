@@ -19,9 +19,10 @@ typedef struct {
             MDB_dbi idx_process;
             MDB_dbi idx_args;
             MDB_dbi idx_context;
-            MDB_dbi idx_causal;   // NEW: source_atom_id -> cause_atom_id (DUPSORT)
+            MDB_dbi idx_causal;   // source_atom_id -> cause_atom_id (DUPSORT)
             MDB_dbi patterns;
             MDB_dbi archive;
+            MDB_dbi idx_vectors;   // key: ko_id_t (atom_id), value: float[128]
         } hyper;
         struct {
             MDB_dbi edges_by_source;

@@ -67,10 +67,17 @@ int vm_op_query(VMContext *ctx, const Instruction *ins) {
     ko_id_t context      = (ko_id_t)ctx->reg[ins->arg[2]].i;
     uint32_t sp_offset  = ins->arg[3];
 
+    // Опциональный STI-порог из регистра (если arg[5] != 0)
+    float sti_threshold = (ins->arg[5] != 0) ? (float)ctx->reg[ins->arg[5]].f : 0.0f;
+
     NeuroAtom *results = NULL;
     size_t count = 0;
 
-    hyper_find_by_process(ctx->hyper_mem, proc_id, participant, context, &results, &count);
+    if (sti_threshold > 0.0f) {
+        hyper_find_by_process_sti(ctx->hyper_mem, proc_id, participant, context, sti_threshold, &results, &count);
+    } else {
+        hyper_find_by_process(ctx->hyper_mem, proc_id, participant, context, &results, &count);
+    }
 
     for (size_t i = 0; i < count && (sp_offset + i) < MAX_SCRATCHPAD; i++)
         ctx->scratchpad[sp_offset + i].value = (int64_t)results[i].id;

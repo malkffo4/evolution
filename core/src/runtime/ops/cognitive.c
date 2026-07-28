@@ -11,6 +11,7 @@
 #include "runtime/vm/vm_status.h"
 #include "runtime/logging/logging.h"
 #include "knowledge/algorithm_loader.h"
+#include "storage/db/db.h"
 #include "storage/vector_store/vector_store.h"
 #include "storage/string_pool/string_pool.h"
 #include "memory/working.h"
@@ -150,53 +151,51 @@ int vm_op_exec_algorithm_by_goal(VMContext *ctx, const Instruction *ins) {
 
 int vm_op_find_similar(VMContext *ctx, const Instruction *ins) {
     uint32_t target_reg = ins->arg[0];
-    uint32_t sp_dest    = ins->arg[3];
+    uint32_t threshold_reg = ins->arg[1];
+    uint32_t dst_reg = ins->arg[2];
 
-    if (target_reg >= VM_MAX_REGISTERS || sp_dest >= MAX_SCRATCHPAD)
+    if (target_reg >= VM_MAX_REGISTERS || threshold_reg >= VM_MAX_REGISTERS || dst_reg >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
-    node_id_t target = (ctx->reg[target_reg].type == REG_NODE)
+    node_id_t target_id = (ctx->reg[target_reg].type == REG_NODE)
         ? ctx->reg[target_reg].node
         : (node_id_t)ctx->reg[target_reg].i;
 
-    // Ищем эмбеддинг таргета по всему scratchpad
-    float *target_emb = NULL;
-    for (uint32_t i = 0; i < MAX_SCRATCHPAD; i++) {
-        if (ctx->scratchpad[i].key_hash == target && ctx->scratchpad[i].value) {
-            target_emb = (float *)(uintptr_t)ctx->scratchpad[i].value;
-            break;
-        }
-    }
-    if (!target_emb) return VM_NOT_FOUND;
+    float threshold = (ctx->reg[threshold_reg].type == REG_FLOAT)
+        ? (float)ctx->reg[threshold_reg].f
+        : 0.7f;
 
+    // Загружаем вектор цели
+    Vector128 target_vec;
+    if (hyper_vector_load(ctx->memory.txn, db.graph.hyper.idx_vectors, target_id, &target_vec) != 0)
+        return VM_NOT_FOUND;
+
+    // Сканируем все векторы в индексе (MVP – позже можно добавить ANN)
+    MDB_cursor *cursor;
+    if (mdb_cursor_open(ctx->memory.txn, db.graph.hyper.idx_vectors, &cursor) != MDB_SUCCESS)
+        return VM_ERROR;
+
+    MDB_val key, data;
     float best_sim = -1.0f;
-    node_id_t best_node = 0;
+    ko_id_t best_id = 0;
 
-    // Сканируем весь scratchpad в поисках других эмбеддингов
-    for (uint32_t i = 0; i < MAX_SCRATCHPAD; i++) {
-        if (i == sp_dest) continue;
-        float *cand_emb = (float *)(uintptr_t)ctx->scratchpad[i].value;
-        node_id_t cand_node = ctx->scratchpad[i].key_hash;
-        if (!cand_emb || cand_node == target || cand_node == 0) continue;
-
-        float dot = 0.0f, norm1 = 0.0f, norm2 = 0.0f;
-        for (int d = 0; d < EMBEDDING_DIM; d++) {
-            dot   += target_emb[d] * cand_emb[d];
-            norm1 += target_emb[d] * target_emb[d];
-            norm2 += cand_emb[d] * cand_emb[d];
+    int rc = mdb_cursor_get(cursor, &key, &data, MDB_FIRST);
+    while (rc == MDB_SUCCESS) {
+        ko_id_t candidate_id = *(ko_id_t*)key.mv_data;
+        if (candidate_id == target_id) { rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT); continue; }
+        if (data.mv_size == sizeof(Vector128)) {
+            Vector128 *cand_vec = (Vector128*)data.mv_data;
+            float sim = vector_cosine_similarity(&target_vec, cand_vec);
+            if (sim > best_sim) { best_sim = sim; best_id = candidate_id; }
         }
-        float sim = (norm1 > 0.0f && norm2 > 0.0f)
-            ? dot / (sqrtf(norm1) * sqrtf(norm2))
-            : 0.0f;
-
-        if (sim > best_sim) {
-            best_sim = sim;
-            best_node = cand_node;
-        }
+        rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT);
     }
+    mdb_cursor_close(cursor);
 
-    ctx->scratchpad[sp_dest].key_hash = best_node;   // информативно
-    ctx->scratchpad[sp_dest].value = (int64_t)best_node;  // <-- главное: читается через read_sp
+    if (best_sim < threshold) return VM_NOT_FOUND;
+
+    ctx->reg[dst_reg].type = REG_NODE;
+    ctx->reg[dst_reg].node = best_id;
     return VM_OK;
 }
 
