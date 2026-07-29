@@ -162,8 +162,7 @@ static ko_id_t resolve_arg(cJSON *arg_item) {
             return u.i | HYPER_TYPE_FLOAT;
         }
     } else if (cJSON_IsBool(arg_item)) {
-        // ИСПРАВЛЕНИЕ: Явный каст через int64_t (убирает -Wsign-conversion)
-        return (ko_id_t)(int64_t)(arg_item->valueint) | HYPER_TYPE_INT;
+        return (ko_id_t)(uint64_t)(arg_item->valueint ? 1 : 0) | HYPER_TYPE_INT;
     }
     return 0; // неизвестный тип
 }
@@ -185,16 +184,18 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
         cJSON *process_json = cJSON_GetObjectItem(atom_item, "process");
         if (!cJSON_IsString(process_json)) continue;
 
-        // Тип узла из необязательного поля "kind" (concept/rule/goal/event/hypothesis)
-        ProcKind kind = PROC_KIND_RELATION;
+        // Определяем ProcKind по полю "kind"
+        ProcKind kind = PROC_KIND_ENTITY;   // по умолчанию — сущность
         cJSON *kind_json = cJSON_GetObjectItem(atom_item, "kind");
         if (cJSON_IsString(kind_json)) {
             const char *k = kind_json->valuestring;
-            if      (!strcmp(k, "concept"))    kind = PROC_KIND_CONCEPT;
-            else if (!strcmp(k, "rule"))       kind = PROC_KIND_RULE;
-            else if (!strcmp(k, "goal"))       kind = PROC_KIND_GOAL;
-            else if (!strcmp(k, "event"))      kind = PROC_KIND_EVENT;
-            else if (!strcmp(k, "hypothesis")) kind = PROC_KIND_HYPOTHESIS;
+            if      (!strcmp(k, "relation")) kind = PROC_KIND_RELATION;
+            else if (!strcmp(k, "entity"))   kind = PROC_KIND_ENTITY;
+            else if (!strcmp(k, "concept"))  kind = PROC_KIND_ENTITY;  // синоним
+            else if (!strcmp(k, "rule"))     kind = PROC_KIND_RULE;
+            else if (!strcmp(k, "goal"))     kind = PROC_KIND_GOAL;
+            else if (!strcmp(k, "event"))    kind = PROC_KIND_EVENT;
+            // всё остальное (skill, prediction, hypothesis, ...) — ENTITY
         }
 
         NeuroAtom atom = {0};
@@ -257,6 +258,23 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             continue;
         }
 
+        // Если kind не является базовым (т.е. это метатип вроде "skill"),
+        // добавляем атом IS_A, связывающий этот объект с соответствующим концептом
+        if (cJSON_IsString(kind_json)) {
+            const char *k = kind_json->valuestring;
+            if (strcmp(k, "relation") && strcmp(k, "entity") && strcmp(k, "concept") &&
+                strcmp(k, "rule") && strcmp(k, "goal") && strcmp(k, "event")) {
+                // Это расширенный метатип – создаём атом IS_A(object, Concept(k))
+                NeuroAtom isa_atom = {0};
+                isa_atom.id = (0x3000000000000000ULL | (next_id++)) & HYPER_VALUE_MASK;
+                isa_atom.process_id = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);
+                isa_atom.args[0].raw = HYPER_MAKE_REF(atom.id);
+                isa_atom.args[1].raw = HYPER_MAKE_REF(djb2_hash(k));
+                isa_atom.truth_mean = 1.0f;
+                isa_atom.truth_confidence = 1.0f;
+                hyper_assert_unique(hmem, &isa_atom);
+            }
+        }
         // Причинность — отдельный индекс, не в горячей структуре
         cJSON *cause_json = cJSON_GetObjectItem(atom_item, "cause");
         if (cause_json) {

@@ -4,13 +4,31 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdatomic.h>
 
 #include "hyper_atom.h"
+
+ko_id_t hyper_memory_new_id(HyperMemory *mem) {
+    uint64_t seq = atomic_fetch_add(&mem->idgen->counter,1);
+
+    return ((uint64_t)mem->idgen->node_id << 48) | ((uint64_t)mem->idgen->session_id << 32) | seq;
+}
 
 /* Инициализация — должна вызываться после открытия DBI в db.c */
 HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx) {
     HyperMemory *mem = calloc(1, sizeof(HyperMemory));
     if (!mem) return NULL;
+
+    mem->idgen = calloc(1, sizeof(HyperIdGenerator));
+    if (!mem->idgen) {
+        free(mem);
+        return NULL;
+    }
+    // Настройки по умолчанию: можно позже передавать через аргументы
+    mem->idgen->node_id = 0;
+    mem->idgen->session_id = 0;
+    atomic_store(&mem->idgen->counter, 1);
+
     mem->txn = txn;
     mem->dbi_atoms = atoms;
     mem->dbi_idx_process = idx_proc;
@@ -21,7 +39,10 @@ HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB
 }
 
 void hyper_memory_free(HyperMemory *mem) {
-    free(mem);
+    if (mem) {
+        free(mem->idgen);
+        free(mem);
+    }
 }
 
 void hyper_memory_set_txn(HyperMemory *mem, MDB_txn *txn) {

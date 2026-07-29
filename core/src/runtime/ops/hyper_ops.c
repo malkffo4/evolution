@@ -12,17 +12,6 @@
 
 typedef struct { ko_id_t old_id; ko_id_t new_id; } IdMap;
 
-static ko_id_t generate_id(VMContext *ctx) {
-    (void)ctx;
-    static uint64_t counter = 1;
-    uint64_t t = (uint64_t)time(NULL);
-    return (t << 32) | (counter++ & 0xFFFFFFFF);
-}
-
-static uint64_t get_time_tick(VMContext *ctx) {
-    return ctx->cycles;
-}
-
 // Читает truth_confidence из уже сохранённого атома (belief теперь читается
 // напрямую из вектора truth, отдельный процесс ID_BELIEF больше не нужен
 // для confidence — но оставлен для обратной совместимости с legacy данными).
@@ -94,7 +83,7 @@ int vm_op_query(VMContext *ctx, const Instruction *ins) {
 // truth высок (это прямое утверждение), attention начальная, utility/valence нейтральны.
 int vm_op_assert(VMContext *ctx, const Instruction *ins) {
     NeuroAtom atom = {0};
-    atom.id = generate_id(ctx);
+    atom.id = hyper_memory_new_id(ctx->hyper_mem);
     atom.process_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
 
     atom.args[0].raw = ctx->reg[ins->arg[1]].i;
@@ -122,7 +111,7 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
 // arg[0]=process, arg[1..2]=args, arg[3]=cause_id_reg, arg[4]=dst_id_reg
 int vm_op_derive(VMContext *ctx, const Instruction *ins) {
     NeuroAtom atom = {0};
-    atom.id = generate_id(ctx);
+    atom.id = hyper_memory_new_id(ctx->hyper_mem);
     atom.process_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
 
     atom.args[0].raw = ctx->reg[ins->arg[1]].i;
@@ -184,10 +173,10 @@ int vm_op_trace(VMContext *ctx, const Instruction *ins) {
 
 // OP_SPAWN_CTX — без изменений структурно, args[2] не используются здесь напрямую
 int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
-    ko_id_t child_id = generate_id(ctx);
+    ko_id_t child_id = hyper_memory_new_id(ctx->hyper_mem);
 
     NeuroAtom rel = {0};
-    rel.id = generate_id(ctx);
+    rel.id = hyper_memory_new_id(ctx->hyper_mem);
     rel.process_id = proc_make(ID_IS_CHILD_OF, PROC_KIND_RELATION);
     rel.args[0].raw = HYPER_MAKE_REF(child_id);
     rel.args[1].raw = HYPER_MAKE_REF(ctx->current_context);
@@ -278,7 +267,7 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     for (size_t i = 0; i < count; i++) {
         float conf = atoms[i].truth_confidence;
         if (conf >= threshold) {
-            ko_id_t new_id = generate_id(ctx);
+            ko_id_t new_id = hyper_memory_new_id(ctx->hyper_mem);
             id_map[map_size].old_id = atoms[i].id;
             id_map[map_size].new_id = new_id;
             map_size++;

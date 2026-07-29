@@ -35,12 +35,12 @@ typedef uint64_t ko_id_t;
 #define VECTOR_DIM 128
 
 typedef enum {
-    PROC_KIND_RELATION = 0,  // обычное отношение (CAUSES, USES, ...)
-    PROC_KIND_CONCEPT  = 1,
-    PROC_KIND_RULE     = 2,
-    PROC_KIND_GOAL     = 3,
-    PROC_KIND_EVENT    = 4,
-    PROC_KIND_HYPOTHESIS = 5
+    PROC_KIND_RELATION = 0,  // связь (IS_A, CAUSES, ...)
+    PROC_KIND_ENTITY   = 1,  // любое понятие, включая мета-категории
+    PROC_KIND_RULE     = 2,  // правило вывода (IF..THEN)
+    PROC_KIND_EVENT    = 3,  // событие во времени
+    PROC_KIND_GOAL     = 4   // цель агента
+    // Всё остальное (SKILL, PREDICTION, BELIEF, ...) уходит в граф.
 } ProcKind;
 
 static inline ko_id_t proc_make(ko_id_t base_id, ProcKind kind) {
@@ -104,18 +104,30 @@ typedef struct {
 _Static_assert(sizeof(NeuroAtom) == 64, "NeuroAtom must be exactly 64 bytes");
 _Static_assert(_Alignof(NeuroAtom) == 8, "NeuroAtom must be 8-byte aligned for LMDB mmap access");
 
+typedef uint16_t HyperNodeId;
+typedef uint16_t HyperSessionId;
+
+typedef struct {
+    HyperNodeId    node_id;
+    HyperSessionId session_id;
+    _Atomic uint32_t counter;
+} HyperIdGenerator;
+
 typedef struct HyperMemory {
     MDB_txn *txn;
+
     MDB_dbi dbi_atoms;
     MDB_dbi dbi_idx_process;
     MDB_dbi dbi_idx_args;
     MDB_dbi dbi_idx_context;
-    MDB_dbi dbi_idx_causal;   // NEW: child_id -> cause_id (DUPSORT)
-    MDB_dbi dbi_archive;      // NEW: холодное хранилище архивных атомов
+    MDB_dbi dbi_idx_causal;   // child_id -> cause_id (DUPSORT)
+    MDB_dbi dbi_archive;      // холодное хранилище архивных атомов
     MDB_dbi dbi_idx_vectors;
+
+    HyperIdGenerator *idgen;
 } HyperMemory;
 
-int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id);
+ko_id_t hyper_memory_new_id(HyperMemory *mem);
 
 HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx);
 void hyper_memory_free(HyperMemory *mem);
@@ -126,6 +138,7 @@ void hyper_memory_set_db_vectors(HyperMemory *mem, MDB_dbi vectors);
 
 int hyper_assert(HyperMemory *mem, const NeuroAtom *atom);
 int hyper_assert_unique(HyperMemory *mem, const NeuroAtom *atom);
+int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id);
 
 int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count);
 int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count);
