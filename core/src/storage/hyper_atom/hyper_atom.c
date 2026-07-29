@@ -115,12 +115,12 @@ int hyper_assert(HyperMemory *mem, const NeuroAtom *atom) {
         if (HYPER_GET_TYPE(atom->args[i].raw) == HYPER_TYPE_REF && atom->args[i].raw != 0) {
             ko_id_t clean_ref = HYPER_GET_ID(atom->args[i].raw);
             MDB_val key_arg = {sizeof(ko_id_t), (void *)&clean_ref};
-            mdb_put(mem->txn, mem->dbi_idx_args, &key_arg, &key_id, MDB_APPENDDUP);
+            mdb_put(mem->txn, mem->dbi_idx_args, &key_arg, &key_id, 0);
         }
     }
 
     MDB_val key_ctx = {sizeof(ko_id_t), (void *)&atom->context_or_time_link};
-    mdb_put(mem->txn, mem->dbi_idx_context, &key_ctx, &key_id, MDB_APPENDDUP);
+    mdb_put(mem->txn, mem->dbi_idx_context, &key_ctx, &key_id, 0);
 
     return 0;
 }

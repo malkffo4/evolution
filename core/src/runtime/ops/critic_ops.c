@@ -2,12 +2,13 @@
 #include <stdint.h>
 #include <time.h>
 
+#include "runtime/logging/logging.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 #include "memory/critic_state.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "math/hash.h"
-#include "runtime/logging/logging.h"
+#include "knowledge/evaluation.h"
 
 #define FLAW_THRESHOLD 3
 
@@ -85,5 +86,48 @@ int vm_op_critic_apply(VMContext *ctx, const Instruction *ins) {
         LOG_PLANNER("[CRITIC] algo=%lu marked HAS_FLAW after %d failures",
                     (unsigned long)snap[i].algo_id, snap[i].consecutive_failures);
     }
+    return VM_OK;
+}
+
+/* OP_CREDIT_ASSIGN
+ * arg[0] = domain (CognitiveDomain, immediate)
+ * arg[1] = регистр с result_atom_id (REG_NODE/REG_INT)
+ * arg[2] = регистр с outcome (REG_FLOAT)
+ * arg[3] = max_depth (immediate, 0 = дефолт)
+ * arg[4] = discount, упакован как float-биты (см. OP_MERGE_CTX для паттерна)
+ * arg[5] = регистр-приёмник количества обновлённых Score (REG_INT)
+ *
+ * Распределяет credit по causal-цепочке результата. Не решает САМ,
+ * когда его вызывать — это ответственность пайплайна (CriticMain),
+ * что сохраняет принцип "когниция не хардкодится в kernel".
+ */
+int vm_op_credit_assign(VMContext *ctx, const Instruction *ins) {
+    uint32_t domain      = ins->arg[0];
+    uint32_t r_result    = ins->arg[1];
+    uint32_t r_outcome   = ins->arg[2];
+    uint32_t max_depth   = ins->arg[3];
+    uint32_t r_out_count = ins->arg[5];
+
+    if (r_result >= VM_MAX_REGISTERS || r_outcome >= VM_MAX_REGISTERS ||
+        r_out_count >= VM_MAX_REGISTERS)
+        return VM_INVALID_REGISTER;
+    if (!ctx->hyper_mem) return VM_ERROR;
+
+    if (ctx->reg[r_result].type != REG_NODE && ctx->reg[r_result].type != REG_INT)
+        return VM_INVALID_TYPE;
+    if (ctx->reg[r_outcome].type != REG_FLOAT)
+        return VM_INVALID_TYPE;
+
+    node_id_t result_id = (ctx->reg[r_result].type == REG_NODE)
+        ? ctx->reg[r_result].node : (node_id_t)ctx->reg[r_result].i;
+    float outcome  = (float)ctx->reg[r_outcome].f;
+    float discount = *(const float*)&ins->arg[4];
+
+    int propagated = score_propagate_credit(ctx->hyper_mem, (CognitiveDomain)domain,
+                                             result_id, outcome, max_depth, discount);
+    if (propagated < 0) return VM_ERROR;
+
+    ctx->reg[r_out_count].type = REG_INT;
+    ctx->reg[r_out_count].i = propagated;
     return VM_OK;
 }

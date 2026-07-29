@@ -92,6 +92,7 @@ typedef enum {
     OP_CRITIC_APPLY,
 
     OP_MATCH_PATTERN,
+    OP_CREDIT_ASSIGN,          // NEW: RFC-0001 credit assignment по idx_causal
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

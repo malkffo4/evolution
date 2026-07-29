@@ -95,4 +95,26 @@ int score_update(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id
 // (в т.ч. если наблюдений нет — тогда свёртка не создаётся/не трогается).
 int score_recompute(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id);
 
+// Обновляет Score с явным весом доверия к причинности (credit strength).
+// credit_weight=1.0 эквивалентен обычному score_update().
+// credit_weight <= 0 — no-op (возвращает 0, ничего не пишет).
+// Используется score_propagate_credit() для затухающего распределения
+// ответственности по цепочке idx_causal (temporal discount).
+int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
+                           float outcome, float credit_weight,
+                           node_id_t cause_id, node_id_t context_id);
+
+// RFC-0001 Credit Assignment (TODO Priority 1).
+// Идёт от result_atom_id вверх по idx_causal (child -> cause), на каждом
+// шаге глубины d применяет score_update_weighted(outcome, discount^d) ко
+// всем REF-аргументам встреченного атома (это и есть "участники", которые
+// причастны к результату — гипотезы, узлы, алгоритмы).
+// max_depth=0 -> дефолт 8, аппаратный потолок 64 (защита от аномальных цепочек).
+// discount вне (0,1] -> дефолт 0.7.
+// ДОЛЖНА вызываться внутри write-транзакции db_writer (как и score_update).
+// Возвращает количество применённых обновлений (>=0) или -1 при ошибке.
+int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
+                            node_id_t result_atom_id, float outcome,
+                            uint32_t max_depth, float discount);
+
 #endif // KNOWLEDGE_EVALUATION_H

@@ -130,49 +130,54 @@ float score_get(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id)
 
 int score_update(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
                   float outcome, node_id_t cause_id, node_id_t context_id) {
+    return score_update_weighted(hmem, domain, subject_id, outcome, 1.0f, cause_id, context_id);
+}
+
+int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
+                           float outcome, float credit_weight,
+                           node_id_t cause_id, node_id_t context_id) {
     if (!hmem || !hmem->txn) return -1;
+    if (credit_weight > 1.0f) credit_weight = 1.0f;
+    if (credit_weight <= 0.0f) return 0; // нулевой вклад — не засоряем историю
 
-    // 1. Записать наблюдение
+    // 1. Неизменяемое наблюдение. Пишем полный outcome без затухания —
+    //    вес влияет только на скорость обучения Score, а не на факт.
     if (evaluation_record(hmem, domain, subject_id, outcome, cause_id, context_id) == 0)
-        return -1;   // ошибка уже залогирована
+        return -1;
 
-    // 2. Найти или создать Score-атом
+    // 2. Найти/создать Score
     NeuroAtom *existing = find_score_atom(hmem, domain, subject_id);
     NeuroAtom score_atom;
     bool is_new = (existing == NULL);
-
     if (is_new) {
         memset(&score_atom, 0, sizeof(score_atom));
-        score_atom.id            = hyper_memory_new_id(hmem);
-        score_atom.process_id    = proc_make(djb2_hash(kHAS_SCORE), PROC_KIND_RELATION);
-        score_atom.args[0].raw   = HYPER_MAKE_REF(subject_id);
-        score_atom.args[1].raw   = (ko_id_t)(int64_t)domain | HYPER_TYPE_INT;
-        score_atom.truth_mean    = SCORE_PRIOR;
+        score_atom.id           = hyper_memory_new_id(hmem);
+        score_atom.process_id   = proc_make(djb2_hash(kHAS_SCORE), PROC_KIND_RELATION);
+        score_atom.args[0].raw  = HYPER_MAKE_REF(subject_id);
+        score_atom.args[1].raw  = (ko_id_t)(int64_t)domain | HYPER_TYPE_INT;
+        score_atom.truth_mean       = SCORE_PRIOR;
         score_atom.truth_confidence = 0.0f;
     } else {
         memcpy(&score_atom, existing, sizeof(NeuroAtom));
     }
 
-    // 3. Инкрементальное обновление EMA
-    if (outcome > 0.5f) {
-        score_atom.truth_mean += (1.0f - score_atom.truth_mean) * SCORE_LEARNING_RATE;
-    } else {
-        score_atom.truth_mean -= score_atom.truth_mean * SCORE_LEARNING_RATE;
-    }
-    // truth_confidence растёт медленно с каждым наблюдением
-    score_atom.truth_confidence += (1.0f - score_atom.truth_confidence) * SCORE_LEARNING_RATE;
+    // 3. Канонический EMA к outcome, ослабленный credit_weight.
+    //    credit_weight=1.0 побитово эквивалентен прежней бинарной формуле
+    //    для outcome ∈ {0.0, 1.0} (все текущие вызовы именно такие).
+    float effective_lr = SCORE_LEARNING_RATE * credit_weight;
+    score_atom.truth_mean       += (outcome - score_atom.truth_mean) * effective_lr;
+    score_atom.truth_confidence += (1.0f - score_atom.truth_confidence) * effective_lr;
 
-    // Связываем с циклом decay/archive через стандартные поля внимания
-    score_atom.sti     = 0.8f;
-    score_atom.lti     = score_atom.truth_confidence;   // чем больше данных, тем дольше живёт
+    score_atom.sti     = 0.8f * credit_weight; // косвенная причина — меньше внимания
+    score_atom.lti     = score_atom.truth_confidence;
     score_atom.utility = score_atom.truth_mean;
-    score_atom.valence = 0.0f;          // нейтрально
+    score_atom.valence = 0.0f;
     score_atom.context_or_time_link = 0;
 
     int rc = save_score(hmem, &score_atom);
     if (rc == 0) {
-        LOG_PLANNER("[SCORE] Updated domain=%d subject=%lu new_trust=%.3f conf=%.3f",
-                    domain, (unsigned long)subject_id,
+        LOG_PLANNER("[SCORE] weighted domain=%d subject=%lu outcome=%.3f w=%.3f -> trust=%.3f conf=%.3f",
+                    domain, (unsigned long)subject_id, outcome, credit_weight,
                     score_atom.truth_mean, score_atom.truth_confidence);
     }
     return rc;
@@ -247,4 +252,56 @@ int score_recompute(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject
                     domain, (unsigned long)subject_id, new_trust, new_conf, valid_count);
     }
     return rc;
+}
+
+int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
+                            node_id_t result_atom_id, float outcome,
+                            uint32_t max_depth, float discount) {
+    if (!hmem || !hmem->txn || !hmem->dbi_idx_causal) return -1;
+    if (result_atom_id == 0) return -1;
+    if (max_depth == 0)  max_depth = 8;
+    if (max_depth > 64)  max_depth = 64; // защита от аномально длинных/циклических цепочек
+    if (discount <= 0.0f || discount > 1.0f) discount = 0.7f;
+
+    ko_id_t current_id = result_atom_id;
+    uint32_t depth = 0;
+    int propagated = 0;
+
+    while (current_id != 0 && depth < max_depth) {
+        MDB_val key = { sizeof(ko_id_t), &current_id };
+        MDB_val val;
+
+        if (mdb_get(hmem->txn, hmem->dbi_atoms, &key, &val) != MDB_SUCCESS ||
+            val.mv_size != sizeof(NeuroAtom)) {
+            break; // атом уже архивирован decay-циклом — обрываем трассировку, не ошибка
+        }
+
+        NeuroAtom atom;
+        memcpy(&atom, val.mv_data, sizeof(NeuroAtom));
+
+        float weight = powf(discount, (float)depth);
+
+        for (int slot = 0; slot < HYPER_VAL_SLOTS; slot++) {
+            if (HYPER_GET_TYPE(atom.args[slot].raw) != HYPER_TYPE_REF) continue;
+            node_id_t subject = HYPER_GET_ID(atom.args[slot].raw);
+            if (subject == 0) continue;
+
+            if (score_update_weighted(hmem, domain, subject, outcome, weight,
+                                       atom.id, atom.context_or_time_link) == 0)
+                propagated++;
+        }
+
+        MDB_val cause_val;
+        if (mdb_get(hmem->txn, hmem->dbi_idx_causal, &key, &cause_val) != MDB_SUCCESS ||
+            cause_val.mv_size != sizeof(ko_id_t)) {
+            break;
+        }
+        ko_id_t next_id;
+        memcpy(&next_id, cause_val.mv_data, sizeof(ko_id_t));
+        if (next_id == current_id) break; // защита от самопетли
+        current_id = next_id;
+        depth++;
+    }
+
+    return propagated;
 }

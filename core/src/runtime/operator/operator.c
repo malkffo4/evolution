@@ -149,6 +149,7 @@ void operator_registry_init(void) {
     operator_register_native(OP_CRITIC_APPLY, "critic_apply", 0, vm_op_critic_apply, NULL, 0, 0);
 
     operator_register_native(OP_MATCH_PATTERN, "match_pattern", 0, vm_op_match_pattern, NULL, 0, 0);
+    operator_register_native(OP_CREDIT_ASSIGN, "credit_assign", 0, vm_op_credit_assign, NULL, 0, 0);
 
     // 2. Операторы с возможностями
     // ObjectType in_node[] = { REG_NODE };

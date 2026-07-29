@@ -72,4 +72,6 @@ int vm_op_critic_apply(VMContext *, const Instruction *);
 
 int vm_op_match_pattern(VMContext *, const Instruction *);
 
+int vm_op_credit_assign(VMContext *, const Instruction *);
+
 #endif
