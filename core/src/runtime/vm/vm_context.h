@@ -68,6 +68,13 @@ typedef struct VMContext {
     HyperMemory     *hyper_mem;
     ko_id_t         current_context;        // регистры состояний:
     ko_id_t         current_episode_id;
+    ko_id_t         last_result_id;         // NEW: последний Knowledge Object,
+                                            // созданный OP_ASSERT/OP_DERIVE в
+                                            // ходе текущего исполнения. Читается
+                                            // vm_op_evaluate_goals для Credit
+                                            // Assignment после завершения алгоритма.
+                                            // Обнуляется вызывающей стороной перед
+                                            // запуском и сразу после использования.
     uint32_t        pc;
 } VMContext;
 

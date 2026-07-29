@@ -104,6 +104,7 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
 
     ctx->reg[ins->arg[3]].type = REG_INT;
     ctx->reg[ins->arg[3]].i = (int64_t)atom.id;
+    ctx->last_result_id = atom.id;
     return VM_OK;
 }
 
@@ -135,6 +136,7 @@ int vm_op_derive(VMContext *ctx, const Instruction *ins) {
 
     ctx->reg[ins->arg[4]].type = REG_INT;
     ctx->reg[ins->arg[4]].i = (int64_t)atom.id;
+    ctx->last_result_id = atom.id;
     return VM_OK;
 }
 

@@ -8,6 +8,7 @@
 #include "storage/db/db.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "knowledge/hyper_retrieval.h"
+#include "knowledge/evaluation.h"
 #include "math/hash.h"              // djb2_hash()
 #include "execution/executor.h"     // executor_run_sync()
 #include "types/exec.h"             // EXEC
@@ -270,4 +271,50 @@ void req_get_research_tasks(IPCPacket *req, IPCPacket *resp) {
     cJSON_Delete(arr);
     resp->type = IPC_RESPONSE;
     strncpy(resp->name, "get_research_tasks", sizeof(resp->name)-1);
+}
+
+void req_get_score(IPCPacket *req, IPCPacket *resp) {
+    cJSON *json = cJSON_Parse((const char *)req->payload);
+    char subject[256] = {0};
+    int domain = 0;
+    if (json) {
+        cJSON *s = cJSON_GetObjectItemCaseSensitive(json, "subject");
+        cJSON *d = cJSON_GetObjectItemCaseSensitive(json, "domain");
+        if (cJSON_IsString(s)) strncpy(subject, s->valuestring, sizeof(subject) - 1);
+        if (cJSON_IsNumber(d)) domain = d->valueint;
+        cJSON_Delete(json);
+    }
+
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "get_score", sizeof(resp->name) - 1);
+
+    if (strlen(subject) == 0 || domain <= 0) {
+        const char *err = "{\"error\": \"subject and domain required\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    uint64_t subject_id = djb2_hash(subject);
+
+    MDB_txn *txn;
+    if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) == MDB_SUCCESS) {
+        HyperMemory local_hm = {0};
+        local_hm.txn = txn;
+        local_hm.dbi_atoms = db.graph.hyper.atoms;
+        local_hm.dbi_idx_process = db.graph.hyper.idx_process;
+        local_hm.dbi_idx_args = db.graph.hyper.idx_args;
+        local_hm.dbi_idx_context = db.graph.hyper.idx_context;
+
+        float score = score_get(&local_hm, (CognitiveDomain)domain, subject_id);
+        mdb_txn_abort(txn);
+
+        snprintf(resp->payload, sizeof(resp->payload),
+                 "{\"subject\": \"%s\", \"subject_id\": %llu, \"domain\": %d, \"score\": %.4f}",
+                 subject, (unsigned long long)subject_id, domain, score);
+    } else {
+        const char *err = "{\"error\": \"DB transaction failed\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+    }
+    resp->payload_size = (uint32_t)strlen(resp->payload);
 }

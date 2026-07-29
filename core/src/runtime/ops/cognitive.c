@@ -302,12 +302,28 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
         return VM_OK;
     }
 
+    ctx->last_result_id = 0; // сбрасываем перед запуском — видим только выводы ЭТОГО алгоритма
     rc = vm_execute(ctx, algo);
-    // Обновляем доверие к алгоритму независимо от исхода
+
     if (ctx->hyper_mem && algo_id) {
-        score_update(ctx->hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, algo_id,
-                     (rc == VM_OK) ? 1.0f : 0.0f, 0, 0);
+        float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
+        score_update(ctx->hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, algo_id, outcome, 0, 0);
+
+        // Credit Assignment (RFC-0001, TODO Priority 1): если алгоритм в
+        // процессе работы вывел гипотезу/факт через OP_ASSERT/OP_DERIVE,
+        // распространяем credit по всей causal-цепочке этого вывода, а не
+        // только на сам algo_id. Domain=HYPOTHESIS — типичный внутренний
+        // вывод алгоритма (см. tests/hypothesis_by_analogy.c).
+        // discount=0.7 — временная константа; когда CorePlanner перестанет
+        // быть заглушкой, она должна стать параметром executable policy,
+        // а не C-константой (не архитектурю это сейчас — не требуется).
+        if (ctx->last_result_id != 0) {
+            score_propagate_credit(ctx->hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
+                ctx->last_result_id, outcome, 0, 0.7f);
+            ctx->last_result_id = 0;
+        }
     }
+
     if (rc != VM_OK) {
         LOG_WARN("Algorithm %lu execution failed with status %d", algo_id, rc);
         record_execution_result(algo_id, rc);
