@@ -11,6 +11,7 @@
 #include "runtime/ops/opcode.h"
 #include "math/hash.h"
 #include "memory/critic_state.h"
+#include "knowledge/trust.h"
 
 // Ищет все идентификаторы процессов, которые связывают Goal и Algorithm.
 // Возвращает количество найденных отношений.
@@ -78,13 +79,20 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
 }
 
 /* ---------------------------------------------------------------- */
-/* Выбор лучшего алгоритма по статистике (упрощённо)                */
+/* Выбор лучшего алгоритма по статистике               */
 /* ---------------------------------------------------------------- */
 static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
-    // TODO: Пока статистика не накоплена, берём первый
-    (void)ctx;
-    (void)count;
-    return candidates[0];
+    if (!ctx->hyper_mem) return candidates[0];
+    node_id_t best = candidates[0];
+    float best_trust = trust_get(ctx->hyper_mem, TRUST_DOMAIN_ALGORITHM, best);
+    for (int i = 1; i < count; i++) {
+        float t = trust_get(ctx->hyper_mem, TRUST_DOMAIN_ALGORITHM, candidates[i]);
+        if (t > best_trust) {
+            best_trust = t;
+            best = candidates[i];
+        }
+    }
+    return best;
 }
 
 /* ---------------------------------------------------------------- */

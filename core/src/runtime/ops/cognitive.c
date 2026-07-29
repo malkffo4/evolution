@@ -11,6 +11,7 @@
 #include "runtime/vm/vm_status.h"
 #include "runtime/logging/logging.h"
 #include "knowledge/algorithm_loader.h"
+#include "knowledge/trust.h"
 #include "storage/db/db.h"
 #include "storage/vector_store/vector_store.h"
 #include "storage/string_pool/string_pool.h"
@@ -302,6 +303,10 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
     }
 
     rc = vm_execute(ctx, algo);
+    // Обновляем доверие к алгоритму независимо от исхода
+    if (ctx->hyper_mem && algo_id) {
+        trust_update(ctx->hyper_mem, TRUST_DOMAIN_ALGORITHM, algo_id, rc == VM_OK);
+    }
     if (rc != VM_OK) {
         LOG_WARN("Algorithm %lu execution failed with status %d", algo_id, rc);
         record_execution_result(algo_id, rc);
