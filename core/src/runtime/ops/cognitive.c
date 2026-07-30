@@ -116,8 +116,7 @@ int vm_op_exec_algorithm(VMContext *ctx, const Instruction *ins) {
 
     // Защита от переполнения стека
     if (ctx->frame + 1 >= VM_MAX_CALL_DEPTH) {
-        free(algo_pipeline->code);
-        free(algo_pipeline);
+        pipeline_free(algo_pipeline);
         return VM_STACK_OVERFLOW;
     }
 
@@ -140,8 +139,7 @@ int vm_op_exec_algorithm(VMContext *ctx, const Instruction *ins) {
     ctx->halted = prev_halted;
 
     // Освобождаем загруженный pipeline
-    free(algo_pipeline->code);
-    free(algo_pipeline);
+    pipeline_free(algo_pipeline);
     return rc;
 }
 
@@ -304,10 +302,34 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
         return VM_OK;
     }
 
+    if (ctx->frame + 1 >= VM_MAX_CALL_DEPTH) {
+        pipeline_free(algo);
+        return VM_STACK_OVERFLOW;
+    }
+
+    // Сохраняем состояние текущего фрейма (MainLoop)
+    uint32_t prev_frame = ctx->frame;
+    bool prev_halted = ctx->halted;
+
+    // Переключаемся на новый фрейм для выполнения выбранного алгоритма
+    ctx->frame++;
+    VMFrame *f = &ctx->frames[ctx->frame];
+    f->pipeline = algo;
+    f->code     = algo->code;
+    f->ip       = 0;
+
+    ctx->halted = false;
     ctx->last_result_id = 0;               // видим только выводы ЭТОГО запуска
     uint64_t t_start = vm_rdtsc();
     rc = vm_execute(ctx, algo);
     uint64_t t_end = vm_rdtsc();
+
+    // Восстанавливаем состояние MainLoop
+    ctx->frame = prev_frame;
+    ctx->halted = prev_halted;
+
+    // Теперь можно безопасно освободить algo
+    pipeline_free(algo);
 
     if (ctx->hyper_mem && algo_id) {
         float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
@@ -338,7 +360,7 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
         LOG_WARN("Algorithm %lu execution failed with status %d", algo_id, rc);
         record_execution_result(algo_id, rc);
     }
-    pipeline_free(algo);
+
     return VM_OK;
 }
 

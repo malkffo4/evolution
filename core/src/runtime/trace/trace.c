@@ -8,13 +8,9 @@
 #include "runtime/vm/vm_context.h"
 
 static int vm_trace_grow(VMContext *ctx) {
-    uint32_t cap =
-        ctx->trace_capacity ?
-        ctx->trace_capacity * 2 :
-        VM_TRACE_INITIAL_CAPACITY;
+    uint32_t cap = ctx->trace_capacity ? ctx->trace_capacity * 2 : VM_TRACE_INITIAL_CAPACITY;
 
     VMTrace *trace = realloc(ctx->trace, cap * sizeof(VMTrace));
-
     if(!trace)
         return 0;
 
@@ -47,6 +43,8 @@ VMTrace *vm_trace_begin(VMContext *ctx, OperatorID id) {
     }
 
     VMTrace *t = &ctx->trace[ctx->trace_count++];
+    if(!t)
+        return 0;
 
     memset(t,0,sizeof(*t));
 

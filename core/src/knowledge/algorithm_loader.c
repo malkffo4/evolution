@@ -28,10 +28,10 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
     }
 
     const uint8_t *raw = (const uint8_t *)data.mv_data;
-    const uint32_t *header = (const uint32_t *)raw;
-    uint32_t code_len = header[0];
-    // uint32_t capacity = header[1];
-    const Instruction *code_start = (const Instruction *)(raw + sizeof(uint32_t) * 2);
+    uint32_t code_len, capacity;
+    memcpy(&code_len, raw, sizeof(uint32_t));
+    memcpy(&capacity, raw + sizeof(uint32_t), sizeof(uint32_t));
+    const Instruction *code_start = (const Instruction *)(raw + 2 * sizeof(uint32_t));
     size_t code_bytes = code_len * sizeof(Instruction);
 
     if (sizeof(uint32_t) * 2 + code_bytes > data.mv_size) {
@@ -52,7 +52,8 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
 
     // ints
     if (cptr + sizeof(uint32_t) > end) goto done;
-    uint32_t n = *(uint32_t*)cptr; cptr += sizeof(uint32_t);
+    uint32_t n;
+    memcpy(&n, cptr, sizeof(uint32_t)); cptr += sizeof(uint32_t);
     p->constants.int_count = n;
     if (n > 0) {
         if (cptr + n * sizeof(int64_t) > end) goto cleanup;
@@ -63,7 +64,7 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
 
     // floats
     if (cptr + sizeof(uint32_t) > end) goto done;
-    n = *(uint32_t*)cptr; cptr += sizeof(uint32_t);
+    memcpy(&n, cptr, sizeof(uint32_t)); cptr += sizeof(uint32_t);
     p->constants.float_count = n;
     if (n > 0) {
         if (cptr + n * sizeof(double) > end) goto cleanup;
@@ -74,15 +75,17 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
 
     // strings
     if (cptr + sizeof(uint32_t) > end) goto done;
-    n = *(uint32_t*)cptr; cptr += sizeof(uint32_t);
+    memcpy(&n, cptr, sizeof(uint32_t)); cptr += sizeof(uint32_t);
     p->constants.str_count = n;
     if (n > 0) {
         p->constants.str_consts = malloc(n * sizeof(StringView));
         for (uint32_t i = 0; i < n; i++) {
             if (cptr + sizeof(uint32_t) > end) goto cleanup;
-            uint32_t slen = *(uint32_t*)cptr; cptr += sizeof(uint32_t);
+            uint32_t slen;
+            memcpy(&slen, cptr, sizeof(uint32_t)); cptr += sizeof(uint32_t);
             if (cptr + slen > end) goto cleanup;
             char *s = malloc(slen + 1);
+            if (!s) goto cleanup;
             memcpy(s, cptr, slen);
             s[slen] = '\0';
             p->constants.str_consts[i].data = s;
