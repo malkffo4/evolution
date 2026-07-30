@@ -12,6 +12,8 @@
 #include "runtime/operator/operator.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "math/hash.h"
+#include "knowledge/algorithm_loader.h"
+#include "knowledge/evaluation.h"
 
 typedef struct {
     IPCPacket *req;
@@ -30,8 +32,93 @@ static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
         return -1;
     }
 
-    // Поиск ID оператора по имени
-    OperatorID op_id = operator_find_by_name(op_str->valuestring);
+    const char *op_name = op_str->valuestring;
+
+    // ── Специальная ветка: выполнение целого алгоритма по имени ──
+    if (strcmp(op_name, "exec_algorithm") == 0) {
+        cJSON *args_arr = cJSON_GetObjectItem(root, "args");
+        cJSON *regs_obj = cJSON_GetObjectItem(root, "regs");
+
+        uint64_t algo_id = 0;
+        // Ожидаем, что args[0] указывает на индекс регистра, где лежит хэш имени
+        int algo_reg = args_arr ? (int)cJSON_GetNumberValue(cJSON_GetArrayItem(args_arr, 0)) : -1;
+        if (algo_reg >= 0 && algo_reg < VM_MAX_REGISTERS && cJSON_IsObject(regs_obj)) {
+            // Ищем ключ, соответствующий номеру регистра (как строку)
+            char reg_key[16];
+            snprintf(reg_key, sizeof(reg_key), "%d", algo_reg);
+            cJSON *reg_val = cJSON_GetObjectItem(regs_obj, reg_key);
+            if (cJSON_IsString(reg_val)) {
+                algo_id = djb2_hash(reg_val->valuestring);
+            } else if (cJSON_IsNumber(reg_val)) {
+                algo_id = (uint64_t)reg_val->valuedouble;
+            }
+        }
+        if (algo_id == 0) {
+            cJSON_Delete(root);
+            return -1;
+        }
+
+        Pipeline *pipeline = NULL;
+        if (algorithm_load(txn, algo_id, &pipeline) != 0 || !pipeline) {
+            cJSON_Delete(root);
+            return -1;
+        }
+
+        VMContext ctx;
+        if (vm_init(&ctx, txn, NULL) != VM_OK) {
+            pipeline_free(pipeline);
+            cJSON_Delete(root);
+            return -1;
+        }
+        ctx.hyper_mem = hyper_memory_new(txn,
+                                         db.graph.hyper.atoms,
+                                         db.graph.hyper.idx_process,
+                                         db.graph.hyper.idx_args,
+                                         db.graph.hyper.idx_context);
+
+        int rc = vm_execute(&ctx, pipeline);
+
+        // Обновляем доверие к алгоритму (score)
+        if (ctx.hyper_mem) {
+            float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
+            score_update(ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, algo_id, outcome, 0, 0);
+        }
+
+        // Формируем ответ
+        job->response_payload = cJSON_CreateObject();
+        cJSON_AddNumberToObject(job->response_payload, "status", (double)rc);
+
+        // Возвращаем запрошенные регистры
+        cJSON *report_regs = cJSON_GetObjectItem(root, "report_regs");
+        if (cJSON_IsArray(report_regs)) {
+            cJSON *reported = cJSON_AddObjectToObject(job->response_payload, "reported_regs");
+            int n = cJSON_GetArraySize(report_regs);
+            for (int i = 0; i < n; i++) {
+                int r_idx = (int)cJSON_GetNumberValue(cJSON_GetArrayItem(report_regs, i));
+                if (r_idx < 0 || r_idx >= VM_MAX_REGISTERS) continue;
+                char key[16];
+                snprintf(key, sizeof(key), "%d", r_idx);
+                const Register *r = &ctx.reg[r_idx];
+                switch (r->type) {
+                    case REG_INT:   cJSON_AddNumberToObject(reported, key, (double)r->i); break;
+                    case REG_FLOAT: cJSON_AddNumberToObject(reported, key, r->f); break;
+                    case REG_BOOL:  cJSON_AddBoolToObject(reported, key, r->b); break;
+                    case REG_NODE:  cJSON_AddNumberToObject(reported, key, (double)r->node); break;
+                    default:        cJSON_AddNullToObject(reported, key); break;
+                }
+            }
+        }
+
+        // Очистка
+        pipeline_free(pipeline);
+        if (ctx.hyper_mem) hyper_memory_free(ctx.hyper_mem);
+        vm_destroy(&ctx);
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    // ── Обычное выполнение одного оператора (старый код) ──
+    OperatorID op_id = operator_find_by_name(op_name);
     const Operator *op = operator_find(op_id);
     if (!op) {
         cJSON_Delete(root);

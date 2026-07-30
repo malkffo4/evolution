@@ -70,5 +70,5 @@ def exec_algorithm_and_read(ipc: IPCClient, algo_name: str, report_regs: list) -
         "regs": {"5": algo_name},   # хэшируется на сервере (см. фикс cmd_execute.c)
         "report_regs": report_regs,
     }
-    resp = ipc.request("execute_op", payload)
+    resp = ipc.command("execute_op", json.dumps(payload))  # command, не request!
     return _as_dict(resp).get("reported_regs", {})
