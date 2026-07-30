@@ -53,7 +53,7 @@ int main(void) {
     // ----- гипер-атом HAS_ALGORITHM -----
     NeuroAtom goal_algo_atom = {0};
     goal_algo_atom.id          = 1000 + algo_id;
-    goal_algo_atom.process_id  = djb2_hash("HAS_ALGORITHM");
+    goal_algo_atom.process_id  = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION); // FIX
     goal_algo_atom.args[0].raw = HYPER_MAKE_REF(goal_id);
     goal_algo_atom.args[1].raw = HYPER_MAKE_REF(algo_id);
     goal_algo_atom.truth_mean       = 1.0f;

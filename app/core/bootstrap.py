@@ -23,11 +23,11 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
     print("[Bootstrap] Loading Meta-Core...")
     # Мета-типы
     meta_atoms = [
-        {"process": "IS_A", "args": ["Goal", "MetaType"], "confidence": 1.0},
-        {"process": "IS_A", "args": ["Algorithm", "MetaType"], "confidence": 1.0},
-        {"process": "IS_A", "args": ["Relation", "MetaType"], "confidence": 1.0},
-        {"process": "SOLVES", "args": ["Algorithm", "Goal"], "confidence": 1.0},
-        {"process": "IS_A", "args": ["HAS_ALGORITHM", "GoalAlgorithmRelation"], "confidence": 1.0},
+        {"process": "IS_A", "kind": "relation", "args": ["Goal", "MetaType"], "confidence": 1.0},
+        {"process": "IS_A", "kind": "relation", "args": ["Algorithm", "MetaType"], "confidence": 1.0},
+        {"process": "IS_A", "kind": "relation", "args": ["Relation", "MetaType"], "confidence": 1.0},
+        {"process": "SOLVES", "kind": "relation", "args": ["Algorithm", "Goal"], "confidence": 1.0},
+        {"process": "IS_A", "kind": "relation", "args": ["HAS_ALGORITHM", "GoalAlgorithmRelation"], "confidence": 1.0},
     ]
     resp = ipc.command("learn", json.dumps({"atoms": meta_atoms}))
     print(f"[Bootstrap] Meta-types: {resp}")
@@ -50,8 +50,8 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
 
     # Цель
     goal_atoms = [
-        {"process": "IS_A", "args": ["FindVulnerability", "Goal"], "confidence": 1.0},
-        {"process": "HAS_ALGORITHM", "args": ["CheckEdgeAlgo", "FindVulnerability"], "confidence": 1.0},
+        {"process": "IS_A", "kind": "relation", "args": ["FindVulnerability", "Goal"], "confidence": 1.0},
+        {"process": "HAS_ALGORITHM", "kind": "relation", "args": ["CheckEdgeAlgo", "FindVulnerability"], "confidence": 1.0},
     ]
     resp = ipc.command("learn", json.dumps({"atoms": goal_atoms}))
     print(f"[Bootstrap] Goal: {resp}")

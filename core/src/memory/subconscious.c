@@ -175,10 +175,18 @@ static Pipeline* build_core_planner_pipeline(void) {
     Pipeline *p = pipeline_create();
     if (!p) return NULL;
 
+    // ИСПРАВЛЕНИЕ: раньше здесь был OP_LOAD_CONTEXT перед OP_HALT. Поскольку
+    // vm_op_evaluate_goals() считает пайплайн "содержащим логику", если в
+    // нём есть ЛЮБАЯ инструкция кроме OP_HALT, присутствие OP_LOAD_CONTEXT
+    // ошибочно помечало пустую заглушку как "готовый планировщик" и НАВСЕГДА
+    // прерывало выполнение до шага 2 (fallback wm_get_highest_goal +
+    // planner_select_algorithm). Реальный Goal->Algorithm цикл никогда не
+    // запускался через MainLoop/think. Оставляем заглушку буквально пустой,
+    // как и написано в комментарии автора ниже.
+    //
     // Пока CorePlanner — просто заглушка.
     // В будущем сюда будет добавлен байт-код для обратного вывода.
     Instruction code[] = {
-        { .operator_id = OP_LOAD_CONTEXT },
         { .operator_id = OP_HALT }
     };
 

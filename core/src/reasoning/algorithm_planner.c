@@ -16,9 +16,13 @@
 // Ищет все идентификаторы процессов, которые связывают Goal и Algorithm.
 // Возвращает количество найденных отношений.
 size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size_t max_rels) {
-    // 1. Ищем все атомы типа IS_A, где значение — GoalAlgorithmRelation
-    node_id_t is_a = djb2_hash("IS_A");
-    node_id_t goal_algo_rel = djb2_hash("GoalAlgorithmRelation");
+    // ИСПРАВЛЕНИЕ: атомы из perceive_hyper_json() (Python "learn") всегда
+    // проходят через proc_make(hash, kind) для собственного process_id.
+    // IS_A-мета-триплет должен быть явно помечен "kind":"relation" на
+    // стороне Python (см. патч bootstrap.py ниже) — здесь ищем именно
+    // PROC_KIND_RELATION-версию хэша.
+    node_id_t is_a = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);
+    node_id_t goal_algo_rel = djb2_hash("GoalAlgorithmRelation"); // значение-аргумент, не process_id — остаётся "сырым"
 
     NeuroAtom *isa_atoms = NULL;
     size_t isa_count = 0;
@@ -27,13 +31,14 @@ size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size
 
     size_t found = 0;
     for (size_t i = 0; i < isa_count && found < max_rels; i++) {
-        // Проверяем, что аргумент[1] (тип) == GoalAlgorithmRelation
         if (isa_atoms[i].args[1].raw != goal_algo_rel) continue;
 
-        // args[0] содержит конкретный процесс (например, HAS_ALGORITHM, SOLVES, ...)
-        node_id_t rel_id = isa_atoms[i].args[0].raw;
-        if (rel_id != 0) {
-            rel_ids[found++] = rel_id;
+        // args[0] хранит ИМЯ отношения как значение (просто хэш строки).
+        // Сами атомы этого отношения (HAS_ALGORITHM(...)), если тоже
+        // помечены "kind":"relation", имеют process_id = proc_make(...).
+        node_id_t rel_name_hash = isa_atoms[i].args[0].raw;
+        if (rel_name_hash != 0) {
+            rel_ids[found++] = proc_make(rel_name_hash, PROC_KIND_RELATION);
         }
     }
     free(isa_atoms);
@@ -46,7 +51,7 @@ size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size
 static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_id_t *out, int max_out) {
     if (!hmem || !out) return 0;
 
-    node_id_t rel_has_algo = djb2_hash("HAS_ALGORITHM");
+    node_id_t rel_has_algo = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION);
     NeuroAtom *atoms = NULL;
     size_t count = 0;
 
