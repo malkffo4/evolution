@@ -67,7 +67,6 @@ Pipeline* build_hypothesis_by_analogy_pipeline() {
     };
 
     p->code_len = sizeof(code) / sizeof(Instruction);
-    p->capacity = p->code_len;
     p->code = malloc(sizeof(code));
     memcpy(p->code, code, sizeof(code));
 

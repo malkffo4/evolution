@@ -5,17 +5,24 @@
 #include "runtime/compiler/pipeline.h"
 
 Pipeline *pipeline_create(void) {
+    return pipeline_create_with_capacity(MAX_PIPELINE_CODE);
+}
+
+Pipeline *pipeline_create_with_capacity(int capacity) {
+    if (capacity <= 0 || capacity > MAX_PIPELINE_CODE)
+        return NULL;
+
     Pipeline *p = calloc(1, sizeof(Pipeline));
     if (!p)
         return NULL;
 
-    p->code = calloc(MAX_PIPELINE_CODE, sizeof(Instruction));
+    p->code = calloc(capacity, sizeof(Instruction));
     if (!p->code) {
         free(p);
         return NULL;
     }
 
-    p->capacity = MAX_PIPELINE_CODE;
+    p->capacity = capacity;
     p->code_len = 0;
 
     return p;
@@ -59,6 +66,9 @@ void pipeline_free(Pipeline *p) {
         free(p->constants.str_consts);
         p->constants.str_consts = NULL;
     }
+    p->constants.int_count = 0;
+    p->constants.float_count = 0;
+    p->constants.str_count = 0;
 
     free(p);
 }

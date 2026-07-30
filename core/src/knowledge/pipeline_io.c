@@ -30,6 +30,7 @@ static bool parse_constant_pool(cJSON *const_json, ConstantPool *c) {
         c->int_count = cJSON_GetArraySize(item);
         if (c->int_count > 0) {
             c->int_consts = calloc(c->int_count, sizeof(int64_t));
+            if (!c->int_consts) goto cleanup;
             for (uint32_t i = 0; i < c->int_count; i++)
                 c->int_consts[i] = (int64_t)cJSON_GetNumberValue(cJSON_GetArrayItem(item, i));
         }
@@ -40,6 +41,7 @@ static bool parse_constant_pool(cJSON *const_json, ConstantPool *c) {
         c->float_count = cJSON_GetArraySize(item);
         if (c->float_count > 0) {
             c->float_consts = calloc(c->float_count, sizeof(double));
+            if (!c->float_consts) goto cleanup;
             for (uint32_t i = 0; i < c->float_count; i++)
                 c->float_consts[i] = cJSON_GetNumberValue(cJSON_GetArrayItem(item, i));
         }
@@ -50,16 +52,20 @@ static bool parse_constant_pool(cJSON *const_json, ConstantPool *c) {
         c->str_count = cJSON_GetArraySize(item);
         if (c->str_count > 0) {
             c->str_consts = calloc(c->str_count, sizeof(StringView));
+            if (!c->str_consts) goto cleanup;
             for (uint32_t i = 0; i < c->str_count; i++) {
                 const char *s = cJSON_GetStringValue(cJSON_GetArrayItem(item, i));
                 if (s) {
                     c->str_consts[i].len = (uint32_t)strlen(s);
                     c->str_consts[i].data = strdup(s);
+                    if (!c->str_consts[i].data) goto cleanup;
                 }
             }
         }
     }
     return true;
+cleanup:
+    return false;
 }
 
 Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
@@ -74,13 +80,12 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
     if (!cJSON_IsArray(code_arr)) return NULL;
 
     uint32_t len = cJSON_GetArraySize(code_arr);
-    Pipeline *p = calloc(1, sizeof(Pipeline));
+    Pipeline *p = pipeline_create_with_capacity(len);
     if (!p) return NULL;
 
     p->code_len = len;
-    p->capacity = len;
+
     if (len > 0) {
-        p->code = calloc(len, sizeof(Instruction));
         for (uint32_t i = 0; i < len; i++) {
             cJSON *ins = cJSON_GetArrayItem(code_arr, i);
             const char *op_name = cJSON_GetStringValue(cJSON_GetObjectItem(ins, "operator_id"));
@@ -92,8 +97,14 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
         }
     }
 
-    parse_constant_pool(cJSON_GetObjectItem(root, "constants"), &p->constants);
+    bool rc = parse_constant_pool(cJSON_GetObjectItem(root, "constants"), &p->constants);
+    if (!rc) goto cleanup;
+
     return p;
+
+cleanup:
+    pipeline_free(p);
+    return NULL;
 }
 
 // Args schema: {"var": "name"} | {"const": "STRING_TO_HASH"} | {"any": true}

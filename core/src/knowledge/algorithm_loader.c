@@ -34,17 +34,22 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
     const Instruction *code_start = (const Instruction *)(raw + 2 * sizeof(uint32_t));
     size_t code_bytes = code_len * sizeof(Instruction);
 
+    if (capacity < code_len)
+        return -1;
+
+    if (capacity > MAX_PIPELINE_CODE)
+        return -1;
+
     if (sizeof(uint32_t) * 2 + code_bytes > data.mv_size) {
         LOG_WARN("Algorithm %lu data truncated", algo_id);
         return -1;
     }
 
-    Pipeline *p = pipeline_create();
+    Pipeline *p = pipeline_create_with_capacity(capacity);
     if (!p) return -1;
 
     memcpy(p->code, code_start, code_bytes);
     p->code_len = code_len;
-    p->capacity = code_len;
 
     /* Восстанавливаем константы */
     const uint8_t *cptr = raw + sizeof(uint32_t) * 2 + code_bytes;
@@ -58,6 +63,7 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
     if (n > 0) {
         if (cptr + n * sizeof(int64_t) > end) goto cleanup;
         p->constants.int_consts = malloc(n * sizeof(int64_t));
+        if (!p->constants.int_consts) goto cleanup;
         memcpy(p->constants.int_consts, cptr, n * sizeof(int64_t));
         cptr += n * sizeof(int64_t);
     }
@@ -69,6 +75,7 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
     if (n > 0) {
         if (cptr + n * sizeof(double) > end) goto cleanup;
         p->constants.float_consts = malloc(n * sizeof(double));
+        if (!p->constants.float_consts) goto cleanup;
         memcpy(p->constants.float_consts, cptr, n * sizeof(double));
         cptr += n * sizeof(double);
     }
@@ -79,6 +86,7 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
     p->constants.str_count = n;
     if (n > 0) {
         p->constants.str_consts = malloc(n * sizeof(StringView));
+        if (!p->constants.str_consts) goto cleanup;
         for (uint32_t i = 0; i < n; i++) {
             if (cptr + sizeof(uint32_t) > end) goto cleanup;
             uint32_t slen;
@@ -99,7 +107,6 @@ done:
     return 0;
 
 cleanup:
-    // частично освободить и вернуть ошибку
     pipeline_free(p);
 
     return -1;

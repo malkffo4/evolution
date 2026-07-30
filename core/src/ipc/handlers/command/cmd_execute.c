@@ -14,11 +14,14 @@
 #include "math/hash.h"
 #include "knowledge/algorithm_loader.h"
 #include "knowledge/evaluation.h"
+#include "runtime/logging/logging.h"
 
 typedef struct {
     IPCPacket *req;
     cJSON *response_payload;
     int vm_status;
+    uint64_t algo_id;            // для exec_algorithm
+    bool need_score_update;      // флаг: нужно обновить score в write-txn
 } ExecuteJob;
 
 static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
@@ -77,6 +80,10 @@ static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
                                          db.graph.hyper.idx_context);
 
         int rc = vm_execute(&ctx, pipeline);
+
+        // Обновление score ОТЛОЖИМ до write-транзакции
+        job->algo_id = algo_id;
+        job->need_score_update = true;
 
         // Обновляем доверие к алгоритму (score)
         if (ctx.hyper_mem) {
@@ -233,28 +240,49 @@ static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
 }
 
 void cmd_execute_op(IPCPacket *req, IPCPacket *resp) {
-    ExecuteJob job = { .req = req, .response_payload = NULL, .vm_status = -1 };
+    ExecuteJob job = { .req = req, .response_payload = NULL, .vm_status = -1,
+                       .algo_id = 0, .need_score_update = false };
 
-    // Выполняем под MDB_RDONLY транзакцией напрямую через LMDB
-    MDB_txn *txn = NULL;
-    int rc = mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn);
+    // Первый этап: только чтение (выполнение пайплайна)
+    MDB_txn *ro_txn = NULL;
+    int rc = mdb_txn_begin(db.env, NULL, MDB_RDONLY, &ro_txn);
     if (rc == MDB_SUCCESS) {
-        execute_op_txn_fn(txn, &job);
-        mdb_txn_abort(txn); // Синхронный чистый abort для RO-транзакции
+        execute_op_txn_fn(ro_txn, &job);
+        mdb_txn_abort(ro_txn);
     }
 
+    // Второй этап: если нужно, обновляем score в write-транзакции
+    if (job.need_score_update && job.algo_id != 0) {
+        MDB_txn *wr_txn = NULL;
+        rc = mdb_txn_begin(db.env, NULL, 0, &wr_txn);
+        if (rc == MDB_SUCCESS) {
+            HyperMemory *hm = hyper_memory_new(wr_txn,
+                db.graph.hyper.atoms,
+                db.graph.hyper.idx_process,
+                db.graph.hyper.idx_args,
+                db.graph.hyper.idx_context);
+            if (hm) {
+                float outcome = 1.0f;
+                score_update(hm, COGNITIVE_DOMAIN_ALGORITHM, job.algo_id, outcome, 0, 0);
+                hyper_memory_free(hm);
+            }
+            mdb_txn_commit(wr_txn);
+        } else {
+            LOG_ERROR("Failed to open write txn for score update");
+        }
+    }
+
+    // формируем ответ
     resp->type = IPC_RESPONSE;
     if (job.response_payload) {
         snprintf((char *)resp->name, sizeof(resp->name), "execute_op");
         const char *json_str = cJSON_PrintUnformatted(job.response_payload);
         snprintf((char *)resp->payload, sizeof(resp->payload), "%s", json_str);
         free((void *)json_str);
+        cJSON_Delete(job.response_payload);
     } else {
         snprintf((char *)resp->name, sizeof(resp->name), "error");
         snprintf((char *)resp->payload, sizeof(resp->payload), "{\"error\": \"VM execution failed\"}");
     }
     resp->payload_size = (uint32_t)strlen((const char *)resp->payload);
-    if (job.response_payload) {
-        cJSON_Delete(job.response_payload);
-    }
 }

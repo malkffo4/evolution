@@ -34,15 +34,14 @@ def main():
     assert ALGO in loaded
 
     print(f"\n=== Step 3: solving NEW task '{GOAL}' via Goal -> Planner -> VM ===")
-    print(f"Score({ALGO}) before use: {get_score(ipc, ALGO):.4f} (prior)")
-
-    # Вместо think() напрямую запускаем алгоритм, чтобы точно обновить trust
-    result = exec_algorithm_and_read(ipc, ALGO, report_regs=[0])
-    print(f"  Execution finished, R0 = {result.get('0')}")
+    print(f"Score({ALGO}) before use: {get_score(ipc, ALGO):.4f} (prior — never executed yet)")
+    activate_goal(ipc, GOAL)
+    for i in range(3):
+        think(ipc)
+        print(f"  think() iter {i+1}: score({ALGO}) = {get_score(ipc, ALGO):.4f}")
 
     score_after = get_score(ipc, ALGO)
-    print(f"Score({ALGO}) after first run: {score_after:.4f}")
-    assert score_after > 0.5, f"Expected trust > 0.5 after successful run, got {score_after}"
+    assert score_after > 0.5, "Algorithm learned from the book should now be trusted above prior"
 
     print(f"\n=== Step 4: reading the actual computed result ===")
     regs = exec_algorithm_and_read(ipc, ALGO, report_regs=[0])

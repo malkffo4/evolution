@@ -98,6 +98,7 @@ int get_pending_tasks(ResearchTask *buffer, int max_count) {
 
 static Pipeline* build_critic_main_pipeline(void) {
     Pipeline *p = pipeline_create();
+    if (!p) return NULL;
 
     Instruction code[] = {
         { .operator_id = OP_CRITIC_APPLY },
@@ -107,7 +108,7 @@ static Pipeline* build_critic_main_pipeline(void) {
     size_t num = sizeof(code)/sizeof(code[0]);
     memcpy(p->code, code, sizeof(code));
     p->code_len = (uint32_t)num;
-    p->capacity = (uint32_t)num;
+
     return p;
 }
 
@@ -144,7 +145,7 @@ static Pipeline* build_main_loop_pipeline(void) {
     size_t num = sizeof(code) / sizeof(code[0]);
     p->code_len = (uint32_t)num;
     memcpy(p->code, code, sizeof(code));
-    p->capacity = (uint32_t)num;
+
     p->constants.int_consts = NULL;
     p->constants.int_count = 0;
 
@@ -193,7 +194,7 @@ static Pipeline* build_core_planner_pipeline(void) {
     size_t num = sizeof(code) / sizeof(code[0]);
     p->code_len = (uint32_t)num;
     memcpy(p->code, code, sizeof(code));
-    p->capacity = (uint32_t)num;
+
     p->constants.int_consts = NULL;
     p->constants.int_count = 0;
     return p;
