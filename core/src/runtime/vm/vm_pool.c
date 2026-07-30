@@ -30,8 +30,8 @@ static int commit_outbox_fn(MDB_txn *txn, void *arg) {
 
 static void *vm_worker(void *arg) {
     VmJob *job = arg;
-
     MDB_txn *ro_txn;
+
     if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &ro_txn) != MDB_SUCCESS) {
         LOG_ERROR("vm_pool: failed to open RDONLY txn");
         pipeline_free(job->pipeline);
@@ -41,28 +41,36 @@ static void *vm_worker(void *arg) {
 
     VMContext ctx;
     memset(&ctx, 0, sizeof(ctx));
-    vm_init(&ctx, ro_txn, NULL /* своя изолированная WM, если нужна */);
 
-    // ВАЖНО: hyper_mem с этим RO-txn можно только читать (OP_QUERY, OP_TRACE).
-    // OP_ASSERT/OP_DERIVE внутри "мышления" должны не писать в LMDB сразу,
-    // а копить результат в ctx.scratchpad/arena — и уже после того как
-    // vm_execute() вернул VM_OK, мы одной db_write_sync() переносим
-    // накопленное в базу.
-    ctx.hyper_mem = global_hyper_mem; // dbi-хендлы общие, txn переставим ниже
+    // --- ФИКС D1: Изолированная рабочая память для каждого потока мышления ---
+    WorkingMemory local_wm;
+    if (wm_init(&local_wm, 256, 512) != 0) {
+        LOG_ERROR("vm_pool: failed to init local working memory");
+        mdb_txn_abort(ro_txn);
+        return NULL;
+    }
+
+    // Инициализируем ВМ с ЛОКАЛЬНОЙ памятью, а не global_wm
+    vm_init(&ctx, ro_txn, &local_wm);
+
+    ctx.hyper_mem = job->hyper_template;
     hyper_memory_set_txn(ctx.hyper_mem, ro_txn);
 
     int rc = vm_execute(&ctx, job->pipeline);
 
-    mdb_txn_abort(ro_txn); // RDONLY транзакции просто абортим, не коммитим
+    mdb_txn_abort(ro_txn); // RDONLY транзакции просто абортим
 
     if (rc == VM_OK) {
-        // Если гипотеза "выжила" — коммитим её одним write-переходом
+        // Коммитим исходящие знания (outbox), если гипотеза выжила
         db_write_sync(commit_outbox_fn, &ctx);
     }
 
+    // Очищаем ВМ и её изолированную рабочую память
     vm_destroy(&ctx);
+    wm_clear(&local_wm);
     pipeline_free(job->pipeline);
     free(job);
+
     return NULL;
 }
 

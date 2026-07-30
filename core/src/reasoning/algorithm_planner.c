@@ -8,6 +8,7 @@
 #include "storage/hyper_atom/hyper_atom.h"
 #include "storage/vector_store/vector_store.h"
 #include "runtime/vm/vm_context.h"
+#include "runtime/logging/logging.h"
 #include "runtime/ops/opcode.h"
 #include "math/hash.h"
 #include "memory/critic_state.h"
@@ -87,17 +88,43 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
 /* Выбор лучшего алгоритма по статистике               */
 /* ---------------------------------------------------------------- */
 static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
-    if (!ctx->hyper_mem) return candidates[0];
-    node_id_t best = candidates[0];
-    float best_trust = score_get(ctx->hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, best);
-    for (int i = 1; i < count; i++) {
-        float t = score_get(ctx->hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, candidates[i]);
-        if (t > best_trust) {
-            best_trust = t;
-            best = candidates[i];
+    if (count == 0) return 0;
+    if (count == 1) return candidates[0];
+
+    node_id_t best_algo = candidates[0];
+    float best_ucb = -1.0f;
+    float exploration_param = 0.5f; // C-коэффициент жажды знаний
+
+    for (int i = 0; i < count; i++) {
+        // Извлекаем оценку алгоритма из HyperMemory.
+        // Пока мы не внедрили полноценный механизм Score/Trust,
+        // имитируем логику: ищем атом самого алгоритма и смотрим его уверенность.
+        NeuroAtom algo_atom;
+        float mean = 0.5f;       // Приор: 50% успешности
+        float confidence = 0.01f; // Приор: данных почти нет
+
+        MDB_val key = { sizeof(node_id_t), &candidates[i] };
+        MDB_val data;
+        if (mdb_get(ctx->memory.txn, ctx->hyper_mem->dbi_atoms, &key, &data) == MDB_SUCCESS) {
+            NeuroAtom *a = (NeuroAtom*)data.mv_data;
+            mean = a->truth_mean;
+            confidence = a->truth_confidence;
+        }
+
+        // Фикс C3: Формула UCB = ожидаемая_награда + бонус_за_неопределенность
+        // Чем меньше confidence, тем больше бонус -> ИИ попробует этот алгоритм
+        float ucb = mean + exploration_param * sqrtf(1.0f / (confidence + 0.001f));
+
+        LOG_DEBUG("[PLANNER] Algo %lu UCB=%.3f (mean=%.2f, conf=%.2f)",
+                  (unsigned long)candidates[i], ucb, mean, confidence);
+
+        if (ucb > best_ucb) {
+            best_ucb = ucb;
+            best_algo = candidates[i];
         }
     }
-    return best;
+
+    return best_algo;
 }
 
 /* ---------------------------------------------------------------- */

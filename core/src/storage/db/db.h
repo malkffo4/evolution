@@ -19,7 +19,8 @@ typedef struct {
             MDB_dbi idx_process;
             MDB_dbi idx_args;
             MDB_dbi idx_context;
-            MDB_dbi idx_causal;   // source_atom_id -> cause_atom_id (DUPSORT)
+            MDB_dbi idx_causal;     // child_id -> cause_id (DUPSORT)
+            MDB_dbi idx_causal_rev; // cause_id -> child_id (DUPSORT)
             MDB_dbi patterns;
             MDB_dbi archive;
             MDB_dbi idx_vectors;   // key: ko_id_t (atom_id), value: float[128]

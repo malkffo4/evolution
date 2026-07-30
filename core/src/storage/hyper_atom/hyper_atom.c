@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdatomic.h>
 
+#include "storage/db/db.h"
 #include "hyper_atom.h"
 
 ko_id_t hyper_memory_new_id(HyperMemory *mem) {
@@ -241,9 +242,16 @@ int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cau
     if (rc != 0 && rc != 1) return rc;   // ошибка (не считаем "уже существует" ошибкой)
 
     if (cause_id != 0 && mem->dbi_idx_causal) {
-        MDB_val k = { sizeof(ko_id_t), (void *)&atom->id };
-        MDB_val v = { sizeof(ko_id_t), (void *)&cause_id };
-        mdb_put(mem->txn, mem->dbi_idx_causal, &k, &v, MDB_APPENDDUP);
+        MDB_val k_child = { sizeof(ko_id_t), (void *)&atom->id };
+        MDB_val v_cause = { sizeof(ko_id_t), (void *)&cause_id };
+
+        // Прямая связь (child -> cause)
+        mdb_put(mem->txn, mem->dbi_idx_causal, &k_child, &v_cause, MDB_APPENDDUP);
+
+        // Обратная связь (cause -> child) для сверхбыстрого ремаппинга в OP_MERGE_CTX
+        if (db.graph.hyper.idx_causal_rev) {
+            mdb_put(mem->txn, db.graph.hyper.idx_causal_rev, &v_cause, &k_child, MDB_APPENDDUP);
+        }
     }
     return rc;
 }
