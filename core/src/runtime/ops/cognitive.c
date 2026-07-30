@@ -10,6 +10,8 @@
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 #include "runtime/logging/logging.h"
+#include "runtime/time/time.h"
+#include "knowledge/episode.h"
 #include "knowledge/algorithm_loader.h"
 #include "knowledge/evaluation.h"
 #include "storage/db/db.h"
@@ -302,28 +304,36 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
         return VM_OK;
     }
 
-    ctx->last_result_id = 0; // сбрасываем перед запуском — видим только выводы ЭТОГО алгоритма
+    ctx->last_result_id = 0;               // видим только выводы ЭТОГО запуска
+    uint64_t t_start = vm_rdtsc();
     rc = vm_execute(ctx, algo);
+    uint64_t t_end = vm_rdtsc();
 
     if (ctx->hyper_mem && algo_id) {
         float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
         score_update(ctx->hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, algo_id, outcome, 0, 0);
 
-        // Credit Assignment (RFC-0001, TODO Priority 1): если алгоритм в
-        // процессе работы вывел гипотезу/факт через OP_ASSERT/OP_DERIVE,
-        // распространяем credit по всей causal-цепочке этого вывода, а не
-        // только на сам algo_id. Domain=HYPOTHESIS — типичный внутренний
-        // вывод алгоритма (см. tests/hypothesis_by_analogy.c).
-        // discount=0.7 — временная константа; когда CorePlanner перестанет
-        // быть заглушкой, она должна стать параметром executable policy,
-        // а не C-константой (не архитектурю это сейчас — не требуется).
         if (ctx->last_result_id != 0) {
             score_propagate_credit(ctx->hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
                 ctx->last_result_id, outcome, 0, 0.7f);
-            ctx->last_result_id = 0;
         }
-    }
 
+        // Experience: фундамент для Critic/Self-Correction (следующий этап).
+        Episode ep = {0};
+        ep.id               = hyper_memory_new_id(ctx->hyper_mem);
+        ep.goal_id          = goal_id;
+        ep.algorithm_id     = algo_id;
+        ep.result_atom_id   = ctx->last_result_id;
+        ep.context_id       = ctx->current_context;
+        ep.vm_status        = (int32_t)rc;
+        ep.outcome          = outcome;
+        ep.start_cycles     = t_start;
+        ep.duration_cycles  = (t_end > t_start) ? (t_end - t_start) : 0;
+        ep.wall_time        = (uint64_t)time(NULL);
+        episode_record(ctx->hyper_mem, &ep);   // ошибка уже LOG_ERROR внутри — не блокируем основной поток
+
+        ctx->last_result_id = 0;
+    }
     if (rc != VM_OK) {
         LOG_WARN("Algorithm %lu execution failed with status %d", algo_id, rc);
         record_execution_result(algo_id, rc);

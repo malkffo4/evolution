@@ -51,6 +51,7 @@ typedef enum {
     OP_CONCAT_PATHS,
     OP_PROP_SET,
     OP_PROP_GET,
+
     /* опкоды для работы с графом */
     OP_FETCH_NODE,  // достать факт
     OP_CHECK_EDGE,  // проверить связь
@@ -60,13 +61,9 @@ typedef enum {
     OP_COMMIT,
 
     // --- ПРИЧИННО-СЛЕДСТВЕННЫЙ ДВИЖОК (HYPER-OPS) ---
-
     OP_QUERY, // (process_id, arg_filter, context_id) -> Массив ID в scratchpad
-
     OP_ASSERT, // Создает новый факт. ID генерируется, cause_id берется из текущего эпизода
-
     OP_DERIVE, // Как ASSERT, но cause_id = ID аргументов (указывает логический вывод)
-
     OP_TRACE, // Выгружает цепочку cause_id (Откуда мы это знаем?)
 
     // --- УПРАВЛЕНИЕ РЕАЛЬНОСТЬЮ (КОНТЕКСТАМИ) ---
@@ -77,6 +74,9 @@ typedef enum {
     // Базовая арифметика и переходы
     OP_READ_SP,
     OP_WRITE_SP,
+    OP_SUB,
+    OP_MUL,
+    OP_DIV,
     OP_ADD,
     OP_ADD_CONST,
     OP_JGE,

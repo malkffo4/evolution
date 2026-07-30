@@ -7,6 +7,7 @@
 #include "runtime/logging/logging.h"
 #include "storage/db/db.h"
 #include "storage/hyper_atom/hyper_atom.h"
+#include "knowledge/episode.h"
 #include "knowledge/hyper_retrieval.h"
 #include "knowledge/evaluation.h"
 #include "math/hash.h"              // djb2_hash()
@@ -317,4 +318,79 @@ void req_get_score(IPCPacket *req, IPCPacket *resp) {
         strncpy(resp->payload, err, sizeof(resp->payload) - 1);
     }
     resp->payload_size = (uint32_t)strlen(resp->payload);
+}
+
+void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
+    cJSON *json = cJSON_Parse((const char *)req->payload);
+    char subject[256] = {0};
+    int limit = 20;
+    if (json) {
+        cJSON *s = cJSON_GetObjectItemCaseSensitive(json, "subject");
+        cJSON *l = cJSON_GetObjectItemCaseSensitive(json, "limit");
+        if (cJSON_IsString(s)) strncpy(subject, s->valuestring, sizeof(subject) - 1);
+        if (cJSON_IsNumber(l) && l->valueint > 0) limit = l->valueint;
+        cJSON_Delete(json);
+    }
+
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "get_episodes", sizeof(resp->name) - 1);
+
+    if (strlen(subject) == 0) {
+        const char *err = "{\"error\": \"subject required\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    uint64_t subject_id = djb2_hash(subject);
+    node_id_t episode_proc = proc_make(djb2_hash("EPISODE_RECORDED"), PROC_KIND_EVENT);
+
+    MDB_txn *txn;
+    if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) != MDB_SUCCESS) {
+        const char *err = "{\"error\": \"DB transaction failed\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    HyperMemory local_hm = {0};
+    local_hm.txn = txn;
+    local_hm.dbi_atoms = db.graph.hyper.atoms;
+    local_hm.dbi_idx_process = db.graph.hyper.idx_process;
+    local_hm.dbi_idx_args = db.graph.hyper.idx_args;
+    local_hm.dbi_idx_context = db.graph.hyper.idx_context;
+
+    NeuroAtom *pointers = NULL;
+    size_t count = 0;
+    cJSON *arr = cJSON_CreateArray();
+
+    if (hyper_find_by_participant(&local_hm, subject_id, 0, &pointers, &count) == 0) {
+        int emitted = 0;
+        for (size_t i = 0; i < count && emitted < limit; i++) {
+            if (pointers[i].process_id != episode_proc) continue;
+
+            Episode ep;
+            if (episode_load(txn, pointers[i].id, &ep) != MDB_SUCCESS) continue;
+
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddNumberToObject(e, "episode_id", (double)ep.id);
+            cJSON_AddNumberToObject(e, "goal_id", (double)ep.goal_id);
+            cJSON_AddNumberToObject(e, "algorithm_id", (double)ep.algorithm_id);
+            cJSON_AddNumberToObject(e, "result_atom_id", (double)ep.result_atom_id);
+            cJSON_AddNumberToObject(e, "vm_status", ep.vm_status);
+            cJSON_AddNumberToObject(e, "outcome", (double)ep.outcome);
+            cJSON_AddNumberToObject(e, "duration_cycles", (double)ep.duration_cycles);
+            cJSON_AddNumberToObject(e, "wall_time", (double)ep.wall_time);
+            cJSON_AddItemToArray(arr, e);
+            emitted++;
+        }
+    }
+    if (pointers) free(pointers);
+    mdb_txn_abort(txn);
+
+    char *json_str = cJSON_PrintUnformatted(arr);
+    snprintf(resp->payload, sizeof(resp->payload), "%s", json_str);
+    resp->payload_size = (uint32_t)strlen(resp->payload);
+    free(json_str);
+    cJSON_Delete(arr);
 }

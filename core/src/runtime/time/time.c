@@ -21,7 +21,7 @@ uint64_t vm_rdtsc(void) {
 
 #elif defined(__aarch64__)
 
-static inline uint64_t vm_rdtsc(void) {
+uint64_t vm_rdtsc(void) {
     uint64_t v;
 
     __asm__ volatile("mrs %0, cntvct_el0" : "=r"(v));

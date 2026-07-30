@@ -7,7 +7,9 @@
 // typedef int (*VMOperatorFn)(VMContext *ctx, const Instruction *ins);
 
 int vm_op_nop(VMContext *,  const Instruction *);
-
+int vm_op_sub(VMContext *, const Instruction *);
+int vm_op_mul(VMContext *, const Instruction *);
+int vm_op_div(VMContext *, const Instruction *);
 int vm_op_add(VMContext *, const Instruction *);
 
 int vm_op_clear(VMContext *, const Instruction *);

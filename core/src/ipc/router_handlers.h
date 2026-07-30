@@ -16,6 +16,7 @@ void req_embedding(IPCPacket *req, IPCPacket *resp);
 void req_rerank(IPCPacket *req, IPCPacket *resp);
 void req_get_research_tasks(IPCPacket *req, IPCPacket *resp);
 void req_get_score(IPCPacket *req, IPCPacket *resp);
+void req_get_episodes(IPCPacket *req, IPCPacket *resp);
 
 /* responses */
 void resp_generate_reply(IPCPacket *req, IPCPacket *resp);

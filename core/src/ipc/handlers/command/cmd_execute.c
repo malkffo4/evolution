@@ -11,6 +11,7 @@
 #include "runtime/register/register.h"
 #include "runtime/operator/operator.h"
 #include "storage/hyper_atom/hyper_atom.h"
+#include "math/hash.h"
 
 typedef struct {
     IPCPacket *req;
@@ -70,7 +71,14 @@ static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
             int reg_idx = atoi(reg_val->string);
             if (reg_idx >= 0 && reg_idx < VM_MAX_REGISTERS) {
                 ctx.reg[reg_idx].type = REG_INT;
-                ctx.reg[reg_idx].i = (int64_t)reg_val->valuedouble;
+                if (cJSON_IsString(reg_val)) {
+                    // 62-битные ID (djb2_hash) теряют точность при
+                    // round-trip через JSON double (только 53 бита
+                    // мантиссы) — хэшируем на сервере, как resolve_arg().
+                    ctx.reg[reg_idx].i = (int64_t)djb2_hash(reg_val->valuestring);
+                } else {
+                    ctx.reg[reg_idx].i = (int64_t)reg_val->valuedouble;
+                }
             }
             reg_val = reg_val->next;
         }
@@ -102,6 +110,30 @@ static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
         char buf[32];
         snprintf(buf, sizeof(buf), "%llu", (unsigned long long)ctx.scratchpad[sp_base + i].value);
         cJSON_AddItemToArray(scratchpad_json, cJSON_CreateString(buf));
+    }
+
+    // Опционально: значения конкретных регистров после выполнения.
+    // В отличие от scratchpad-дампа выше (специфичен для OP_MATCH_PATTERN),
+    // это ОБЩИЙ механизм чтения результата любого оператора — в т.ч.
+    // OP_EXEC_ALGORITHM, где алгоритм кладёт результат в произвольный регистр.
+    cJSON *report_regs = cJSON_GetObjectItem(root, "report_regs");
+    if (cJSON_IsArray(report_regs)) {
+        cJSON *reported = cJSON_AddObjectToObject(job->response_payload, "reported_regs");
+        int n = cJSON_GetArraySize(report_regs);
+        for (int i = 0; i < n; i++) {
+            int reg_idx = (int)cJSON_GetNumberValue(cJSON_GetArrayItem(report_regs, i));
+            if (reg_idx < 0 || reg_idx >= VM_MAX_REGISTERS) continue;
+            char key[16];
+            snprintf(key, sizeof(key), "%d", reg_idx);
+            const Register *r = &ctx.reg[reg_idx];
+            switch (r->type) {
+                case REG_INT:   cJSON_AddNumberToObject(reported, key, (double)r->i); break;
+                case REG_FLOAT: cJSON_AddNumberToObject(reported, key, r->f); break;
+                case REG_BOOL:  cJSON_AddBoolToObject(reported, key, r->b); break;
+                case REG_NODE:  cJSON_AddNumberToObject(reported, key, (double)r->node); break;
+                default:        cJSON_AddNullToObject(reported, key); break;
+            }
+        }
     }
 
     // Очистка выделенной памяти и уничтожение VM
