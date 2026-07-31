@@ -13,12 +13,35 @@ class LLMClient:
         self.model = model or {
             "ollama": "qwen2.5:3b",
             "openai": "gpt-4o-mini",
-            "gemini": "gemini-2.0-flash"
-        }[provider]
+            "gemini": "gemini-2.0-flash",
+            "web_deepseek": "deepseek",
+            "web_chatgpt": "chatgpt",
+            "web_gemini": "gemini"
+        }.get(provider, "default")
         self.api_key = api_key
         self._cache = {}
+        
+        # Ленивая инициализация браузера
+        self._web_client = None
 
     def query(self, prompt, system=None, json_mode=True, timeout=120):
+        # Маршрутизируем запросы с приставкой web_ в браузер
+        if self.provider.startswith("web_"):
+            if self._web_client is None:
+                from core.web_llm import WebLLMClient
+                # При первом запуске ставим headless=False, чтобы можно было залогиниться ручками
+                self._web_client = WebLLMClient(provider=self.provider, headless=False)
+            
+            # Если нужен JSON-ответ, просим об этом текстом (т.к. у web нет API флагов)
+            if json_mode:
+                prompt += "\n\nОтветь СТРОГО в формате валидного JSON без markdown-обрамления."
+                
+            if system:
+                prompt = f"Системные инструкции: {system}\n\nЗапрос: {prompt}"
+                
+            return self._web_client.query(prompt)
+
+        # Классическое API
         if self.provider == "ollama":
             return self._query_ollama(prompt, system, json_mode, timeout)
         elif self.provider == "openai":

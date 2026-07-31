@@ -60,6 +60,9 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
         "type": "pipeline",
         "algo_name": "CheckEdgeAlgo",
         "code": [
+            {"operator_id": "load_const", "arg": [0, 0, 0, 0, 0, 0]}, # Загружаем "A" в R0
+            {"operator_id": "load_const", "arg": [1, 1, 0, 0, 0, 0]}, # Загружаем "B" в R1
+            {"operator_id": "load_const", "arg": [2, 2, 0, 0, 0, 0]}, # Загружаем "CAUSES" в R2
             {"operator_id": "check_cached_edge", "arg": [3, 0, 2, 1]},
             {"operator_id": "halt"}
         ],
