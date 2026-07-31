@@ -11,18 +11,15 @@
 #include "storage/vector_store/vector_store.h"  // если нужно load_embedding
 #include "math/vector_math.h"  // semantic_distance_u64
 #include "reasoning/strategy.h"
+#include "reasoning/strategy_store.h"
 
 // Forward declarations
 static float edge_similarity(MDB_txn *txn, const Edge *e1, const Edge *e2);
 static AnalogyEvaluation analogy_fast_score(
-    MDB_txn *txn,
-    node_id_t query_node,
-    node_id_t candidate,
-    EdgeList *in_edges,
-    EdgeList *out_edges,
-    EdgeList *cand_in,
-    EdgeList *cand_out,
-    const ReasoningStrategy *strategy);
+    MDB_txn *txn, node_id_t query_node, node_id_t candidate,
+    EdgeList *in_edges, EdgeList *out_edges,
+    EdgeList *cand_in, EdgeList *cand_out,
+    const ReasoningWeights *weights);
 
 // TODO vm_op_vector_sim переиспользовать вместо C-шной node_similarity().
 // Простая метрика похожести двух узлов: 0..1
@@ -117,16 +114,11 @@ static float coverage_score(int matched, int query, int candidate) {
 
 // Основная функция оценки аналогии
 static AnalogyEvaluation analogy_fast_score(
-    MDB_txn *txn,
-    node_id_t query_node,
-    node_id_t candidate,
-    EdgeList *in_edges,
-    EdgeList *out_edges,
-    EdgeList *cand_in,
-    EdgeList *cand_out,
-    const ReasoningStrategy *strategy)
+    MDB_txn *txn, node_id_t query_node, node_id_t candidate,
+    EdgeList *in_edges, EdgeList *out_edges,
+    EdgeList *cand_in, EdgeList *cand_out,
+    const ReasoningWeights *weights)   // <-- было (const ReasoningStrategy *strategy), не использовалось
 {
-    (void)strategy;  // пока не используется
 
     AnalogyEvaluation eval = {0};
     EdgeMatch *in_matches = NULL, *out_matches = NULL;
@@ -173,10 +165,10 @@ static AnalogyEvaluation analogy_fast_score(
     eval.score.relation = total ? rel_sum / total : 0.f;
 
     eval.score.total =
-        0.45f * eval.score.neighborhood +
-        0.10f * eval.score.center +
-        0.25f * eval.score.coverage +
-        0.20f * eval.score.relation;
+        weights->neighborhood * eval.score.neighborhood +
+        weights->center        * eval.score.center +
+        weights->coverage      * eval.score.coverage +
+        weights->relation      * eval.score.relation;
 
     // Лучшие совпадения
     if (in_count) {
@@ -223,6 +215,9 @@ int find_analogous_patterns(MDB_txn *txn, node_id_t query_node,
     int count = 0;
     MDB_val key, data;
 
+    ReasoningWeights weights;
+    reasoning_weights_load(txn, &weights, NULL);
+
     while ((rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT)) == MDB_SUCCESS) {
         node_id_t cand_id = *(node_id_t *)key.mv_data;
         if (cand_id == query_node) continue;
@@ -239,7 +234,7 @@ int find_analogous_patterns(MDB_txn *txn, node_id_t query_node,
         AnalogyEvaluation eval = analogy_fast_score(txn, query_node, cand_id,
                                                     &in_edges, &out_edges,
                                                     &cand_in, &cand_out,
-                                                    NULL);
+                                                    (const ReasoningWeights *)&weights);
 
         if (eval.score.total >= 0.70f && count < MAX_CANDIDATES_ANALOGY) {
             AnalogyCandidate *c = &temp[count++];

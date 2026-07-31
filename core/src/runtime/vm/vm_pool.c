@@ -14,6 +14,7 @@
 #include "runtime/time/time.h"
 #include "knowledge/evaluation.h"
 #include "knowledge/episode.h"
+#include "reasoning/strategy_store.h"
 
 typedef struct {
     Pipeline    *pipeline;
@@ -86,8 +87,15 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     if (ctx.last_result_id != 0) {
         int propagated = score_propagate_credit(ctx.hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
                                                   ctx.last_result_id, outcome, 0, 0.7f);
+        // Если гипотеза была построена по аналогии (ctx.userdata хранит признаки x[4],
+        // проставленные в момент OP_DERIVE аналогии — см. AnalogyEvaluation.score),
+        // используем реальный исход как обучающий сигнал для весов эвристики.
+        if (ctx.userdata) {
+            const float *analogy_features = (const float *)ctx.userdata; // [neigh,center,cov,rel]
+            reasoning_weights_sgd_update(txn, analogy_features, outcome);
+        }
         LOG_DEBUG("[VM_POOL] credit propagated=%d result_id=%lu", propagated,
-                  (unsigned long)ctx.last_result_id);
+                (unsigned long)ctx.last_result_id);
     }
 
     Episode ep = {0};

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <math.h>
 
+#include "core/globals.h"
 #include "opcode.h"
 #include "math/hash.h"
 #include "runtime/vm/vm.h"
@@ -283,7 +284,8 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
     // planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
 
     // 3. Находим самую приоритетную цель
-    node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem);
+    node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem,
+                                         g_homeostasis.activation_threshold);
     if (goal_id == 0) return VM_NOT_FOUND;
 
     // 4. Планировщик выбирает алгоритм

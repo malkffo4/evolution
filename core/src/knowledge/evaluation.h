@@ -115,3 +115,7 @@ int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t s
 int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
                             node_id_t result_atom_id, float outcome,
                             uint32_t max_depth, float discount);
+
+// Сила приора на домен: сколько эффективных наблюдений нужно, чтобы
+// confidence достигла ~0.5. Меньше -> быстрее "созревает" доверие.
+float score_domain_kappa(CognitiveDomain domain);
