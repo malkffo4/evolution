@@ -234,7 +234,7 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
     return result;
 }
 
-node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem) {
+node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem, float activation_threshold) {
     if (!wm) return 0;
 
     pthread_rwlock_rdlock(&wm->lock);
@@ -248,9 +248,14 @@ node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem) {
 
     for (uint32_t i = 0; i < wm->count; i++) {
         WorkingNode *n = &wm->nodes[i];
-        if (n->activation < 0.6f || n->state.usefulness < 0.7f) continue;
-        
-        // ИСПРАВЛЕНИЕ: Игнорируем цели, находящиеся на кулдауне
+        // Единый гомеостатический порог вместо раздельных хардкодов 0.6f/0.7f.
+        // usefulness должен быть чуть строже activation — коэффициент 1.15
+        // отражает то, что "полезность" исторически была более консервативным
+        // фильтром в исходном коде; сохраняем это отношение, но привязываем
+        // оба к одному дрейфующему параметру.
+        if (n->activation < activation_threshold ||
+            n->state.usefulness < activation_threshold * 1.15f)
+            continue;
         if (is_goal_on_cooldown(n->node_id)) continue;
 
         // Динамическая проверка: есть ли атом отношения Goal-Algorithm?

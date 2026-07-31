@@ -41,12 +41,17 @@ static volatile int decay_timer_running = 0;
 static int decay_txn_fn(MDB_txn *txn, void *arg) {
     (void)arg;
     if (!global_hyper_mem) return -1;
-
     hyper_memory_set_txn(global_hyper_mem, txn);
 
+    MDB_stat stat;
+    uint64_t total_atoms = 0;
+    if (mdb_stat(txn, db.graph.hyper.atoms, &stat) == MDB_SUCCESS)
+        total_atoms = (uint64_t)stat.ms_entries;
+
+    homeostasis_step(&g_homeostasis, &HOMEOSTASIS_DEFAULT, &global_wm, total_atoms);
+
     DecayStats stats;
-    int rc = subconscious_decay_cycle(global_hyper_mem, &DECAY_POLICY_DEFAULT, &stats);
-    return rc; // 0 -> commit, !=0 -> abort (см. db_writer.h::DbWriteFn)
+    return subconscious_decay_cycle(global_hyper_mem, &g_homeostasis.policy, &stats);
 }
 
 static void *decay_timer_loop(void *arg) {

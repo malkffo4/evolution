@@ -16,6 +16,15 @@
 static const char *kOBSERVED_OUTCOME = "OBSERVED_OUTCOME";
 static const char *kHAS_SCORE        = "HAS_SCORE";
 
+static const float kDomainKappa[6] = {
+    [0]                          = 10.0f, // fallback / неизвестный домен
+    [COGNITIVE_DOMAIN_ALGORITHM]  = 8.0f,  // дёшево перепроверить
+    [COGNITIVE_DOMAIN_SKILL]      = 12.0f,
+    [COGNITIVE_DOMAIN_RULE]       = 20.0f, // ошибка в правиле дорога
+    [COGNITIVE_DOMAIN_HYPOTHESIS] = 6.0f,  // нужна быстрая разведка
+    [COGNITIVE_DOMAIN_PREDICTION] = 10.0f,
+};
+
 // ----- Вспомогательные функции поиска Score --------------------------------
 
 /*
@@ -138,10 +147,11 @@ int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t s
                            node_id_t cause_id, node_id_t context_id) {
     if (!hmem || !hmem->txn) return -1;
     if (credit_weight > 1.0f) credit_weight = 1.0f;
-    if (credit_weight <= 0.0f) return 0; // нулевой вклад — не засоряем историю
+    if (credit_weight <= 0.0f) return 0;
+    if (outcome < 0.0f) outcome = 0.0f;
+    if (outcome > 1.0f) outcome = 1.0f;
 
-    // 1. Неизменяемое наблюдение. Пишем полный outcome без затухания —
-    //    вес влияет только на скорость обучения Score, а не на факт.
+    // 1. Неизменяемое наблюдение (история для offline score_recompute остаётся честной)
     if (evaluation_record(hmem, domain, subject_id, outcome, cause_id, context_id) == 0)
         return -1;
 
@@ -161,14 +171,24 @@ int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t s
         memcpy(&score_atom, existing, sizeof(NeuroAtom));
     }
 
-    // 3. Канонический EMA к outcome, ослабленный credit_weight.
-    //    credit_weight=1.0 побитово эквивалентен прежней бинарной формуле
-    //    для outcome ∈ {0.0, 1.0} (все текущие вызовы именно такие).
-    float effective_lr = SCORE_LEARNING_RATE * credit_weight;
-    score_atom.truth_mean       += (outcome - score_atom.truth_mean) * effective_lr;
-    score_atom.truth_confidence += (1.0f - score_atom.truth_confidence) * effective_lr;
+    // 3. Байесовское обновление Beta(α,β), выведенное из (mean, confidence)
+    const float kappa = score_domain_kappa(domain);
+    float conf = score_atom.truth_confidence;
+    if (conf > 0.999f) conf = 0.999f;         // защита от деления на ноль
+    if (conf < 0.0f)   conf = 0.0f;
 
-    score_atom.sti     = 0.8f * credit_weight; // косвенная причина — меньше внимания
+    float n = kappa * conf / (1.0f - conf);   // эффективное число наблюдений
+    float alpha = score_atom.truth_mean * n + 0.5f;
+    float beta  = (1.0f - score_atom.truth_mean) * n + 0.5f;
+
+    alpha += outcome * credit_weight;
+    beta  += (1.0f - outcome) * credit_weight;
+    float n_new = n + credit_weight;
+
+    score_atom.truth_mean       = alpha / (alpha + beta);
+    score_atom.truth_confidence = n_new / (n_new + kappa);
+
+    score_atom.sti     = 0.8f * credit_weight;
     score_atom.lti     = score_atom.truth_confidence;
     score_atom.utility = score_atom.truth_mean;
     score_atom.valence = 0.0f;
@@ -176,9 +196,10 @@ int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t s
 
     int rc = save_score(hmem, &score_atom);
     if (rc == 0) {
-        LOG_PLANNER("[SCORE] weighted domain=%d subject=%lu outcome=%.3f w=%.3f -> trust=%.3f conf=%.3f",
+        LOG_PLANNER("[SCORE-BAYES] domain=%d subject=%lu o=%.3f w=%.3f "
+                    "n=%.2f->%.2f kappa=%.1f mean=%.4f conf=%.4f",
                     domain, (unsigned long)subject_id, outcome, credit_weight,
-                    score_atom.truth_mean, score_atom.truth_confidence);
+                    n, n_new, kappa, score_atom.truth_mean, score_atom.truth_confidence);
     }
     return rc;
 }
@@ -304,4 +325,10 @@ int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
     }
 
     return propagated;
+}
+
+float score_domain_kappa(CognitiveDomain domain) {
+    if (domain < 1 || (size_t)domain >= sizeof(kDomainKappa)/sizeof(kDomainKappa[0]))
+        return kDomainKappa[0];
+    return kDomainKappa[domain];
 }
