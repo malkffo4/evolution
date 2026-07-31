@@ -70,6 +70,13 @@ IPCStatus transport_send_fd(int fd, const IPCPacket *packet) {
     if (send_all(fd, packet, header_size) != IPC_OK)
         return IPC_DISCONNECTED;
 
+    // Защита от переполнения при чтении из packet->payload
+    uint32_t safe_payload_size = packet->payload_size;
+    if (safe_payload_size > IPC_PAYLOAD_SIZE) {
+        LOG_WARN("Payload size %u exceeds IPC_PAYLOAD_SIZE %u. Truncating for send.", safe_payload_size, IPC_PAYLOAD_SIZE);
+        safe_payload_size = IPC_PAYLOAD_SIZE;
+    }
+
     // 2. Отправляем payload (только фактический размер, а не все 64KB)
     if (packet->payload_size > 0) {
         if (send_all(fd, packet->payload, packet->payload_size) != IPC_OK)

@@ -1,6 +1,5 @@
 // runtime/trace/trace.h
-#ifndef TRACE_H
-#define TRACE_H
+#pragma once
 
 #include <stdint.h>
 
@@ -52,5 +51,3 @@ void vm_trace_destroy(VMContext *ctx);
 VMTrace *vm_trace_begin(VMContext *ctx, OperatorID id);
 
 void vm_trace_end(VMContext *ctx, VMTrace *trace, VMStatus result);
-
-#endif

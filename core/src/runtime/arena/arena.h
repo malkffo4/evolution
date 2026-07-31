@@ -1,6 +1,5 @@
 // runtime/arena/arena.h
-#ifndef ARENA_H
-#define ARENA_H
+#pragma once
 
 #include <stdint.h>
 #include "runtime/vm/vm_fwd.h"
@@ -24,5 +23,3 @@ VMHandle vm_object_new(VMArena *arena, ObjectType type);
 VMObject *vm_object_get(VMArena *arena, VMHandle handle);
 void vm_object_retain(VMArena *arena, VMHandle handle);
 void vm_object_release(VMArena *arena, VMHandle handle);
-
-#endif // ARENA_H

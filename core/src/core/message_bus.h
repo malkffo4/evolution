@@ -1,6 +1,5 @@
 // core/message_bus.h
-#ifndef MESSAGE_BUS_H
-#define MESSAGE_BUS_H
+#pragma once
 
 #include <stdbool.h>
 #include <pthread.h>
@@ -29,5 +28,3 @@ IPCStatus bus_tx_pop(IPCPacket *packet);
 
 IPCStatus bus_rx_publish(const IPCPacket *packet);
 IPCStatus bus_rx_pop(IPCPacket *packet);
-
-#endif // MESSAGE_BUS_H

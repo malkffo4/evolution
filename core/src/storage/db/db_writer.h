@@ -1,6 +1,5 @@
 // storage/db/db_writer.h
-#ifndef DB_WRITER_H
-#define DB_WRITER_H
+#pragma once
 
 #include <lmdb.h>
 
@@ -17,5 +16,3 @@ int db_write_async(DbWriteFn fn, void *arg);
 // Блокирует вызывающего до коммита/аборта. Возвращает результат fn (или -1
 // при инфраструктурной ошибке).
 int db_write_sync(DbWriteFn fn, void *arg);
-
-#endif // DB_WRITER_H

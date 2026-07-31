@@ -4,8 +4,7 @@
 // (XOR) id как идентичность объекта доверия. Здесь идентичность — это
 // (process_id, args), как у любого другого HyperAtom, а не отдельная
 // хеш-схема. trust.h/trust.c можно удалить, они не используются.
-#ifndef KNOWLEDGE_EVALUATION_H
-#define KNOWLEDGE_EVALUATION_H
+#pragma once
 
 #include <stdbool.h>
 
@@ -116,5 +115,3 @@ int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t s
 int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
                             node_id_t result_atom_id, float outcome,
                             uint32_t max_depth, float discount);
-
-#endif // KNOWLEDGE_EVALUATION_H

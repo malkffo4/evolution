@@ -1,6 +1,5 @@
 // storage/hyper_atom/hyper_pattern.h
-#ifndef HYPER_PATTERN_H
-#define HYPER_PATTERN_H
+#pragma once
 
 #include <lmdb.h>
 #include "storage/hyper_atom/hyper_atom.h"
@@ -31,5 +30,3 @@ typedef struct {
 
 int hyper_pattern_save(MDB_txn *txn, MDB_dbi dbi, const HyperPattern *pattern);
 int hyper_pattern_load(MDB_txn *txn, MDB_dbi dbi, ko_id_t pattern_id, HyperPattern *out);
-
-#endif

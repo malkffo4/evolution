@@ -1,11 +1,9 @@
 // runtime/logging/logging.h
-#ifndef LOGGING_H
-#define LOGGING_H
+#pragma once
 
 #include <stdio.h>
 
-typedef struct
-{
+typedef struct {
     FILE *system;
     FILE *reasoner;
     FILE *memory;
@@ -23,15 +21,7 @@ extern Logger logger;
 int log_init(const char *directory);
 void log_shutdown(void);
 
-void log_write(
-    FILE *fp,
-    const char *level,
-    const char *file,
-    const char *func,
-    int line,
-    const char *fmt,
-    ...
-);
+void log_write(FILE *fp, const char *level, const char *file, const char *func, int line, const char *fmt, ... );
 
 #define LOG_INFO(...) \
     log_write(logger.system, "INFO", __FILE__, __func__, __LINE__, __VA_ARGS__)
@@ -68,5 +58,3 @@ void log_write(
 
 #define LOG_PERF(...) \
     log_write(logger.performance, "PERFORMANCE", __FILE__, __func__, __LINE__, __VA_ARGS__)
-
-#endif

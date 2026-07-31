@@ -1,6 +1,5 @@
 // core/module_loader.h
-#ifndef MODULE_LOADER_H
-#define MODULE_LOADER_H
+#pragma once
 
 #include <stddef.h>
 
@@ -24,5 +23,3 @@ void *module_get_symbol(const Module *module, const char *symbol_name);
 #ifdef __cplusplus
 }
 #endif
-
-#endif // MODULE_LOADER_H

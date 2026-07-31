@@ -1,4 +1,6 @@
 // memory/context.h
+#pragma once
+
 // // Общий контекст.
 // // Контекст нужен вообще всем.
 // // Planner.

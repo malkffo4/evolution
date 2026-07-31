@@ -1,6 +1,5 @@
 // runtime/register/register_types.h
-#ifndef REGISTER_TYPES_H
-#define REGISTER_TYPES_H
+#pragma once
 
 /* Типы регистров */
 typedef enum {
@@ -18,5 +17,3 @@ typedef enum {
     REG_OBJECT = 11,
     REG_HANDLE = 12
 } RegisterType;
-
-#endif // REGISTER_TYPES_H

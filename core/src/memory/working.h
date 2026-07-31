@@ -1,6 +1,5 @@
 // memory/working.h
-#ifndef WORKING_H
-#define WORKING_H
+#pragma once
 
 #include <stdint.h>
 #include <pthread.h> // Добавлено для pthread_rwlock_t
@@ -58,5 +57,3 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
 void wm_rdlock(WorkingMemory *wm);
 void wm_wrlock(WorkingMemory *wm);
 void wm_unlock(WorkingMemory *wm);
-
-#endif // WORKING_H

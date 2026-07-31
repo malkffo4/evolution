@@ -94,6 +94,6 @@ void ipc_send_error(IPCPacket *req, IPCPacket *resp, const char *message) {
     (void)req;
     resp->type = IPC_RESPONSE;
     snprintf(resp->name, sizeof(resp->name), "error");
-    snprintf(resp->payload, sizeof(resp->payload), "%s", message);
+    snprintf((char *)resp->payload, sizeof(resp->payload), "%s", message);
     resp->payload_size = (uint32_t)strlen(resp->payload);
 }

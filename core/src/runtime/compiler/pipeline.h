@@ -1,6 +1,5 @@
 // runtime/compiler/pipeline.h
-#ifndef PIPELINE_H
-#define PIPELINE_H
+#pragma once
 
 #include <stdint.h>
 
@@ -42,5 +41,3 @@ Pipeline* pipeline_create(void);
 Pipeline *pipeline_create_with_capacity(int capacity);
 VMStatus pipeline_add_instruction(Pipeline *p, const Instruction *ins);
 void pipeline_free(Pipeline *p);
-
-#endif // PIPELINE_H

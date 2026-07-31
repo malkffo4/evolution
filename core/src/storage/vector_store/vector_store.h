@@ -1,6 +1,5 @@
 // storage/vector_store/vector_store.h
-#ifndef VECTOR_STORE_H
-#define VECTOR_STORE_H
+#pragma once
 
 #include <stdint.h>
 #include <lmdb.h>
@@ -25,5 +24,3 @@ int load_embedding(MDB_txn *txn, uint64_t node_id, float *emb_out);
 
 // Find similar nodes using SimHash + cosine similarity
 int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t *results);
-
-#endif // VECTOR_STORE_H

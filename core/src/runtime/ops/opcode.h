@@ -1,6 +1,5 @@
 // runtime/ops/opcode.h
-#ifndef OPCODES_TYPES_H
-#define OPCODES_TYPES_H
+#pragma once
 
 /**
  * Коды инструкций виртуальной машины.
@@ -96,5 +95,3 @@ typedef enum {
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;
-
-#endif // OPCODES_TYPES_H

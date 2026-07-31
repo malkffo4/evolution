@@ -1,6 +1,5 @@
 // storage/db/db.h
-#ifndef DB_H
-#define DB_H
+#pragma once
 
 #include <lmdb.h>
 #include <stdint.h>
@@ -52,5 +51,3 @@ extern Database db;
 
 int init_lmdb(const char *db_path);
 void close_lmdb(void);
-
-#endif // DB_H

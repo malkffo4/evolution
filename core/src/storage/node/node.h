@@ -1,6 +1,5 @@
 // storage/node/node.h
-#ifndef NODE_H
-#define NODE_H
+#pragma once
 
 #include <lmdb.h>
 #include <stdint.h>
@@ -20,5 +19,3 @@ typedef struct {
 int create_node(MDB_txn *txn, const Node *node);
 int get_node(MDB_txn *txn, node_id_t id, Node *node);
 int delete_node(MDB_txn *txn, node_id_t id);
-
-#endif // NODE_H

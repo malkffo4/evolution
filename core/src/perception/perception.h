@@ -1,6 +1,5 @@
 // perception/perception.h
-#ifndef PERCEPTION_H
-#define PERCEPTION_H
+#pragma once
 
 #include <lmdb.h>
 
@@ -13,5 +12,3 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
 int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem);
 
 int perceive_pipeline(const char *json_str, MDB_txn *txn);
-
-#endif // PERCEPTION_H

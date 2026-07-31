@@ -1,6 +1,5 @@
 // runtime/ops/vm_ops.h
-#ifndef VM_OPS_H
-#define VM_OPS_H
+#pragma once
 
 #include "runtime/vm/vm_context.h"
 
@@ -79,5 +78,3 @@ int vm_op_critic_apply(VMContext *, const Instruction *);
 int vm_op_match_pattern(VMContext *, const Instruction *);
 
 int vm_op_credit_assign(VMContext *, const Instruction *);
-
-#endif

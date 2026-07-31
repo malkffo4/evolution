@@ -1,6 +1,5 @@
 // knowledge/pipeline_io.h
-#ifndef PIPELINE_IO_H
-#define PIPELINE_IO_H
+#pragma once
 
 #include <lmdb.h>
 #include <cjson/cJSON.h>
@@ -10,5 +9,3 @@
 
 Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id);
 int hyper_pattern_from_json(cJSON *root, HyperPattern *out);
-
-#endif

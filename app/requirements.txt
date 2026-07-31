@@ -2,5 +2,6 @@ PyMuPDF
 wikipedia-api
 requests
 python-dotenv
+playwright
 # openai
 # google

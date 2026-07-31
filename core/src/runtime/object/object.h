@@ -1,6 +1,5 @@
 // runtime/object/object.h
-#ifndef OBJECT_H
-#define OBJECT_H
+#pragma once
 
 #include <stdint.h>
 
@@ -43,5 +42,3 @@ typedef struct VMObject {
 } VMObject ;
 
 const VMObjectType *vm_object_type_find(ObjectType type);
-
-#endif // OBJECT_H

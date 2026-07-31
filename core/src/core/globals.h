@@ -1,6 +1,5 @@
 // core/globals.h
-#ifndef CORE_GLOBALS_H
-#define CORE_GLOBALS_H
+#pragma once
 
 #include <signal.h>
 
@@ -10,5 +9,3 @@
 extern HyperMemory *global_hyper_mem;
 extern WorkingMemory global_wm;
 extern volatile sig_atomic_t g_running;
-
-#endif
