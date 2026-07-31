@@ -1,7 +1,7 @@
-// reasoning/planner.h
-#ifndef REASON_PLANNER_H
-#define REASON_PLANNER_H
+// core/src/reasoning/planner.h
+#pragma once
 
+#include <stdbool.h>
 #include "types/id.h"
 #include "memory/working.h"
 
@@ -17,5 +17,4 @@ typedef struct {
 
 void planner_evaluate_goals(WorkingMemory *wm, void *txn);
 void set_goal_cooldown(uint64_t goal_id);
-
-#endif // REASON_PLANNER_H
+bool is_goal_on_cooldown(uint64_t goal_id);

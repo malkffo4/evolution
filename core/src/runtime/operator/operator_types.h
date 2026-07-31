@@ -1,6 +1,5 @@
 // runtime/operator/operator_types.h
-#ifndef OPERATOR_TYPES_H
-#define OPERATOR_TYPES_H
+#pragma once
 
 #include <stdint.h>
 
@@ -12,5 +11,3 @@ typedef enum {
     OPERATOR_COMPILED,
     OPERATOR_GPU
 } OperatorKind;
-
-#endif

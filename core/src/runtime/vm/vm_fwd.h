@@ -1,6 +1,5 @@
 // runtime/vm/vm_fwd.h
-#ifndef VM_FWD_H
-#define VM_FWD_H
+#pragma once
 
 typedef struct Instruction  Instruction;
 typedef struct Pipeline     Pipeline;
@@ -13,5 +12,3 @@ typedef struct VMFrame      VMFrame;
 typedef struct VMProfile    VMProfile;
 typedef struct VMMemory     VMMemory;
 typedef struct VMHandle     VMHandle;
-
-#endif // VM_FWD_H

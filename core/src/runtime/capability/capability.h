@@ -1,6 +1,5 @@
 // runtime/capability/capability.h
-#ifndef CAPABILITY_H
-#define CAPABILITY_H
+#pragma once
 
 #include <stdint.h>
 
@@ -20,5 +19,3 @@ typedef struct {
     double confidence;
     double reward;
 } CapabilityCandidate;
-
-#endif // CAPABILITY_H

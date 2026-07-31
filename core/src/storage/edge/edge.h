@@ -1,6 +1,5 @@
 // storage/edge/edge.h
-#ifndef EDGE_H
-#define EDGE_H
+#pragma once
 
 #include <lmdb.h>
 
@@ -44,5 +43,3 @@ int update_edge(MDB_txn *txn, const Edge *edge);
 int get_edge(MDB_txn *txn, const Triple *key, Edge *edge);
 
 int delete_edge(MDB_txn *txn, const Triple *key);
-
-#endif // EDGE_H

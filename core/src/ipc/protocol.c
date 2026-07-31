@@ -56,7 +56,7 @@ IPCStatus ipc_packet_from_json(const char *json, IPCPacket *packet) {
 
     // Макрос для безопасного копирования строки с проверкой обрезки
     #define SAFE_STRCPY(dest, src, dest_size, err_action) do { \
-        int _ret = snprintf(dest, dest_size, "%s", src); \
+        int _ret = snprintf((char *)dest, dest_size, "%s", src); \
         if (_ret < 0 || (size_t)_ret >= dest_size) { \
             cJSON_Delete(root); \
             err_action; \

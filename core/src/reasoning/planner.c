@@ -1,8 +1,9 @@
-// reasoning/planner.c
-// #include <stdio.h>
+// core/src/reasoning/planner.c
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <time.h>
 
 #include "types/id.h"
 #include "memory/working.h"
@@ -25,8 +26,8 @@ typedef struct {
 
 static GoalCooldown cooldown_list[128];
 
-// Проверка перед попыткой построить план
-static bool is_goal_on_cooldown(uint64_t goal_id) {
+// Проверка перед попыткой построить план (теперь глобальная)
+bool is_goal_on_cooldown(uint64_t goal_id) {
     time_t now = time(NULL);
     for (int i = 0; i < 128; i++) {
         if (cooldown_list[i].goal_id == goal_id && cooldown_list[i].ignore_until > now) {
@@ -51,46 +52,19 @@ void set_goal_cooldown(uint64_t goal_id) {
         cooldown_list[empty_idx].ignore_until = now + GOAL_COOLDOWN_SEC;
     }
 }
-// TODO
-// Псевдокод интеграции в ваш цикл планировщика:
-// void planner_evaluate_goals() {
-//     // Получить активные цели...
-//     for (int i = 0; i < num_goals; i++) {
-//         uint64_t current_goal = goals[i].id;
-
-//         if (is_goal_on_cooldown(current_goal)) {
-//             continue; // Пропускаем, чтобы не спамить и сберечь CPU
-//         }
-
-//         LOG_INFO("[ПЛАНИРОВЩИК] Поставлена цель: ID %llu. Строю план...", current_goal);
-
-//         int rc = build_plan_for_goal(current_goal);
-
-//         if (rc == PLAN_DEAD_END) {
-//             LOG_WARN("  -> [ТУПИК] У меня нет готового паттерна действий. Ищу аналогии...");
-
-//             // Запускаем поиск аналогий (Hypothesis By Analogy)
-//             rc = try_hypothesis_by_analogy(current_goal);
-
-//             if (rc == HYPOTHESIS_FAILED) {
-//                 // Если даже аналогии не помогли - замораживаем цель на время
-//                 set_goal_cooldown(current_goal);
-//             }
-//         }
-//     }
-// }
 
 void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
     if (!wm || !txn) return;
 
     for (uint32_t i = 0; i < wm->count; i++) {
         WorkingNode *node = &wm->nodes[i];
+
         if (is_goal_on_cooldown(node->node_id))
             continue;
+
         // 1. ИДЕНТИФИКАЦИЯ ЦЕЛИ
         // Если узел сильно активен и имеет высокую Полезность (Utility), он становится Целью.
         if (node->activation > 0.6f && node->state.usefulness > 0.7f) {
-
             // Чтобы не зацикливаться, проверяем, не фокусировались ли мы на нем только что
             if (node->focus_level > 5) continue;
             node->focus_level++;
@@ -106,17 +80,15 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
             // 2. ОБРАТНЫЙ ВЫВОД (Backward Chaining)
             // Ищем в памяти, ЧТО приводит к этой цели. Мы ищем ребра ВХОДЯЩИЕ в цель.
             if (get_edges_to_node(txn, node->node_id, &incoming_edges) == MDB_SUCCESS && incoming_edges.items) {
-
                 for (uint32_t j = 0; j < incoming_edges.count; j++) {
                     const char *relation_name = get_string_from_pool(txn, incoming_edges.items[j].key.relation);
 
                     // Эвристика: ищем причинно-следственные связи (CAUSES, LEADS_TO, ACHIVES)
                     // В будущем семантический процессор будет сам определять смысл связи
                     if (relation_name && (strcasestr(relation_name, "cause") || strcasestr(relation_name, "achieve") || strcasestr(relation_name, "приводит"))) {
-
                         uint64_t required_step_id = incoming_edges.items[j].key.source;
-
-                        // 🔥 НЕ активируем подцель, если она на кулдауне
+                        
+                        // НЕ активируем подцель, если она на кулдауне
                         if (is_goal_on_cooldown(required_step_id)) {
                             const char *step_name = get_string_from_pool(txn, required_step_id);
                             LOG_PLANNER("[ПЛАНИРОВЩИК] Подцель '%s' на кулдауне, пропускаем.", step_name ? step_name : "UNKNOWN");
@@ -127,6 +99,7 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
                         const char *step_name = get_string_from_pool(txn, required_step_id);
                         LOG_PLANNER("[ПОДЦЕЛЬ] Чтобы достичь '%s', нужно активировать '%s' (Уверенность: %.2f)",
                                     goal_name, step_name ? step_name : "UNKNOWN", step_weight);
+
                         wm_activate(wm, required_step_id, node->activation * 0.9f, node->state.usefulness * 0.9f);
                         action_found = 1;
                     }
@@ -149,6 +122,7 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
                         snprintf(hypothesis_label, sizeof(hypothesis_label),
                                 "hypothesis_%lu_%lu", node->node_id, candidates[k].analogous_node);
                         uint64_t hyp_id = djb2_hash(hypothesis_label);
+
                         Node hyp_node = {
                             .id = hyp_id,
                             .name_hash = add_string_to_pool(txn, hypothesis_label),
@@ -172,39 +146,3 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
        }
     }
 }
-
-// Функция извлечения алгоритма мышления из LMDB и передачи в VM
-// int evaluate_behavioral_pattern(VMContext* ctx, node_id_t behavior_id) {
-//     // 1. Вытаскиваем граф логики из базы данных (LMDB)
-//     graph_path_t* path = graph_get_execution_path(behavior_id);
-//     if (!path) {
-//         // Логика не найдена, прерываем выполнение
-//         return VM_STATUS_ERROR_NOT_FOUND;
-//     }
-
-//     // 2. Компилятор превращает путь графа в примитивные опкоды VM
-//     // Например: узлы графа превращаются в опкоды LOAD, MATCH, BRANCH
-//     cognitive_chain_t chain;
-//     int compile_status = compiler_build_chain(path, &chain.bytecode, &chain.instruction_count);
-
-//     if (compile_status != SUCCESS) {
-//         return VM_STATUS_ERROR_COMPILE;
-//     }
-
-//     // 3. Загружаем скомпилированную цепочку в рабочую память VM
-//     vm_load_program(ctx, chain.bytecode, chain.instruction_count);
-
-//     // 4. Запускаем выполнение гипотезы/цепочки
-//     int exec_status = vm_execute(ctx);
-
-//     // 5. Оценка результата (например, найдена ли уязвимость в симуляции)
-//     if (exec_status == VM_STATUS_VULNERABILITY_FOUND) {
-//         // Запись нового обнаруженного паттерна обратно в базу (самообучение)
-//         knowledge_record_hypothesis(ctx->memory, behavior_id, "VULN_CONFIRMED");
-//     }
-
-//     // Очистка памяти арены
-//     arena_free(chain.bytecode);
-
-//     return exec_status;
-// }

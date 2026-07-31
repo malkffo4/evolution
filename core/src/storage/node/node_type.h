@@ -1,6 +1,5 @@
 // storage/node/node_type.h
-#ifndef NODE_TYPE_H
-#define NODE_TYPE_H
+#pragma once
 
 typedef enum {
     NODE_CONCEPT,
@@ -15,5 +14,3 @@ typedef enum {
     NODE_ERROR,
     NODE_LESSON
 } NodeType;
-
-#endif // NODE_TYPE_H

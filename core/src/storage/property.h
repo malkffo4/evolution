@@ -1,6 +1,5 @@
 // storage/property.h
-#ifndef PROPERTY_H
-#define PROPERTY_H
+#pragma once
 
 typedef enum {
     PROP_INT,
@@ -20,5 +19,3 @@ typedef struct {
     uint32_t size;          // Размер данных payload
     // payload лежит в памяти сразу за этой структурой
 } NodeProperty;
-
-#endif // PROPERTY_H

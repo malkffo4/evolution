@@ -1,6 +1,5 @@
 // runtime/vm/vm_context.h
-#ifndef VM_CONTEXT
-#define VM_CONTEXT
+#pragma once
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -68,7 +67,7 @@ typedef struct VMContext {
     HyperMemory     *hyper_mem;
     ko_id_t         current_context;        // регистры состояний:
     ko_id_t         current_episode_id;
-    ko_id_t         last_result_id;         // NEW: последний Knowledge Object,
+    ko_id_t         last_result_id;         // последний Knowledge Object,
                                             // созданный OP_ASSERT/OP_DERIVE в
                                             // ходе текущего исполнения. Читается
                                             // vm_op_evaluate_goals для Credit
@@ -86,11 +85,3 @@ static inline VMHandle vm_ctx_object_new(VMContext *ctx, ObjectType type) {
 static inline VMObject *vm_ctx_object_get(VMContext *ctx, VMHandle handle) {
     return vm_object_get(&ctx->arena, handle);
 }
-
-// Файлы: evolution/core/src/memory/working.c и evolution/core/src/runtime/vm/vm_context.h
-// TODO Задачи:
-// Реализуйте транзакционную память (scratchpad) внутри контекста VM.
-// Все изменения состояний при симуляции пишутся сюда.
-// Если цепочка приводит к успеху (найдена уязвимость), граф переносится в долгосрочную память (episodic.c / LMDB).
-
-#endif // VM_CONTEXTVM_CONTEXT

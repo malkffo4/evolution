@@ -1,6 +1,5 @@
 // ipc/router.c
-#ifndef ROUTER_H
-#define ROUTER_H
+#pragma once
 
 #include "ipc/transport.h"
 
@@ -15,5 +14,3 @@ typedef struct {
     uint64_t request_id;
     IPCClient *client;
 } RequestRoute;
-
-#endif // ROUTER_H

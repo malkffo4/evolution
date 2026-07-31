@@ -1,4 +1,4 @@
-// memory/working.c
+// core/src/memory/working.c
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -11,6 +11,7 @@
 #include "types/id.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "reasoning/algorithm_planner.h"
+#include "reasoning/planner.h"
 
 int wm_init(WorkingMemory *wm, uint32_t node_cap, uint32_t edge_cap) {
     if (!wm) return 1;
@@ -47,15 +48,13 @@ int wm_init(WorkingMemory *wm, uint32_t node_cap, uint32_t edge_cap) {
     }
     wm->count = 0;
     wm->tick = 0;
-
+    
     return 0;
 }
 
 void wm_clear(WorkingMemory *wm) {
     if (!wm) return;
-
     pthread_rwlock_wrlock(&wm->lock);
-
     if (wm->active_nodes.items) {
         free(wm->active_nodes.items);
         wm->active_nodes.items = NULL;
@@ -79,14 +78,12 @@ void wm_clear(WorkingMemory *wm) {
     wm->active_nodes.count = 0;
     wm->active_edges.count = 0;
     wm->count = 0;
-
     pthread_rwlock_unlock(&wm->lock);
     pthread_rwlock_destroy(&wm->lock);
 }
 
 void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float base_emotion) {
     if (!wm) return;
-
     pthread_rwlock_wrlock(&wm->lock);
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
@@ -111,13 +108,11 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
         wm->nodes[wm->count].attention_weight = base_emotion;
         wm->count++;
     }
-
     pthread_rwlock_unlock(&wm->lock);
 }
 
 void wm_decay(WorkingMemory *wm) {
     if (!wm) return;
-
     pthread_rwlock_wrlock(&wm->lock);
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
@@ -141,14 +136,12 @@ void wm_decay(WorkingMemory *wm) {
             i--; // Повторяем проверку для сдвинутого элемента
         }
     }
-
     pthread_rwlock_unlock(&wm->lock);
 }
 
 void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn) {
     (void)lmdb_txn;
     if (!wm) return;
-
     pthread_rwlock_wrlock(&wm->lock);
     if (!wm->nodes || wm->count < 2) {
         pthread_rwlock_unlock(&wm->lock);
@@ -157,9 +150,12 @@ void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn) {
 
     for (uint32_t i = 0; i < wm->count; i++) {
         if (wm->nodes[i].activation < 0.2f) continue;
+
         for (uint32_t j = i + 1; j < wm->count; j++) {
             if (wm->nodes[j].activation < 0.2f) continue;
+
             float transfer = wm->nodes[i].activation * wm->nodes[j].activation * 0.1f;
+            
             if (wm->nodes[i].state.danger > 0.5f) {
                 wm->nodes[j].state.danger += transfer;
             }
@@ -168,13 +164,11 @@ void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn) {
             }
         }
     }
-
     pthread_rwlock_unlock(&wm->lock);
 }
 
 void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const char *value) {
     if (!wm || !key || !value) return;
-
     pthread_rwlock_wrlock(&wm->lock);
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
@@ -194,6 +188,7 @@ void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const
                 }
                 curr = curr->next;
             }
+
             DynamicProperty *new_prop = calloc(1, sizeof(DynamicProperty));
             if (!new_prop) {
                 pthread_rwlock_unlock(&wm->lock);
@@ -204,18 +199,16 @@ void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const
             new_prop->value[sizeof(new_prop->value) - 1] = '\0';
             new_prop->next = wm->nodes[i].properties;
             wm->nodes[i].properties = new_prop;
-
+            
             pthread_rwlock_unlock(&wm->lock);
             return;
         }
     }
-
     pthread_rwlock_unlock(&wm->lock);
 }
 
 const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key) {
     if (!wm || !key) return NULL;
-
     pthread_rwlock_rdlock(&wm->lock);
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
@@ -224,7 +217,6 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
 
     uint64_t key_hash = djb2_hash(key);
     const char *result = NULL;
-
     for (uint32_t i = 0; i < wm->count; i++) {
         if (wm->nodes[i].node_id == node_id) {
             DynamicProperty *curr = wm->nodes[i].properties;
@@ -238,7 +230,6 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
             break;
         }
     }
-
     pthread_rwlock_unlock(&wm->lock);
     return result;
 }
@@ -254,9 +245,13 @@ node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem) {
 
     node_id_t best_id = 0;
     float best_score = -1.0f;
+
     for (uint32_t i = 0; i < wm->count; i++) {
         WorkingNode *n = &wm->nodes[i];
         if (n->activation < 0.6f || n->state.usefulness < 0.7f) continue;
+        
+        // ИСПРАВЛЕНИЕ: Игнорируем цели, находящиеся на кулдауне
+        if (is_goal_on_cooldown(n->node_id)) continue;
 
         // Динамическая проверка: есть ли атом отношения Goal-Algorithm?
         node_id_t rel_ids[16];
@@ -273,6 +268,7 @@ node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem) {
             }
             if (atoms) free(atoms);
         }
+
         if (!is_goal) {
             continue;
         }

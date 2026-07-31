@@ -1,6 +1,5 @@
 // ipc/router_handlers.c
-#ifndef IPC_HANDLERS_H
-#define IPC_HANDLERS_H
+#pragma once
 
 #include "ipc/ipc.h"
 #include "memory/working.h"
@@ -35,5 +34,3 @@ void cmd_shutdown(IPCPacket *req, IPCPacket *resp);
 void cmd_think(IPCPacket *req, IPCPacket *resp);
 void cmd_execute_op(IPCPacket *req, IPCPacket *resp);
 void cmd_mark_flaw(IPCPacket *req, IPCPacket *resp);
-
-#endif // IPC_HANDLERS_H

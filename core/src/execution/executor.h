@@ -1,6 +1,5 @@
 // execution/executor.h
-#ifndef EXECUTOR_H
-#define EXECUTOR_H
+#pragma once
 
 #include <stdint.h>
 
@@ -14,5 +13,3 @@ int executor_get_result(int id, char **out_output, int *out_exit_code, int *out_
 
 int executor_run_script_sync(const char *interpreter, const char *script_path, char *const argv[], char **out_output,
                                     int *out_exit_code, int *out_signal);
-
-#endif // EXECUTOR_H

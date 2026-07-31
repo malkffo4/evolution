@@ -1,6 +1,5 @@
 // storage/graph/graph.h
-#ifndef GRAPH_H
-#define GRAPH_H
+#pragma once
 
 #include <lmdb.h>
 #include <stdint.h>
@@ -49,5 +48,3 @@ int get_edges_to_node(MDB_txn *txn, node_id_t target, EdgeList *list);
 // void node_list_free(NodeList *list);
 // void graph_view_init(GraphView *graph);
 // void graph_view_free(GraphView *graph);
-
-#endif // GRAPH_H

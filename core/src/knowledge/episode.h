@@ -1,6 +1,5 @@
 // knowledge/episode.h
-#ifndef KNOWLEDGE_EPISODE_H
-#define KNOWLEDGE_EPISODE_H
+#pragma once
 
 #include <stdint.h>
 #include <lmdb.h>
@@ -64,5 +63,3 @@ int episode_record(HyperMemory *hmem, const Episode *ep);
  * Загружает Episode по id. Возвращает MDB_SUCCESS/MDB_NOTFOUND/код ошибки LMDB.
  */
 int episode_load(MDB_txn *txn, ko_id_t episode_id, Episode *out);
-
-#endif // KNOWLEDGE_EPISODE_H

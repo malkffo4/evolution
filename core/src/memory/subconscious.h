@@ -1,6 +1,5 @@
 // memory/subconscious.h
-#ifndef SUBCONSCIOUS_H
-#define SUBCONSCIOUS_H
+#pragma once
 
 #include <stdint.h>
 
@@ -23,5 +22,3 @@ void stop_decay_timer(void);
 
 int get_pending_tasks(ResearchTask *buffer, int max_count);
 void enqueue_research_task(uint64_t node_id, const char *query);
-
-#endif // SUBCONSCIOUS_H

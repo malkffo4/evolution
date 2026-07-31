@@ -1,6 +1,5 @@
 // runtime/vm/vm.h
-#ifndef VM_H
-#define VM_H
+#pragma once
 
 #include <lmdb.h>
 
@@ -11,5 +10,3 @@
 int  vm_init(VMContext *vm, MDB_txn *txn, WorkingMemory *wm);
 int  vm_execute(VMContext *vm, Pipeline *pipeline);
 void vm_destroy(VMContext *ctx);
-
-#endif // VM_H

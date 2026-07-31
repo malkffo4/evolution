@@ -48,7 +48,7 @@ void req_audit_atoms(IPCPacket *req, IPCPacket *resp) {
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) != MDB_SUCCESS) {
         const char *err = "{\"error\": \"DB transaction failed\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload) - 1);
         resp->payload_size = (uint32_t)strlen(err);
         return;
     }
@@ -57,7 +57,7 @@ void req_audit_atoms(IPCPacket *req, IPCPacket *resp) {
     if (mdb_cursor_open(txn, db.graph.hyper.atoms, &cursor) != MDB_SUCCESS) {
         mdb_txn_abort(txn);
         const char *err = "{\"error\": \"cursor_open failed\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload) - 1);
         resp->payload_size = (uint32_t)strlen(err);
         return;
     }
@@ -114,8 +114,8 @@ void req_audit_atoms(IPCPacket *req, IPCPacket *resp) {
     cJSON_AddNumberToObject(root, "scanned", scanned);
 
     char *s = cJSON_PrintUnformatted(root);
-    snprintf(resp->payload, sizeof(resp->payload), "%s", s);
-    resp->payload_size = (uint32_t)strlen(resp->payload);
+    snprintf((char *)resp->payload, sizeof(resp->payload), "%s", s);
+    resp->payload_size = (uint32_t)strlen((char *)resp->payload);
     free(s);
     cJSON_Delete(root);
 }
@@ -124,15 +124,15 @@ void req_ping(IPCPacket *req, IPCPacket *resp) {
     LOG_IPC("Handling ping request id=%lu", req->id);
     resp->type = IPC_RESPONSE;
     snprintf(resp->name, sizeof(resp->name), "ping");
-    snprintf(resp->payload, sizeof(resp->payload), "{\"ok\": true}");
-    resp->payload_size = (uint32_t)strlen(resp->payload);
+    snprintf((char *)resp->payload, sizeof(resp->payload), "{\"ok\": true}");
+    resp->payload_size = (uint32_t)strlen((char *)resp->payload);
 
     LOG_IPC("Ping response prepared, payload: %s", resp->payload);
 }
 
 void req_generate_reply(IPCPacket *req, IPCPacket *resp) {
     // Парсим payload
-    cJSON *json = cJSON_Parse(req->payload);
+    cJSON *json = cJSON_Parse((const char *)req->payload);
     char reply[IPC_PAYLOAD_SIZE] = {0};
     char extracted_text[1024] = {0};
     int has_text = 0;
@@ -158,12 +158,12 @@ void req_generate_reply(IPCPacket *req, IPCPacket *resp) {
         snprintf(reply, sizeof(reply), "Hello, I am Evolution Core!");
     }
 
-    strncpy(resp->payload, reply, sizeof(resp->payload)-1);
+    strncpy((char *)resp->payload, reply, sizeof(resp->payload)-1);
     resp->payload_size = (uint32_t)strlen(reply);
 }
 
 void req_retrieve(IPCPacket *req, IPCPacket *resp) {
-    cJSON *json = cJSON_Parse(req->payload);
+    cJSON *json = cJSON_Parse((const char *)req->payload);
     char query[256] = {0};
     if (json) {
         cJSON *query_item = cJSON_GetObjectItemCaseSensitive(json, "query");
@@ -177,7 +177,7 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
 
     if (strlen(query) == 0) {
         const char* err = "{\"error\": \"Empty query\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload)-1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload)-1);
         resp->payload_size = (uint32_t)strlen(err);
         return;
     }
@@ -197,17 +197,17 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
         char *result = hyper_retrieve_json(&local_hm, participant_id, 2, 30);
         mdb_txn_abort(txn);
         if (result) {
-            strncpy(resp->payload, result, IPC_PAYLOAD_SIZE - 1);
+            strncpy((char *)resp->payload, result, IPC_PAYLOAD_SIZE - 1);
             resp->payload_size = (uint32_t)strlen(result);
             free(result);
         } else {
             const char* err = "{\"error\": \"No results\"}";
-            strncpy(resp->payload, err, sizeof(resp->payload)-1);
+            strncpy((char *)resp->payload, err, sizeof(resp->payload)-1);
             resp->payload_size = (uint32_t)strlen(err);
         }
     } else {
         const char* err = "{\"error\": \"DB transaction failed\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload)-1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload)-1);
         resp->payload_size = (uint32_t)strlen(err);
     }
 }
@@ -217,7 +217,7 @@ void req_retrieve_graph(IPCPacket *req, IPCPacket *resp) {
     resp->type = IPC_RESPONSE;
     strncpy(resp->name, "error", sizeof(resp->name)-1);
     const char* msg = "Not implemented yet";
-    strncpy(resp->payload, msg, sizeof(resp->payload)-1);
+    strncpy((char *)resp->payload, msg, sizeof(resp->payload)-1);
     resp->payload_size = (uint32_t)strlen(msg);
     // resp->type = IPC_RESPONSE;
     // strncpy(resp->name, "retrieve_graph", sizeof(resp->name)-1);
@@ -239,7 +239,7 @@ void req_embedding(IPCPacket *req, IPCPacket *resp) {
     resp->type = IPC_RESPONSE;
     strncpy(resp->name, "error", sizeof(resp->name)-1);
     const char* msg = "Not implemented";
-    strncpy(resp->payload, msg, sizeof(resp->payload)-1);
+    strncpy((char *)resp->payload, msg, sizeof(resp->payload)-1);
     resp->payload_size = (uint32_t)strlen(msg);
 }
 
@@ -248,12 +248,12 @@ void req_rerank(IPCPacket *req, IPCPacket *resp) {
     resp->type = IPC_RESPONSE;
     strncpy(resp->name, "error", sizeof(resp->name)-1);
     const char* msg = "Not implemented";
-    strncpy(resp->payload, msg, sizeof(resp->payload)-1);
+    strncpy((char *)resp->payload, msg, sizeof(resp->payload)-1);
     resp->payload_size = (uint32_t)strlen(msg);
 }
 
 void req_execute_command(IPCPacket *req, IPCPacket *resp) {
-    cJSON *json = cJSON_Parse(req->payload);
+    cJSON *json = cJSON_Parse((const char *)req->payload);
     const char *cmd_str = NULL;
 
     if (json) {
@@ -272,7 +272,7 @@ void req_execute_command(IPCPacket *req, IPCPacket *resp) {
 
     if (!cmd_str) {
         const char *err = "{\"error\": \"Empty command provided\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload) - 1);
         resp->payload_size = (uint32_t)strlen(err);
         if (json) cJSON_Delete(json);
         return;
@@ -290,18 +290,16 @@ void req_execute_command(IPCPacket *req, IPCPacket *resp) {
 
     if (rc == 0) {
         // Мгновенно возвращаем Python-клиенту ID задачи для дальнейшего пуллинга
-        snprintf(resp->payload, sizeof(resp->payload),
-                 "{\"task_id\": %d, \"status\": \"queued\"}", task_id);
+        snprintf((char *)resp->payload, sizeof(resp->payload), "{\"task_id\": %d, \"status\": \"queued\"}", task_id);
     } else {
-        snprintf(resp->payload, sizeof(resp->payload),
-                 "{\"error\": \"Failed to enqueue task\"}");
+        snprintf((char *)resp->payload, sizeof(resp->payload), "{\"error\": \"Failed to enqueue task\"}");
     }
 
-    resp->payload_size = (uint32_t)strlen(resp->payload);
+    resp->payload_size = (uint32_t)strlen((char *)resp->payload);
 }
 
 void req_get_command_result(IPCPacket *req, IPCPacket *resp) {
-    cJSON *json = cJSON_Parse(req->payload);
+    cJSON *json = cJSON_Parse((const char *)req->payload);
     int task_id = 0;
 
     if (json) {
@@ -317,7 +315,7 @@ void req_get_command_result(IPCPacket *req, IPCPacket *resp) {
 
     if (task_id <= 0) {
         const char* err = "{\"error\": \"Invalid task_id\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload)-1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload)-1);
         resp->payload_size = (uint32_t)strlen(err);
         return;
     }
@@ -342,7 +340,7 @@ void req_get_command_result(IPCPacket *req, IPCPacket *resp) {
         cJSON_AddStringToObject(res_json, "output", output ? output : "");
 
         char *json_str = cJSON_PrintUnformatted(res_json);
-        strncpy(resp->payload, json_str, IPC_PAYLOAD_SIZE - 1);
+        strncpy((char *)resp->payload, json_str, IPC_PAYLOAD_SIZE - 1);
         resp->payload_size = (uint32_t)strlen(json_str);
 
         free(json_str);
@@ -353,7 +351,7 @@ void req_get_command_result(IPCPacket *req, IPCPacket *resp) {
     } else {
         // Задачи с таким ID нет в готовых (либо еще выполняется, либо ID неверный)
         const char* pending = "{\"status\": \"pending\"}";
-        strncpy(resp->payload, pending, sizeof(resp->payload)-1);
+        strncpy((char *)resp->payload, pending, sizeof(resp->payload)-1);
         resp->payload_size = (uint32_t)strlen(pending);
     }
 }
@@ -370,8 +368,8 @@ void req_get_research_tasks(IPCPacket *req, IPCPacket *resp) {
         cJSON_AddItemToArray(arr, t);
     }
     char *json_str = cJSON_PrintUnformatted(arr);
-    snprintf(resp->payload, sizeof(resp->payload), "%s", json_str);
-    resp->payload_size = (uint32_t)strlen(resp->payload);
+    snprintf((char *)resp->payload, sizeof(resp->payload), "%s", json_str);
+    resp->payload_size = (uint32_t)strlen((char *)resp->payload);
     free(json_str);
     cJSON_Delete(arr);
     resp->type = IPC_RESPONSE;
@@ -395,7 +393,7 @@ void req_get_score(IPCPacket *req, IPCPacket *resp) {
 
     if (strlen(subject) == 0 || domain <= 0) {
         const char *err = "{\"error\": \"subject and domain required\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload) - 1);
         resp->payload_size = (uint32_t)strlen(err);
         return;
     }
@@ -414,14 +412,14 @@ void req_get_score(IPCPacket *req, IPCPacket *resp) {
         float score = score_get(&local_hm, (CognitiveDomain)domain, subject_id);
         mdb_txn_abort(txn);
 
-        snprintf(resp->payload, sizeof(resp->payload),
+        snprintf((char *)resp->payload, sizeof(resp->payload),
                  "{\"subject\": \"%s\", \"subject_id\": %llu, \"domain\": %d, \"score\": %.4f}",
                  subject, (unsigned long long)subject_id, domain, score);
     } else {
         const char *err = "{\"error\": \"DB transaction failed\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload) - 1);
     }
-    resp->payload_size = (uint32_t)strlen(resp->payload);
+    resp->payload_size = (uint32_t)strlen((char *)resp->payload);
 }
 
 void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
@@ -441,7 +439,7 @@ void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
 
     if (strlen(subject) == 0) {
         const char *err = "{\"error\": \"subject required\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload) - 1);
         resp->payload_size = (uint32_t)strlen(err);
         return;
     }
@@ -452,7 +450,7 @@ void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) != MDB_SUCCESS) {
         const char *err = "{\"error\": \"DB transaction failed\"}";
-        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        strncpy((char *)resp->payload, err, sizeof(resp->payload) - 1);
         resp->payload_size = (uint32_t)strlen(err);
         return;
     }
@@ -493,8 +491,8 @@ void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
     mdb_txn_abort(txn);
 
     char *json_str = cJSON_PrintUnformatted(arr);
-    snprintf(resp->payload, sizeof(resp->payload), "%s", json_str);
-    resp->payload_size = (uint32_t)strlen(resp->payload);
+    snprintf((char *)resp->payload, sizeof(resp->payload), "%s", json_str);
+    resp->payload_size = (uint32_t)strlen((char *)resp->payload);
     free(json_str);
     cJSON_Delete(arr);
 }

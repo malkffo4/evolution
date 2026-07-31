@@ -1,6 +1,5 @@
 // runtime/vm/instruction.h
-#ifndef INSTRUCTION_H
-#define INSTRUCTION_H
+#pragma once
 
 #include <stdint.h>
 #include "runtime/capability/capability_types.h"
@@ -73,5 +72,3 @@ typedef struct Instruction {
 //     uint8_t arg1;
 //     int32_t imm;     // Иммедиат (для констант или адресов переходов)
 // } Instruction;
-
-#endif // INSTRUCTION_H

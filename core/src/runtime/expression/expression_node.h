@@ -1,6 +1,5 @@
 // runtime/expression/expression_node.h
-#ifndef EXPRESSION_H
-#define EXPRESSION_H
+#pragma once
 
 #include <stdint.h>
 
@@ -36,5 +35,3 @@ typedef struct {
     uint32_t capacity;
     ExprNodeID output;
 } ExpressionGraph;
-
-#endif

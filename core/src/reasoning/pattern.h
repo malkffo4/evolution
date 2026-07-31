@@ -1,6 +1,5 @@
 // reasoning/pattern.h
-#ifndef PATTERN_H
-#define PATTERN_H
+#pragma once
 
 typedef struct {
     EdgeList edges;
@@ -18,8 +17,6 @@ int pattern_match(
     const Pattern *pattern,
     PatternMatch **matches,
     int *count);
-
-#endif
 
 // PATTERN_H
 // find_chain()

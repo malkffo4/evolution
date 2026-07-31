@@ -1,6 +1,5 @@
 // runtime/vm/vm_types.h
-#ifndef VM_TYPES_H
-#define VM_TYPES_H
+#pragma once
 
 #include <lmdb.h>
 
@@ -41,5 +40,3 @@ typedef struct VMMemory {
 
 /* Сигнатура обработчика инструкции */
 typedef int (*VMHandler)(VMContext *ctx, const Instruction *ins);
-
-#endif // VM_TYPES_H

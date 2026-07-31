@@ -1,6 +1,5 @@
 // ipc/ipc.h
-#ifndef IPC_H
-#define IPC_H
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
@@ -41,7 +40,7 @@ typedef struct {
     uint32_t payload_size;
 
     // Меняем char на uint8_t для корректной работы с бинарными данными
-    uint8_t payload[IPC_PAYLOAD_SIZE];
+    char payload[IPC_PAYLOAD_SIZE];
 
     uint32_t flags;
 } IPCPacket;
@@ -71,5 +70,3 @@ int ipc_dispatch(IPCPacket *req, IPCPacket *resp);
 IPCStatus ipc_packet_to_json(const IPCPacket *packet, char *buffer, size_t size);
 
 IPCStatus ipc_packet_from_json(const char *json, IPCPacket *packet);
-
-#endif // IPC_H

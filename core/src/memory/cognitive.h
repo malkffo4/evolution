@@ -1,6 +1,5 @@
 // memory/cognitive.h
-#ifndef COGNITIVE_H
-#define COGNITIVE_H
+#pragma once
 
 #define ACTIVATION_THRESHOLD 0.4f
 #define DECAY_RATE 0.15f  // Как быстро ИИ забывает прошлый шаг (для экономии памяти i3)
@@ -54,5 +53,3 @@ typedef struct {
     uint64_t updated_at;
     uint16_t flags;
 } CognitiveObject;
-
-#endif // COGNITIVE_H

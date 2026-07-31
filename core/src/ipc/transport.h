@@ -1,6 +1,5 @@
 // ipc/transport.h
-#ifndef IPC_TRANSPORT_H
-#define IPC_TRANSPORT_H
+#pragma once
 
 #include "ipc/ipc.h"
 
@@ -10,5 +9,3 @@ void transport_server_stop(void);
 IPCStatus transport_send_fd(int fd, const IPCPacket *packet);
 
 IPCStatus transport_recv_fd(int fd, IPCPacket *packet);
-
-#endif

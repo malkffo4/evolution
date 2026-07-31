@@ -1,6 +1,5 @@
 // runtime/operator/operator.h
-#ifndef OPERATOR_H
-#define OPERATOR_H
+#pragma once
 
 #include <stdint.h>
 
@@ -44,5 +43,3 @@ void operator_register_compiled(OperatorID id, const char *name, CapabilityMask 
 void operator_registry_init(void);
 int operator_register(const Operator *op);
 int operator_execute(VMContext *ctx, const Operator *op, const Instruction *ins);
-
-#endif

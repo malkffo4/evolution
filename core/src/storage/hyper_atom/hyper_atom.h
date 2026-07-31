@@ -1,6 +1,5 @@
 // storage/hyper_atom/hyper_atom.h
-#ifndef HYPER_ATOM_H
-#define HYPER_ATOM_H
+#pragma once
 
 #include <stdint.h>
 #include <stddef.h>
@@ -159,5 +158,3 @@ float vector_cosine_similarity(const Vector128 *a, const Vector128 *b);
 int hyper_find_by_process_sti(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id,
                                ko_id_t context_id, float sti_threshold,
                                NeuroAtom **results, size_t *count);
-
-#endif // HYPER_ATOM_H

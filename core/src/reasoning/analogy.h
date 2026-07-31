@@ -1,6 +1,5 @@
 // reasoning/analogy.h
-#ifndef ANALOGY_H
-#define ANALOGY_H
+#pragma once
 
 #include <lmdb.h>
 #include "types/id.h"
@@ -61,5 +60,3 @@ typedef enum {
 
 // Функция для поиска аналогий по узлу: conditions -> goal -> results
 int find_analogous_patterns(MDB_txn *txn, node_id_t node_id, AnalogyCandidate **candidates, int *candidate_count);
-
-#endif // ANALOGY_H
