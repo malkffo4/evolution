@@ -16,6 +16,110 @@
 #include "core/globals.h"
 #include "memory/subconscious.h"
 
+#define AUDIT_BATCH_SIZE 500
+
+/*
+ * req_audit_atoms: постраничный курсорный обход db.graph.hyper.atoms.
+ * Запрос:  {"resume_id": <ko_id_t, 0=начало>, "sti_threshold":f, "lti_threshold":f}
+ * Ответ:   {"atoms":[...], "next_resume_id":id, "has_more":bool, "scanned":n}
+ * Read-only, MDB_RDONLY открывается/закрывается прямо в IPC-потоке —
+ * тот же паттерн, что req_get_episodes. Пагинация целиком на стороне
+ * клиента: сервер не хранит состояние между вызовами (в отличие от
+ * decay.c::g_resume_key, здесь клиент явно передаёт resume_id).
+ */
+void req_audit_atoms(IPCPacket *req, IPCPacket *resp) {
+    cJSON *json = cJSON_Parse((const char *)req->payload);
+    ko_id_t resume_id = 0;
+    float sti_threshold = 0.10f, lti_threshold = 0.10f;
+
+    if (json) {
+        cJSON *r = cJSON_GetObjectItem(json, "resume_id");
+        cJSON *st = cJSON_GetObjectItem(json, "sti_threshold");
+        cJSON *lt = cJSON_GetObjectItem(json, "lti_threshold");
+        if (cJSON_IsNumber(r))  resume_id = (ko_id_t)r->valuedouble;
+        if (cJSON_IsNumber(st)) sti_threshold = (float)st->valuedouble;
+        if (cJSON_IsNumber(lt)) lti_threshold = (float)lt->valuedouble;
+        cJSON_Delete(json);
+    }
+
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "audit_atoms", sizeof(resp->name) - 1);
+
+    MDB_txn *txn;
+    if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) != MDB_SUCCESS) {
+        const char *err = "{\"error\": \"DB transaction failed\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    MDB_cursor *cursor;
+    if (mdb_cursor_open(txn, db.graph.hyper.atoms, &cursor) != MDB_SUCCESS) {
+        mdb_txn_abort(txn);
+        const char *err = "{\"error\": \"cursor_open failed\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    MDB_val key, data;
+    int rc = resume_id
+        ? (key.mv_size = sizeof(ko_id_t), key.mv_data = &resume_id,
+           mdb_cursor_get(cursor, &key, &data, MDB_SET_RANGE))
+        : mdb_cursor_get(cursor, &key, &data, MDB_FIRST);
+
+    cJSON *arr = cJSON_CreateArray();
+    uint32_t scanned = 0;
+    ko_id_t next_resume = 0;
+    bool has_more = false;
+
+    while (rc == MDB_SUCCESS && scanned < AUDIT_BATCH_SIZE) {
+        if (data.mv_size == sizeof(NeuroAtom)) {
+            NeuroAtom atom;
+            memcpy(&atom, data.mv_data, sizeof(NeuroAtom));
+            scanned++;
+
+            bool is_cold = atom.sti < sti_threshold && atom.lti < lti_threshold;
+            bool has_ref_args = false;
+            for (int s = 0; s < HYPER_VAL_SLOTS; s++)
+                if (HYPER_GET_TYPE(atom.args[s].raw) == HYPER_TYPE_REF && atom.args[s].raw != 0)
+                    has_ref_args = true;
+
+            if (is_cold || !has_ref_args) {
+                cJSON *a = cJSON_CreateObject();
+                cJSON_AddNumberToObject(a, "id", (double)atom.id);
+                cJSON_AddNumberToObject(a, "process_id", (double)atom.process_id);
+                cJSON_AddNumberToObject(a, "sti", atom.sti);
+                cJSON_AddNumberToObject(a, "lti", atom.lti);
+                cJSON_AddNumberToObject(a, "truth_confidence", atom.truth_confidence);
+                cJSON_AddBoolToObject(a, "has_ref_args", has_ref_args);
+                cJSON_AddItemToArray(arr, a);
+            }
+        }
+        rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT);
+    }
+
+    if (rc == MDB_SUCCESS) {
+        memcpy(&next_resume, key.mv_data, sizeof(ko_id_t));
+        has_more = true;
+    }
+
+    mdb_cursor_close(cursor);
+    mdb_txn_abort(txn);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "atoms", arr);
+    cJSON_AddNumberToObject(root, "next_resume_id", (double)next_resume);
+    cJSON_AddBoolToObject(root, "has_more", has_more);
+    cJSON_AddNumberToObject(root, "scanned", scanned);
+
+    char *s = cJSON_PrintUnformatted(root);
+    snprintf(resp->payload, sizeof(resp->payload), "%s", s);
+    resp->payload_size = (uint32_t)strlen(resp->payload);
+    free(s);
+    cJSON_Delete(root);
+}
+
 void req_ping(IPCPacket *req, IPCPacket *resp) {
     LOG_IPC("Handling ping request id=%lu", req->id);
     resp->type = IPC_RESPONSE;

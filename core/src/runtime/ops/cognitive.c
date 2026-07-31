@@ -277,8 +277,10 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
         pipeline_free(planner_pipeline);
     }
 
-    // 2. Fallback на старый C-планировщик
-    planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
+    // ИСПРАВЛЕНИЕ: Отключаем старый хардкодный С-планировщик!
+    // Он перехватывал цель, не находил старых Edges, ставил цель на 10 сек
+    // кулдаун и сбрасывал активацию до 0.5, убивая новый когнитивный цикл.
+    // planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
 
     // 3. Находим самую приоритетную цель
     node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem);
@@ -301,11 +303,11 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
         LOG_WARN("Failed to load algorithm %lu for goal %lu", algo_id, goal_id);
         return VM_OK;
     }
+
     set_goal_cooldown(goal_id);
-    
+
     // АСИНХРОННОЕ ИСПОЛНЕНИЕ: Отправляем только пайплайн и ID
     vm_pool_submit(algo, goal_id, algo_id);
-
     return VM_OK;
 }
 

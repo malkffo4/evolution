@@ -19,6 +19,7 @@ static const Route request_routes[] = {
     { "get_episodes",   req_get_episodes },
     { "embedding",      req_embedding },
     { "rerank",         req_rerank },
+    { "audit_atoms",    req_audit_atoms },
     { NULL, NULL }
 };
 
@@ -34,6 +35,7 @@ static const Route command_routes[] = {
     { "shutdown",       cmd_shutdown },
     { "think",          cmd_think },
     { "execute_op",     cmd_execute_op },
+    { "mark_flaw",      cmd_mark_flaw },
     { NULL, NULL }
 };
 

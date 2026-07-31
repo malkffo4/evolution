@@ -20,6 +20,7 @@
 #include "storage/db/db_writer.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "storage/hyper_atom/hyper_pattern.h"
+#include "math/hash.h"
 
 typedef struct {
     IPCPacket *req;
@@ -28,6 +29,70 @@ typedef struct {
     bool       is_pattern;
     HyperPattern pattern;
 } LearnJob;
+
+typedef struct { ko_id_t ids[64]; int count; } FlawJob;
+
+static int mark_flaw_txn_fn(MDB_txn *txn, void *arg) {
+    FlawJob *job = arg;
+    HyperMemory *hmem = hyper_memory_new(txn,
+        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+        db.graph.hyper.idx_args, db.graph.hyper.idx_context);
+    if (!hmem) return -1;
+
+    node_id_t flaw_proc = proc_make(djb2_hash("HAS_FLAW"), PROC_KIND_RELATION);
+    node_id_t garbage_concept = djb2_hash("GarbageCandidate");
+
+    for (int i = 0; i < job->count; i++) {
+        NeuroAtom flaw = {0};
+        flaw.id = hyper_memory_new_id(hmem);
+        flaw.process_id = flaw_proc;
+        // Прямая REF-ссылка на УЖЕ СУЩЕСТВУЮЩИЙ атом по его реальному ko_id_t
+        // (не через djb2 от строки — числовой ID через generic "learn"-путь
+        // трактуется как HYPER_TYPE_INT, а не REF; см. perception.c::resolve_arg).
+        flaw.args[0].raw = HYPER_MAKE_REF(job->ids[i]);
+        flaw.args[1].raw = HYPER_MAKE_REF(garbage_concept);
+        flaw.truth_mean = 1.0f;
+        flaw.truth_confidence = 0.9f;
+        flaw.sti = 0.05f;  // сама пометка не засоряет активное внимание
+        flaw.lti = 0.30f;  // но переживёт несколько decay-тиков до ручного/Critic-review
+        hyper_assert_unique(hmem, &flaw);
+    }
+    hyper_memory_free(hmem);
+    return 0;
+}
+
+void cmd_mark_flaw(IPCPacket *req, IPCPacket *resp) {
+    cJSON *root = cJSON_Parse((const char *)req->payload);
+    FlawJob job = {0};
+
+    if (root) {
+        cJSON *ids = cJSON_GetObjectItem(root, "atom_ids");
+        if (cJSON_IsArray(ids)) {
+            int n = cJSON_GetArraySize(ids);
+            for (int i = 0; i < n && i < 64; i++) {
+                cJSON *item = cJSON_GetArrayItem(ids, i);
+                if (cJSON_IsNumber(item)) job.ids[job.count++] = (ko_id_t)item->valuedouble;
+            }
+        }
+        cJSON_Delete(root);
+    }
+
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "mark_flaw", sizeof(resp->name) - 1);
+
+    if (job.count == 0) {
+        const char *err = "{\"error\": \"empty atom_ids\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    int rc = db_write_sync(mark_flaw_txn_fn, &job);
+    snprintf(resp->payload, sizeof(resp->payload),
+             rc == 0 ? "{\"ok\": true, \"flagged\": %d}" : "{\"error\": \"mark_flaw txn failed\"}",
+             job.count);
+    resp->payload_size = (uint32_t)strlen(resp->payload);
+}
 
 static int learn_txn_fn(MDB_txn *txn, void *arg) {
     LearnJob *job = arg;
