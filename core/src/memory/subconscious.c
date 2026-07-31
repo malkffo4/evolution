@@ -134,14 +134,20 @@ static Pipeline* build_main_loop_pipeline(void) {
     Pipeline *p = pipeline_create();
     if (!p) return NULL;
 
-    // Ограниченный цикл сознания: за один вызов vm_execute() (один "такт"
-    // dmn_loop) MainLoop многократно пересканирует Working Memory и
-    // асинхронно диспетчеризует найденные цели (OP_EVALUATE_GOALS теперь
-    // никогда не блокирует, см. runtime/ops/cognitive.c), после чего один
-    // раз вызывает CriticMain и завершается штатно (OP_HALT).
+    // Ограниченный цикл сознания: за один вызов vm_execute() MainLoop
+    // многократно пересканирует Working Memory и асинхронно диспетчеризует
+    // найденные цели, затем один раз вызывает CriticMain и завершается (OP_HALT).
     #define MAIN_LOOP_TICKS_PER_INVOCATION 16
 
-    p->constants.int_consts = malloc(3 * sizeof(int64_t));
+    // ИСПРАВЛЕНИЕ: g_critic_main_algo_id — 64-битный djb2-хэш (до 62 значащих
+    // бит согласно HYPER_VALUE_MASK). Раньше он передавался напрямую как
+    // .arg[0] инструкции (Instruction::arg — uint32_t[6]), что молча обрезало
+    // старшие 32 бита и приводило к OP_CALL с НЕСУЩЕСТВУЮЩИМ pipeline ID
+    // (algorithm_load() возвращал MDB_NOTFOUND -> vm_op_call() -> VM_NOT_FOUND).
+    // Теперь ID кладётся в ConstantPool (int64_t, полный диапазон) и
+    // загружается в регистр через OP_LOAD_CONST — тот же приём, что уже
+    // используется для R_COUNTER/R_ZERO/R_ONE в этом же пайплайне.
+    p->constants.int_consts = malloc(4 * sizeof(int64_t));
     if (!p->constants.int_consts) {
         pipeline_free(p);
         return NULL;
@@ -149,28 +155,30 @@ static Pipeline* build_main_loop_pipeline(void) {
     p->constants.int_consts[0] = MAIN_LOOP_TICKS_PER_INVOCATION; // счётчик
     p->constants.int_consts[1] = 0;                              // ноль
     p->constants.int_consts[2] = 1;                               // единица
-    p->constants.int_count = 3;
+    p->constants.int_consts[3] = (int64_t)g_critic_main_algo_id;  // ID CriticMain, БЕЗ усечения
+    p->constants.int_count = 4;
     p->constants.float_consts = NULL;
     p->constants.float_count = 0;
     p->constants.str_consts = NULL;
     p->constants.str_count = 0;
 
     // Регистры зарезервированы за MainLoop и не пересекаются с регистрами
-    // диспетчеризуемых алгоритмов (каждый из них исполняется в отдельном
+    // диспетчеризуемых алгоритмов (каждый исполняется в отдельном
     // изолированном VMContext воркера, см. vm_pool.c).
-    enum { R_COUNTER = 10, R_ZERO = 11, R_ONE = 12 };
+    enum { R_COUNTER = 10, R_ZERO = 11, R_ONE = 12, R_CRITIC_ALGO = 13 };
 
     Instruction code[] = {
-        /*0*/ { .operator_id = OP_LOAD_CONST, .arg = { R_COUNTER, 0 } },
-        /*1*/ { .operator_id = OP_LOAD_CONST, .arg = { R_ZERO,    1 } },
-        /*2*/ { .operator_id = OP_LOAD_CONST, .arg = { R_ONE,     2 } },
-        /*3*/ { .operator_id = OP_LOAD_CONTEXT },                           // loop_start
-        /*4*/ { .operator_id = OP_EVALUATE_GOALS },                         // асинхронный диспетч
-        /*5*/ { .operator_id = OP_SPREAD_ACTIVATION },
-        /*6*/ { .operator_id = OP_SUB, .arg = { R_COUNTER, R_COUNTER, R_ONE } },
-        /*7*/ { .operator_id = OP_JGE, .arg = { R_COUNTER, R_ZERO, 3 } },   // counter>0 -> идти на idx3
-        /*8*/ { .operator_id = OP_CALL, .arg[0] = (uint32_t)g_critic_main_algo_id },
-        /*9*/ { .operator_id = OP_HALT }
+        /*0*/  { .operator_id = OP_LOAD_CONST, .arg = { R_COUNTER,     0 } },
+        /*1*/  { .operator_id = OP_LOAD_CONST, .arg = { R_ZERO,        1 } },
+        /*2*/  { .operator_id = OP_LOAD_CONST, .arg = { R_ONE,         2 } },
+        /*3*/  { .operator_id = OP_LOAD_CONST, .arg = { R_CRITIC_ALGO, 3 } },
+        /*4*/  { .operator_id = OP_LOAD_CONTEXT },                          // loop_start
+        /*5*/  { .operator_id = OP_EVALUATE_GOALS },                        // асинхронный диспетч
+        /*6*/  { .operator_id = OP_SPREAD_ACTIVATION },
+        /*7*/  { .operator_id = OP_SUB, .arg = { R_COUNTER, R_COUNTER, R_ONE } },
+        /*8*/  { .operator_id = OP_JGE, .arg = { R_COUNTER, R_ZERO, 4 } },   // counter>0 -> на idx4
+        /*9*/  { .operator_id = OP_EXEC_ALGORITHM, .arg[0] = R_CRITIC_ALGO }, // ИСПРАВЛЕНО: было OP_CALL
+        /*10*/ { .operator_id = OP_HALT }
     };
 
     size_t num = sizeof(code) / sizeof(code[0]);

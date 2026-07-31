@@ -17,6 +17,7 @@ void req_rerank(IPCPacket *req, IPCPacket *resp);
 void req_get_research_tasks(IPCPacket *req, IPCPacket *resp);
 void req_get_score(IPCPacket *req, IPCPacket *resp);
 void req_get_episodes(IPCPacket *req, IPCPacket *resp);
+void req_audit_atoms(IPCPacket *req, IPCPacket *resp);
 
 /* responses */
 void resp_generate_reply(IPCPacket *req, IPCPacket *resp);
@@ -33,5 +34,6 @@ void cmd_learn(IPCPacket *req, IPCPacket *resp);
 void cmd_shutdown(IPCPacket *req, IPCPacket *resp);
 void cmd_think(IPCPacket *req, IPCPacket *resp);
 void cmd_execute_op(IPCPacket *req, IPCPacket *resp);
+void cmd_mark_flaw(IPCPacket *req, IPCPacket *resp);
 
 #endif // IPC_HANDLERS_H

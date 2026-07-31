@@ -25,60 +25,69 @@ typedef struct {
 static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     VmJob *job = arg;
 
-    // 1. Инициализируем локальную Working Memory
     WorkingMemory local_wm;
     if (wm_init(&local_wm, 256, 512) != 0) {
-        LOG_ERROR("vm_pool: failed to init local working memory");
-        return -1;
+        LOG_ERROR("[VM_POOL] wm_init failed: algo=%lu goal=%lu",
+                  (unsigned long)job->algo_id, (unsigned long)job->goal_id);
+        return -1; // инфраструктурная ошибка — abort оправдан
     }
 
-    // 2. Инициализируем полностью ИЗОЛИРОВАННУЮ HyperMemory для воркера
     HyperMemory *worker_hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms,
-        db.graph.hyper.idx_process,
-        db.graph.hyper.idx_args,
-        db.graph.hyper.idx_context);
-    
+        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+        db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     if (!worker_hmem) {
+        LOG_ERROR("[VM_POOL] hyper_memory_new failed: algo=%lu", (unsigned long)job->algo_id);
         wm_clear(&local_wm);
         return -1;
     }
-    
-    // ЗАЩИТА ОТ КОЛЛИЗИЙ ID: Поскольку каждый воркер имеет свой собственный
-    // счётчик ID, начинающийся с 1, мы задаём случайный session_id, чтобы
-    // гарантировать, что созданные атомы (Score, Episode) не затрут друг друга.
+
+    // Случайный session_id — защита от коллизий ID между параллельными воркерами.
     worker_hmem->idgen->session_id = (uint16_t)(vm_rdtsc() & 0xFFFF);
-    
     hyper_memory_set_db_causal(worker_hmem, db.graph.hyper.idx_causal);
     hyper_memory_set_db_archive(worker_hmem, db.graph.hyper.archive);
     hyper_memory_set_db_vectors(worker_hmem, db.graph.hyper.idx_vectors);
 
-    // 3. Создаем контекст выполнения
     VMContext ctx;
     memset(&ctx, 0, sizeof(ctx));
     if (vm_init(&ctx, txn, &local_wm) != VM_OK) {
-        LOG_ERROR("vm_pool: vm_init failed");
+        LOG_ERROR("[VM_POOL] vm_init failed: algo=%lu", (unsigned long)job->algo_id);
         hyper_memory_free(worker_hmem);
         wm_clear(&local_wm);
         return -1;
     }
-
     ctx.hyper_mem = worker_hmem;
 
-    // Замеряем время для эпизода
     uint64_t t_start = vm_rdtsc();
     int rc = vm_execute(&ctx, job->pipeline);
     uint64_t t_end = vm_rdtsc();
-    
     job->result = (VMStatus)rc;
 
-    // 4. Записываем результаты обучения (Score и Episode)
+    // ДИАГНОСТИКА: подробный лог причины провала — регистр IP, глубина
+    // стека фреймов, накопленные циклы, последний выведенный атом.
+    if (rc != VM_OK) {
+        LOG_ERROR("[VM_POOL] Algorithm FAILED: algo_id=%lu goal_id=%lu vm_status=%d "
+                  "frame=%u ip=%u cycles=%lu last_result_id=%lu",
+                  (unsigned long)job->algo_id, (unsigned long)job->goal_id, rc,
+                  ctx.frame, ctx.frames[ctx.frame].ip,
+                  (unsigned long)ctx.cycles, (unsigned long)ctx.last_result_id);
+    }
+
+    // ГЛАВНЫЙ ФИКС: неудача исполнения — валидный когнитивный опыт
+    // (docs/09_Learning.md: "Обучение на ошибках"), а не инфраструктурный
+    // сбой. Score/Episode об ошибке ОБЯЗАНЫ попасть в LMDB — иначе UCB
+    // (algorithm_planner.c::pick_best) никогда не увидит, что confidence
+    // упала, и будет бесконечно выбирать один и тот же плохой алгоритм.
     float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
-    score_update(ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, outcome, 0, 0);
+    if (score_update(ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, outcome, 0, 0) != 0) {
+        LOG_ERROR("[VM_POOL] score_update failed: algo=%lu outcome=%.1f",
+                  (unsigned long)job->algo_id, outcome);
+    }
 
     if (ctx.last_result_id != 0) {
-        score_propagate_credit(ctx.hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
-            ctx.last_result_id, outcome, 0, 0.7f);
+        int propagated = score_propagate_credit(ctx.hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
+                                                  ctx.last_result_id, outcome, 0, 0.7f);
+        LOG_DEBUG("[VM_POOL] credit propagated=%d result_id=%lu", propagated,
+                  (unsigned long)ctx.last_result_id);
     }
 
     Episode ep = {0};
@@ -92,13 +101,17 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     ep.start_cycles     = t_start;
     ep.duration_cycles  = (t_end > t_start) ? (t_end - t_start) : 0;
     ep.wall_time        = (uint64_t)time(NULL);
-    episode_record(ctx.hyper_mem, &ep);
+    if (episode_record(ctx.hyper_mem, &ep) != 0) {
+        LOG_ERROR("[VM_POOL] episode_record failed: algo=%lu goal=%lu",
+                  (unsigned long)job->algo_id, (unsigned long)job->goal_id);
+    }
 
     vm_destroy(&ctx);
     hyper_memory_free(worker_hmem);
     wm_clear(&local_wm);
 
-    return (rc == VM_OK) ? 0 : -1;
+    // Всегда 0 (commit): и успех, и провал алгоритма — персистентный опыт.
+    return 0;
 }
 
 static void *vm_worker(void *arg) {
