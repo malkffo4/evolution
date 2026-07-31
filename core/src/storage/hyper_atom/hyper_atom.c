@@ -135,7 +135,10 @@ int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t particip
     *count = 0;
     size_t capacity = 16;
     *results = malloc(sizeof(NeuroAtom) * capacity);
-
+    if (!*results) {
+        mdb_cursor_close(cursor);
+        return -1;
+    }
     int rc = mdb_cursor_get(cursor, &key, &val_id, MDB_SET);
     while (rc == MDB_SUCCESS) {
         MDB_val val_atom;
@@ -165,6 +168,10 @@ int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t particip
             if (*count >= capacity) {
                 capacity *= 2;
                 *results = realloc(*results, sizeof(NeuroAtom) * capacity);
+                if (!*results) {
+                    mdb_cursor_close(cursor);
+                    return -1;
+                }
             }
             memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
             (*count)++;
@@ -185,7 +192,10 @@ int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t 
     *count = 0;
     size_t capacity = 16;
     *results = malloc(sizeof(NeuroAtom) * capacity);
-
+    if (!*results) {
+        mdb_cursor_close(cursor);
+        return -1;
+    }
     int rc = mdb_cursor_get(cursor, &key, &val_id, MDB_SET);
     while (rc == MDB_SUCCESS) {
         MDB_val val_atom;
@@ -195,6 +205,10 @@ int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t 
                 if (*count >= capacity) {
                     capacity *= 2;
                     *results = realloc(*results, sizeof(NeuroAtom) * capacity);
+                    if (!*results) {
+                        mdb_cursor_close(cursor);
+                        return -1;
+                    }
                 }
                 memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
                 (*count)++;

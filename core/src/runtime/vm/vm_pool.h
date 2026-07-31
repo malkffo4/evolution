@@ -1,11 +1,12 @@
 // runtime/vm/vm_pool.h
-#ifndef VM_POOL_H
-#define VM_POOL_H
+#pragma once
 
-#include "runtime/vm/vm_context.h"
+#include "runtime/compiler/pipeline.h"
+#include "storage/hyper_atom/hyper_atom.h"
+#include "memory/working.h"
 
-void vm_pool_init(int max_threads);
-void vm_pool_submit(Pipeline *pipeline, HyperMemory *hmem, WorkingMemory *wm);
+void vm_pool_init(void);
 void vm_pool_shutdown(void);
 
-#endif // VM_POOL_H
+// Воркеру больше не нужен чужой hmem, он сам создаст себе песочницу
+void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id);

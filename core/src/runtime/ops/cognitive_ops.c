@@ -354,18 +354,19 @@ int vm_op_edge_write(VMContext *ctx, const Instruction *ins) {
 
 /* STREAMING_CHUNK:Implementing control flow conditional branching... */
 
-/* OP_COND_BRANCH
- * Аргументы инструкции:
- * arg[0] - Первый регистр для сравнения (REG_FLOAT / REG_INT)
- * arg[1] - Второй регистр для сравнения или константа-порог (REG_FLOAT /
- * REG_INT) arg[2] - Адрес относительного перехода (смещение IP) Базовый
- * условный переход. Позволяет пайплайну ветвиться. Например: "Если сходство
- * векторов (similarity) > 0.75, перейти к созданию связи". Это превращает
- * виртуальную когнитивную машину в Тьюринг-полный граф-автомат. */
+/* OP_JGE / vm_op_cond_branch
+ * arg[0] = регистр A (REG_INT / REG_FLOAT)
+ * arg[1] = регистр B (REG_INT / REG_FLOAT)
+ * arg[2] = АБСОЛЮТНЫЙ индекс инструкции (та же семантика, что у OP_BRANCH)
+ *
+ * Переход выполняется, если A > B. Используется для ограниченных циклов
+ * (например, MainLoop) — счётчик итераций декрементируется OP_SUB, а
+ * OP_JGE проверяет "counter > 0" и прыгает назад к началу тела цикла.
+ */
 int vm_op_cond_branch(VMContext *ctx, const Instruction *ins) {
     uint32_t reg_a = ins->arg[0];
     uint32_t reg_b = ins->arg[1];
-    int32_t offset = (int32_t)ins->arg[2]; // смещение IP
+    uint32_t target_ip = ins->arg[2];
 
     if (reg_a >= VM_MAX_REGISTERS || reg_b >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
@@ -373,7 +374,6 @@ int vm_op_cond_branch(VMContext *ctx, const Instruction *ins) {
     VMFrame *frame = &ctx->frames[ctx->frame];
     bool condition_met = false;
 
-    // Сравнение значений в регистрах
     Register *ra = &ctx->reg[reg_a];
     Register *rb = &ctx->reg[reg_b];
 
@@ -387,9 +387,8 @@ int vm_op_cond_branch(VMContext *ctx, const Instruction *ins) {
         if ((double)ra->i > rb->f) condition_met = true;
     }
 
-    if (condition_met) {
-        // Минус 1, т.к. IP уже инкрементирован перед выполнением инструкции
-        frame->ip += (uint32_t)((int32_t)frame->ip + offset - 1);
-    }
+    if (condition_met)
+        frame->ip = target_ip;
+
     return VM_OK;
 }

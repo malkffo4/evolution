@@ -7,6 +7,7 @@
 #include "opcode.h"
 #include "math/hash.h"
 #include "runtime/vm/vm.h"
+#include "runtime/vm/vm_pool.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 #include "runtime/logging/logging.h"
@@ -87,6 +88,7 @@ int vm_op_concat_paths(VMContext *ctx, const Instruction *ins) {
 
     char *path_str = malloc(128);
     if (!path_str) return VM_OUT_OF_MEMORY;
+
     snprintf(path_str, 128, "Path(%lu -> %lu ~> %lu -> %lu)",
              (unsigned long)n1, (unsigned long)n2,
              (unsigned long)n3, (unsigned long)n4);
@@ -130,8 +132,8 @@ int vm_op_exec_algorithm(VMContext *ctx, const Instruction *ins) {
     f->pipeline = algo_pipeline;
     f->code     = algo_pipeline->code;
     f->ip       = 0;
-
     ctx->halted = false;   // сбрасываем halted для подпрограммы
+
     rc = vm_execute(ctx, algo_pipeline);
 
     // Восстанавливаем состояние
@@ -245,7 +247,6 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
     Pipeline *planner_pipeline = NULL;
     if (algorithm_load(ctx->memory.txn, core_planner_id, &planner_pipeline) == 0 && planner_pipeline) {
         // Проверяем, не является ли CorePlanner пустой заглушкой
-        // Если там только OP_HALT, то пропускаем и используем старый планировщик
         bool has_logic = false;
         for (uint32_t i = 0; i < planner_pipeline->code_len; i++) {
             if (planner_pipeline->code[i].operator_id != OP_HALT) {
@@ -253,7 +254,6 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
                 break;
             }
         }
-
         if (has_logic) {
             // Выполняем CorePlanner
             if (ctx->frame + 1 >= VM_MAX_CALL_DEPTH) {
@@ -301,65 +301,10 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
         LOG_WARN("Failed to load algorithm %lu for goal %lu", algo_id, goal_id);
         return VM_OK;
     }
-
-    if (ctx->frame + 1 >= VM_MAX_CALL_DEPTH) {
-        pipeline_free(algo);
-        return VM_STACK_OVERFLOW;
-    }
-
-    // Сохраняем состояние текущего фрейма (MainLoop)
-    uint32_t prev_frame = ctx->frame;
-    bool prev_halted = ctx->halted;
-
-    // Переключаемся на новый фрейм для выполнения выбранного алгоритма
-    ctx->frame++;
-    VMFrame *f = &ctx->frames[ctx->frame];
-    f->pipeline = algo;
-    f->code     = algo->code;
-    f->ip       = 0;
-
-    ctx->halted = false;
-    ctx->last_result_id = 0;               // видим только выводы ЭТОГО запуска
-    uint64_t t_start = vm_rdtsc();
-    rc = vm_execute(ctx, algo);
-    uint64_t t_end = vm_rdtsc();
-
-    // Восстанавливаем состояние MainLoop
-    ctx->frame = prev_frame;
-    ctx->halted = prev_halted;
-
-    // Теперь можно безопасно освободить algo
-    pipeline_free(algo);
-
-    if (ctx->hyper_mem && algo_id) {
-        float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
-        score_update(ctx->hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, algo_id, outcome, 0, 0);
-
-        if (ctx->last_result_id != 0) {
-            score_propagate_credit(ctx->hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
-                ctx->last_result_id, outcome, 0, 0.7f);
-        }
-
-        // Experience: фундамент для Critic/Self-Correction (следующий этап).
-        Episode ep = {0};
-        ep.id               = hyper_memory_new_id(ctx->hyper_mem);
-        ep.goal_id          = goal_id;
-        ep.algorithm_id     = algo_id;
-        ep.result_atom_id   = ctx->last_result_id;
-        ep.context_id       = ctx->current_context;
-        ep.vm_status        = (int32_t)rc;
-        ep.outcome          = outcome;
-        ep.start_cycles     = t_start;
-        ep.duration_cycles  = (t_end > t_start) ? (t_end - t_start) : 0;
-        ep.wall_time        = (uint64_t)time(NULL);
-        episode_record(ctx->hyper_mem, &ep);   // ошибка уже LOG_ERROR внутри — не блокируем основной поток
-
-        ctx->last_result_id = 0;
-    }
-    if (rc != VM_OK) {
-        LOG_WARN("Algorithm %lu execution failed with status %d", algo_id, rc);
-        record_execution_result(algo_id, rc);
-    }
+    set_goal_cooldown(goal_id);
+    
+    // АСИНХРОННОЕ ИСПОЛНЕНИЕ: Отправляем только пайплайн и ID
+    vm_pool_submit(algo, goal_id, algo_id);
 
     return VM_OK;
 }
@@ -373,7 +318,6 @@ int vm_op_read_sp(VMContext *ctx, const Instruction *ins) {
 
     ctx->reg[dst_reg].type = REG_INT;          // scratchpad хранит int64_t
     ctx->reg[dst_reg].i = ctx->scratchpad[sp_idx].value;
-
     return VM_OK;
 }
 
@@ -384,21 +328,26 @@ int vm_op_load_context(VMContext *ctx, const Instruction *ins) {
     // Всегда загружаем контекст для всех активных узлов WM,
     // наличие цели необязательно — алгоритмы могут работать с любыми узлами.
     ctx->preloaded_edge_count = 0;
+    
     for (uint32_t i = 0; i < ctx->memory.wm->count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; i++) {
         node_id_t nid = ctx->memory.wm->nodes[i].node_id;
 
         NeuroAtom *fwd_atoms = NULL;
         size_t fwd_count = 0;
+        
         if (hyper_find_by_participant(ctx->hyper_mem, nid, 0, &fwd_atoms, &fwd_count) == 0) {
             for (size_t j = 0; j < fwd_count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; j++) {
                 if (fwd_atoms[j].process_id == djb2_hash("EDGE_FWD")) {
                     node_id_t rel = HYPER_GET_ID(fwd_atoms[j].args[1].raw);
+                    
                     NeuroAtom *rev_atoms = NULL;
                     size_t rev_count = 0;
+                    
                     if (hyper_find_by_participant(ctx->hyper_mem, rel, 0, &rev_atoms, &rev_count) == 0) {
                         for (size_t k = 0; k < rev_count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; k++) {
                             if (rev_atoms[k].process_id == djb2_hash("EDGE_REV") &&
                                 HYPER_GET_ID(rev_atoms[k].args[0].raw) == rel) {
+                                
                                 ctx->preloaded_edges[ctx->preloaded_edge_count++] = (CachedEdge){
                                     .source = nid,
                                     .relation = rel,
