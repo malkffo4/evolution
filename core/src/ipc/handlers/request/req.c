@@ -198,7 +198,10 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
         mdb_txn_abort(txn);
         if (result) {
             strncpy((char *)resp->payload, result, IPC_PAYLOAD_SIZE - 1);
-            resp->payload_size = (uint32_t)strlen(result);
+            resp->payload[IPC_PAYLOAD_SIZE - 1] = '\0';
+            
+            // ФИКС: Берем длину уже обрезанного payload, а не потенциально гигантского result
+            resp->payload_size = (uint32_t)strlen((char *)resp->payload);
             free(result);
         } else {
             const char* err = "{\"error\": \"No results\"}";
@@ -324,32 +327,27 @@ void req_get_command_result(IPCPacket *req, IPCPacket *resp) {
     int exit_code = 0;
     int term_signal = 0;
 
-    // Пытаемся забрать результат. Функция не блокирует поток.
     int rc = executor_get_result(task_id, &output, &exit_code, &term_signal);
-
     if (rc == 0) {
-        // Результат готов и успешно извлечен
         cJSON *res_json = cJSON_CreateObject();
         cJSON_AddStringToObject(res_json, "status", "completed");
         cJSON_AddNumberToObject(res_json, "exit_code", exit_code);
-
         if (term_signal > 0) {
             cJSON_AddNumberToObject(res_json, "term_signal", term_signal);
         }
-
         cJSON_AddStringToObject(res_json, "output", output ? output : "");
-
         char *json_str = cJSON_PrintUnformatted(res_json);
+        
         strncpy((char *)resp->payload, json_str, IPC_PAYLOAD_SIZE - 1);
-        resp->payload_size = (uint32_t)strlen(json_str);
-
+        resp->payload[IPC_PAYLOAD_SIZE - 1] = '\0'; // Гарантируем нуль-терминатор
+        
+        // ФИКС: Берем длину уже обрезанного payload
+        resp->payload_size = (uint32_t)strlen((char *)resp->payload);
+        
         free(json_str);
         cJSON_Delete(res_json);
-
-        // executor_get_result выделяет память под строку, мы обязаны ее освободить
         if (output) free(output);
     } else {
-        // Задачи с таким ID нет в готовых (либо еще выполняется, либо ID неверный)
         const char* pending = "{\"status\": \"pending\"}";
         strncpy((char *)resp->payload, pending, sizeof(resp->payload)-1);
         resp->payload_size = (uint32_t)strlen(pending);

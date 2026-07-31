@@ -203,7 +203,7 @@ void cmd_execute_op(IPCPacket *req, IPCPacket *resp) {
         cJSON_AddItemToObject(res_json, "reported_regs", regs_json);
         char *json_str = cJSON_PrintUnformatted(res_json);
         snprintf(resp->payload, sizeof(resp->payload), "%s", json_str);
-        resp->payload_size = (uint32_t)strlen(json_str);
+        resp->payload_size = (uint32_t)strlen(resp->payload);
         free(json_str);
         cJSON_Delete(res_json);
         return;
