@@ -53,13 +53,8 @@ static void *vm_worker(void *arg) {
     // Инициализируем ВМ с ЛОКАЛЬНОЙ памятью, а не global_wm
     vm_init(&ctx, ro_txn, &local_wm);
 
-    // Create a local hyper memory object referencing the same DBIs but with local txn
-    ctx.hyper_mem = hyper_memory_new(ro_txn,
-                                     job->hyper_template->dbi_atoms,
-                                     job->hyper_template->dbi_idx_process,
-                                     job->hyper_template->dbi_idx_args,
-                                     job->hyper_template->dbi_idx_context);
-    // hyper_memory_set_txn is no longer needed to mangle the template's txn
+    ctx.hyper_mem = job->hyper_template;
+    hyper_memory_set_txn(ctx.hyper_mem, ro_txn);
 
     int rc = vm_execute(&ctx, job->pipeline);
 
@@ -72,7 +67,6 @@ static void *vm_worker(void *arg) {
 
     // Очищаем ВМ и её изолированную рабочую память
     vm_destroy(&ctx);
-    hyper_memory_free(ctx.hyper_mem);
     wm_clear(&local_wm);
     pipeline_free(job->pipeline);
     free(job);

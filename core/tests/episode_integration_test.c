@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 #include <lmdb.h>
 
 #include "runtime/vm/vm.h"
@@ -87,6 +88,11 @@ int main(void) {
     int rc = vm_op_evaluate_goals(&ctx, &eval_ins);
     printf("vm_op_evaluate_goals rc=%d (VM_OK=%d, VM_NOT_FOUND=%d)\n", rc, VM_OK, VM_NOT_FOUND);
     assert(rc == VM_OK);
+
+    // Let the VM thread finish before freeing the memory it uses (ASAN bug fix)
+    // It modifies LMDB which we hold in read-only txn in main thread (which is slightly unsafe if it tries to commit outbox).
+    // Note that vm_pool_submit forks a background thread.
+    usleep(100000);
 
     float score = score_get(hmem, COGNITIVE_DOMAIN_ALGORITHM, algo_id);
     assert(score > SCORE_PRIOR);

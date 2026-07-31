@@ -15,6 +15,8 @@
 #include "knowledge/algorithm_loader.h"
 #include "knowledge/evaluation.h"
 #include "runtime/logging/logging.h"
+#include "runtime/vm/vm_pool.h"
+#include "core/globals.h"
 
 typedef struct {
     IPCPacket *req;
@@ -67,59 +69,11 @@ static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
             return -1;
         }
 
-        VMContext ctx;
-        if (vm_init(&ctx, txn, NULL) != VM_OK) {
-            pipeline_free(pipeline);
-            cJSON_Delete(root);
-            return -1;
-        }
-        ctx.hyper_mem = hyper_memory_new(txn,
-                                         db.graph.hyper.atoms,
-                                         db.graph.hyper.idx_process,
-                                         db.graph.hyper.idx_args,
-                                         db.graph.hyper.idx_context);
+        vm_pool_submit(pipeline, global_hyper_mem, &global_wm);
 
-        int rc = vm_execute(&ctx, pipeline);
-
-        // Обновление score ОТЛОЖИМ до write-транзакции
-        job->algo_id = algo_id;
-        job->need_score_update = true;
-
-        // Обновляем доверие к алгоритму (score)
-        if (ctx.hyper_mem) {
-            float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
-            score_update(ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, algo_id, outcome, 0, 0);
-        }
-
-        // Формируем ответ
         job->response_payload = cJSON_CreateObject();
-        cJSON_AddNumberToObject(job->response_payload, "status", (double)rc);
+        cJSON_AddStringToObject(job->response_payload, "status", "accepted");
 
-        // Возвращаем запрошенные регистры
-        cJSON *report_regs = cJSON_GetObjectItem(root, "report_regs");
-        if (cJSON_IsArray(report_regs)) {
-            cJSON *reported = cJSON_AddObjectToObject(job->response_payload, "reported_regs");
-            int n = cJSON_GetArraySize(report_regs);
-            for (int i = 0; i < n; i++) {
-                int r_idx = (int)cJSON_GetNumberValue(cJSON_GetArrayItem(report_regs, i));
-                if (r_idx < 0 || r_idx >= VM_MAX_REGISTERS) continue;
-                char key[16];
-                snprintf(key, sizeof(key), "%d", r_idx);
-                const Register *r = &ctx.reg[r_idx];
-                switch (r->type) {
-                    case REG_INT:   cJSON_AddNumberToObject(reported, key, (double)r->i); break;
-                    case REG_FLOAT: cJSON_AddNumberToObject(reported, key, r->f); break;
-                    case REG_BOOL:  cJSON_AddBoolToObject(reported, key, r->b); break;
-                    case REG_NODE:  cJSON_AddNumberToObject(reported, key, (double)r->node); break;
-                    default:        cJSON_AddNullToObject(reported, key); break;
-                }
-            }
-        }
-
-        // Очистка
-        pipeline_free(pipeline);
-        if (ctx.hyper_mem) hyper_memory_free(ctx.hyper_mem);
-        vm_destroy(&ctx);
         cJSON_Delete(root);
         return 0;
     }

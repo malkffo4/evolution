@@ -25,6 +25,7 @@
 #include "runtime/ops/opcode.h"
 #include "runtime/logging/logging.h"
 #include "math/hash.h"
+#include "runtime/vm/vm_pool.h"
 
 static ResearchTask task_queue[MAX_PENDING_TASKS];
 static int task_count = 0;
@@ -223,7 +224,6 @@ static void ensure_core_planner_exists(MDB_txn *txn) {
  * ----------------------------------------------- */
 void* dmn_loop(void* arg) {
     (void)arg;
-    int rc;
     int idle_cycles = 0;
 
     while(dmn_running && g_running) {
@@ -257,42 +257,13 @@ void* dmn_loop(void* arg) {
             nanosleep(&ts, NULL);
             continue;
         }
-        bool main_loop_executed_ok = false;
         Pipeline *main_loop = NULL;
         if (algorithm_load(txn, main_loop_algo_id, &main_loop) == 0 && main_loop) {
-            VMContext ctx;
-            memset(&ctx, 0, sizeof(ctx));
-
-            rc = vm_init(&ctx, txn, &global_wm);
-            if (rc == VM_OK) {
-                ctx.hyper_mem = global_hyper_mem;
-                ctx.current_context = 0;
-                ctx.current_episode_id = 0;
-
-                rc = vm_execute(&ctx, main_loop);
-
-                // Делегируем анализ успеха/провала Критику
-                record_execution_result(main_loop_algo_id, rc);
-
-                if (rc == VM_OK) {
-                    // TODO: Здесь можно добавить генерацию fail_atom в БД,
-                    // когда структура HyperAtom будет полностью утверждена.
-                    main_loop_executed_ok = true;   // успешное выполнение
-                } else if (rc == VM_NOT_FOUND) {
-                    // нет целей – цикл был холостым, не сбрасываем idle_cycles
-                } else {
-                    LOG_DEBUG("MainLoop execution halted with status %d", rc);
-                }
-                vm_destroy(&ctx);
-            } else {
-                LOG_ERROR("Error vm_init()");
-            }
-            pipeline_free(main_loop);
-        }
-        if (main_loop_executed_ok)   // введите признак "была полезная работа"
+            vm_pool_submit(main_loop, global_hyper_mem, &global_wm);
             idle_cycles = 0;
-        else
+        } else {
             idle_cycles++;
+        }
 
         // Коммитим транзакцию, чтобы сохранить возможные полезные изменения
         // рабочей памяти до момента таймаута
