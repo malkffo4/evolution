@@ -6,283 +6,110 @@
 
 #include "ipc/ipc.h"
 #include "storage/db/db.h"
-#include "runtime/vm/vm.h"
-#include "runtime/vm/vm_context.h"
-#include "runtime/register/register.h"
-#include "runtime/operator/operator.h"
+#include "storage/db/db_writer.h"
 #include "storage/hyper_atom/hyper_atom.h"
+#include "storage/string_pool/string_pool.h"
+#include "memory/working.h"
+#include "core/globals.h"
 #include "math/hash.h"
-#include "knowledge/algorithm_loader.h"
-#include "knowledge/evaluation.h"
 #include "runtime/logging/logging.h"
 
 typedef struct {
-    IPCPacket *req;
-    cJSON *response_payload;
-    int vm_status;
-    uint64_t algo_id;            // для exec_algorithm
-    bool need_score_update;      // флаг: нужно обновить score в write-txn
-} ExecuteJob;
+    char      goal_name[256];
+    float     utility;
+    node_id_t goal_id; // выход
+} GoalActivationJob;
 
-static int execute_op_txn_fn(MDB_txn *txn, void *arg) {
-    ExecuteJob *job = (ExecuteJob *)arg;
-    cJSON *root = cJSON_Parse((const char *)job->req->payload);
-    if (!root) return -1;
+// Выполняется ИСКЛЮЧИТЕЛЬНО внутри write-транзакции потока db_writer.
+// IPC-поток никогда не открывает собственную write-транзакцию — это
+// гарантирует единственность писателя LMDB на весь процесс.
+static int activate_goal_txn_fn(MDB_txn *txn, void *arg) {
+    GoalActivationJob *job = arg;
 
-    cJSON *op_str = cJSON_GetObjectItem(root, "op");
-    if (!cJSON_IsString(op_str)) {
-        cJSON_Delete(root);
-        return -1;
-    }
+    node_id_t goal_id = djb2_hash(job->goal_name);
+    job->goal_id = goal_id;
 
-    const char *op_name = op_str->valuestring;
+    // Регистрируем читаемое имя цели в строковом пуле — используется позже
+    // Research Engine'ом через get_string_from_pool() при VM_NOT_FOUND
+    // (см. runtime/ops/cognitive.c::vm_op_evaluate_goals).
+    add_string_to_pool(txn, job->goal_name);
 
-    // ── Специальная ветка: выполнение целого алгоритма по имени ──
-    if (strcmp(op_name, "exec_algorithm") == 0) {
-        cJSON *args_arr = cJSON_GetObjectItem(root, "args");
-        cJSON *regs_obj = cJSON_GetObjectItem(root, "regs");
+    HyperMemory *hmem = hyper_memory_new(txn,
+        db.graph.hyper.atoms,
+        db.graph.hyper.idx_process,
+        db.graph.hyper.idx_args,
+        db.graph.hyper.idx_context);
+    if (!hmem) return -1;
+    hyper_memory_set_db_causal(hmem, db.graph.hyper.idx_causal);
 
-        uint64_t algo_id = 0;
-        // Ожидаем, что args[0] указывает на индекс регистра, где лежит хэш имени
-        int algo_reg = args_arr ? (int)cJSON_GetNumberValue(cJSON_GetArrayItem(args_arr, 0)) : -1;
-        if (algo_reg >= 0 && algo_reg < VM_MAX_REGISTERS && cJSON_IsObject(regs_obj)) {
-            // Ищем ключ, соответствующий номеру регистра (как строку)
-            char reg_key[16];
-            snprintf(reg_key, sizeof(reg_key), "%d", algo_reg);
-            cJSON *reg_val = cJSON_GetObjectItem(regs_obj, reg_key);
-            if (cJSON_IsString(reg_val)) {
-                algo_id = djb2_hash(reg_val->valuestring);
-            } else if (cJSON_IsNumber(reg_val)) {
-                algo_id = (uint64_t)reg_val->valuedouble;
-            }
-        }
-        if (algo_id == 0) {
-            cJSON_Delete(root);
-            return -1;
-        }
+    // Knowledge Object минимально должен иметь тип
+    // (docs/03_Knowledge.md: "Тип определяет семантику объекта").
+    NeuroAtom type_atom = {0};
+    type_atom.id          = hyper_memory_new_id(hmem);
+    type_atom.process_id  = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);
+    type_atom.args[0].raw = HYPER_MAKE_REF(goal_id);
+    type_atom.args[1].raw = HYPER_MAKE_REF(djb2_hash("Goal"));
+    type_atom.truth_mean       = 1.0f;
+    type_atom.truth_confidence = 1.0f;
+    type_atom.sti = 0.5f;
+    type_atom.lti = 0.2f;
+    int rc = hyper_assert_unique(hmem, &type_atom);
+    hyper_memory_free(hmem);
+    if (rc < 0) return -1;
 
-        Pipeline *pipeline = NULL;
-        if (algorithm_load(txn, algo_id, &pipeline) != 0 || !pipeline) {
-            cJSON_Delete(root);
-            return -1;
-        }
-
-        VMContext ctx;
-        if (vm_init(&ctx, txn, NULL) != VM_OK) {
-            pipeline_free(pipeline);
-            cJSON_Delete(root);
-            return -1;
-        }
-        ctx.hyper_mem = hyper_memory_new(txn,
-                                         db.graph.hyper.atoms,
-                                         db.graph.hyper.idx_process,
-                                         db.graph.hyper.idx_args,
-                                         db.graph.hyper.idx_context);
-
-        int rc = vm_execute(&ctx, pipeline);
-
-        // Обновление score ОТЛОЖИМ до write-транзакции
-        job->algo_id = algo_id;
-        job->need_score_update = true;
-
-        // Обновляем доверие к алгоритму (score)
-        if (ctx.hyper_mem) {
-            float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
-            score_update(ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, algo_id, outcome, 0, 0);
-        }
-
-        // Формируем ответ
-        job->response_payload = cJSON_CreateObject();
-        cJSON_AddNumberToObject(job->response_payload, "status", (double)rc);
-
-        // Возвращаем запрошенные регистры
-        cJSON *report_regs = cJSON_GetObjectItem(root, "report_regs");
-        if (cJSON_IsArray(report_regs)) {
-            cJSON *reported = cJSON_AddObjectToObject(job->response_payload, "reported_regs");
-            int n = cJSON_GetArraySize(report_regs);
-            for (int i = 0; i < n; i++) {
-                int r_idx = (int)cJSON_GetNumberValue(cJSON_GetArrayItem(report_regs, i));
-                if (r_idx < 0 || r_idx >= VM_MAX_REGISTERS) continue;
-                char key[16];
-                snprintf(key, sizeof(key), "%d", r_idx);
-                const Register *r = &ctx.reg[r_idx];
-                switch (r->type) {
-                    case REG_INT:   cJSON_AddNumberToObject(reported, key, (double)r->i); break;
-                    case REG_FLOAT: cJSON_AddNumberToObject(reported, key, r->f); break;
-                    case REG_BOOL:  cJSON_AddBoolToObject(reported, key, r->b); break;
-                    case REG_NODE:  cJSON_AddNumberToObject(reported, key, (double)r->node); break;
-                    default:        cJSON_AddNullToObject(reported, key); break;
-                }
-            }
-        }
-
-        // Очистка
-        pipeline_free(pipeline);
-        if (ctx.hyper_mem) hyper_memory_free(ctx.hyper_mem);
-        vm_destroy(&ctx);
-        cJSON_Delete(root);
-        return 0;
-    }
-
-    // ── Обычное выполнение одного оператора (старый код) ──
-    OperatorID op_id = operator_find_by_name(op_name);
-    const Operator *op = operator_find(op_id);
-    if (!op) {
-        cJSON_Delete(root);
-        return -1;
-    }
-
-    // Инициализируем VMContext через vm_init из vm.c
-    VMContext ctx;
-    if (vm_init(&ctx, txn, NULL) != VM_OK) {
-        cJSON_Delete(root);
-        return -1;
-    }
-
-    // Инициализация HyperMemory
-    ctx.hyper_mem = hyper_memory_new(txn,
-                                     db.graph.hyper.atoms,
-                                     db.graph.hyper.idx_process,
-                                     db.graph.hyper.idx_args,
-                                     db.graph.hyper.idx_context);
-
-    // Формируем инструкцию
-    Instruction ins = {0};
-    ins.operator_id = op_id;
-
-    cJSON *args = cJSON_GetObjectItem(root, "args");
-    if (cJSON_IsArray(args)) {
-        for (int i = 0; i < cJSON_GetArraySize(args) && i < 6; i++) {
-            ins.arg[i] = (uint32_t)cJSON_GetNumberValue(cJSON_GetArrayItem(args, i));
+    // Активация Global Workspace — единственное место, где IPC касается
+    // WorkingMemory. Само рассуждение выполнит MainLoop асинхронно.
+    wm_activate(&global_wm, goal_id, 1.0f, job->utility);
+    wm_wrlock(&global_wm);
+    for (uint32_t i = 0; i < global_wm.count; i++) {
+        if (global_wm.nodes[i].node_id == goal_id) {
+            global_wm.nodes[i].state.usefulness = job->utility;
+            break;
         }
     }
+    wm_unlock(&global_wm);
 
-    // Заполняем регистры
-    cJSON *regs = cJSON_GetObjectItem(root, "regs");
-    if (cJSON_IsObject(regs)) {
-        cJSON *reg_val = regs->child;
-        while (reg_val) {
-            int reg_idx = atoi(reg_val->string);
-            if (reg_idx >= 0 && reg_idx < VM_MAX_REGISTERS) {
-                ctx.reg[reg_idx].type = REG_INT;
-                if (cJSON_IsString(reg_val)) {
-                    // 62-битные ID (djb2_hash) теряют точность при
-                    // round-trip через JSON double (только 53 бита
-                    // мантиссы) — хэшируем на сервере, как resolve_arg().
-                    ctx.reg[reg_idx].i = (int64_t)djb2_hash(reg_val->valuestring);
-                } else {
-                    ctx.reg[reg_idx].i = (int64_t)reg_val->valuedouble;
-                }
-            }
-            reg_val = reg_val->next;
-        }
-    }
-
-    // Выполняем оператор
-    job->vm_status = operator_execute(&ctx, op, &ins);
-
-    // Упаковываем результат
-    job->response_payload = cJSON_CreateObject();
-    cJSON_AddNumberToObject(job->response_payload, "status", (double)job->vm_status);
-
-    cJSON *out_regs = cJSON_AddObjectToObject(job->response_payload, "regs");
-    int sp_base = (int)ins.arg[2];
-    uint32_t r_count    = ins.arg[3];
-    uint32_t r_varcount = ins.arg[4];
-    int64_t count_val    = (r_count    < VM_MAX_REGISTERS) ? ctx.reg[r_count].i    : 0;
-    int64_t varcount_val = (r_varcount < VM_MAX_REGISTERS) ? ctx.reg[r_varcount].i : 0;
-
-    cJSON *scratchpad_json = cJSON_AddArrayToObject(job->response_payload, "scratchpad");
-
-    cJSON_AddNumberToObject(out_regs, "count", (double)count_val);
-    cJSON_AddNumberToObject(out_regs, "var_count", (double)varcount_val);
-    int count = (int)count_val;
-    int var_count = (int)varcount_val;
-
-
-    for (int i = 0; i < count * var_count && (sp_base + i) < MAX_SCRATCHPAD; i++) {
-        char buf[32];
-        snprintf(buf, sizeof(buf), "%llu", (unsigned long long)ctx.scratchpad[sp_base + i].value);
-        cJSON_AddItemToArray(scratchpad_json, cJSON_CreateString(buf));
-    }
-
-    // Опционально: значения конкретных регистров после выполнения.
-    // В отличие от scratchpad-дампа выше (специфичен для OP_MATCH_PATTERN),
-    // это ОБЩИЙ механизм чтения результата любого оператора — в т.ч.
-    // OP_EXEC_ALGORITHM, где алгоритм кладёт результат в произвольный регистр.
-    cJSON *report_regs = cJSON_GetObjectItem(root, "report_regs");
-    if (cJSON_IsArray(report_regs)) {
-        cJSON *reported = cJSON_AddObjectToObject(job->response_payload, "reported_regs");
-        int n = cJSON_GetArraySize(report_regs);
-        for (int i = 0; i < n; i++) {
-            int reg_idx = (int)cJSON_GetNumberValue(cJSON_GetArrayItem(report_regs, i));
-            if (reg_idx < 0 || reg_idx >= VM_MAX_REGISTERS) continue;
-            char key[16];
-            snprintf(key, sizeof(key), "%d", reg_idx);
-            const Register *r = &ctx.reg[reg_idx];
-            switch (r->type) {
-                case REG_INT:   cJSON_AddNumberToObject(reported, key, (double)r->i); break;
-                case REG_FLOAT: cJSON_AddNumberToObject(reported, key, r->f); break;
-                case REG_BOOL:  cJSON_AddBoolToObject(reported, key, r->b); break;
-                case REG_NODE:  cJSON_AddNumberToObject(reported, key, (double)r->node); break;
-                default:        cJSON_AddNullToObject(reported, key); break;
-            }
-        }
-    }
-
-    // Очистка выделенной памяти и уничтожение VM
-    if (ctx.hyper_mem) {
-        hyper_memory_free(ctx.hyper_mem);
-    }
-    vm_destroy(&ctx);
-    cJSON_Delete(root);
     return 0;
 }
 
 void cmd_execute_op(IPCPacket *req, IPCPacket *resp) {
-    ExecuteJob job = { .req = req, .response_payload = NULL, .vm_status = -1,
-                       .algo_id = 0, .need_score_update = false };
+    GoalActivationJob job = {0};
+    job.utility = 0.9f;
 
-    // Первый этап: только чтение (выполнение пайплайна)
-    MDB_txn *ro_txn = NULL;
-    int rc = mdb_txn_begin(db.env, NULL, MDB_RDONLY, &ro_txn);
-    if (rc == MDB_SUCCESS) {
-        execute_op_txn_fn(ro_txn, &job);
-        mdb_txn_abort(ro_txn);
-    }
-
-    // Второй этап: если нужно, обновляем score в write-транзакции
-    if (job.need_score_update && job.algo_id != 0) {
-        MDB_txn *wr_txn = NULL;
-        rc = mdb_txn_begin(db.env, NULL, 0, &wr_txn);
-        if (rc == MDB_SUCCESS) {
-            HyperMemory *hm = hyper_memory_new(wr_txn,
-                db.graph.hyper.atoms,
-                db.graph.hyper.idx_process,
-                db.graph.hyper.idx_args,
-                db.graph.hyper.idx_context);
-            if (hm) {
-                float outcome = 1.0f;
-                score_update(hm, COGNITIVE_DOMAIN_ALGORITHM, job.algo_id, outcome, 0, 0);
-                hyper_memory_free(hm);
-            }
-            mdb_txn_commit(wr_txn);
-        } else {
-            LOG_ERROR("Failed to open write txn for score update");
+    cJSON *root = cJSON_Parse((const char *)req->payload);
+    if (root) {
+        cJSON *goal_json = cJSON_GetObjectItem(root, "goal");
+        if (cJSON_IsString(goal_json) && goal_json->valuestring) {
+            strncpy(job.goal_name, goal_json->valuestring, sizeof(job.goal_name) - 1);
         }
+        cJSON *utility_json = cJSON_GetObjectItem(root, "utility");
+        if (cJSON_IsNumber(utility_json)) {
+            float u = (float)utility_json->valuedouble;
+            if (u < 0.0f) u = 0.0f;
+            if (u > 1.0f) u = 1.0f;
+            job.utility = u;
+        }
+        cJSON_Delete(root);
     }
 
-    // формируем ответ
     resp->type = IPC_RESPONSE;
-    if (job.response_payload) {
-        snprintf((char *)resp->name, sizeof(resp->name), "execute_op");
-        const char *json_str = cJSON_PrintUnformatted(job.response_payload);
-        snprintf((char *)resp->payload, sizeof(resp->payload), "%s", json_str);
-        free((void *)json_str);
-        cJSON_Delete(job.response_payload);
-    } else {
-        snprintf((char *)resp->name, sizeof(resp->name), "error");
-        snprintf((char *)resp->payload, sizeof(resp->payload), "{\"error\": \"VM execution failed\"}");
+    snprintf(resp->name, sizeof(resp->name), "execute_op");
+
+    if (job.goal_name[0] == '\0') {
+        snprintf(resp->payload, sizeof(resp->payload),
+                 "{\"error\": \"missing required field 'goal'\"}");
+        resp->payload_size = (uint32_t)strlen(resp->payload);
+        return;
     }
-    resp->payload_size = (uint32_t)strlen((const char *)resp->payload);
+
+    int rc = db_write_sync(activate_goal_txn_fn, &job);
+    if (rc != 0) {
+        snprintf(resp->payload, sizeof(resp->payload),
+                 "{\"error\": \"failed to activate goal in working memory\"}");
+    } else {
+        snprintf(resp->payload, sizeof(resp->payload),
+                 "{\"status\": \"queued_in_working_memory\", \"goal_id\": %llu}",
+                 (unsigned long long)job.goal_id);
+    }
+    resp->payload_size = (uint32_t)strlen(resp->payload);
 }

@@ -34,6 +34,10 @@ int vm_op_branch(VMContext *, const Instruction *);
 
 int vm_op_branch_if_empty(VMContext *, const Instruction *);
 
+// Абсолютный условный переход: если reg[arg0] > reg[arg1] (int или float),
+// frame->ip = arg2 (абсолютный индекс инструкции, как у OP_BRANCH).
+int vm_op_cond_branch(VMContext *, const Instruction *);
+
 int vm_op_call(VMContext *, const Instruction *);
 
 int vm_op_halt(VMContext *, const Instruction *);

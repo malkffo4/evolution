@@ -134,21 +134,50 @@ static Pipeline* build_main_loop_pipeline(void) {
     Pipeline *p = pipeline_create();
     if (!p) return NULL;
 
+    // Ограниченный цикл сознания: за один вызов vm_execute() (один "такт"
+    // dmn_loop) MainLoop многократно пересканирует Working Memory и
+    // асинхронно диспетчеризует найденные цели (OP_EVALUATE_GOALS теперь
+    // никогда не блокирует, см. runtime/ops/cognitive.c), после чего один
+    // раз вызывает CriticMain и завершается штатно (OP_HALT).
+    #define MAIN_LOOP_TICKS_PER_INVOCATION 16
+
+    p->constants.int_consts = malloc(3 * sizeof(int64_t));
+    if (!p->constants.int_consts) {
+        pipeline_free(p);
+        return NULL;
+    }
+    p->constants.int_consts[0] = MAIN_LOOP_TICKS_PER_INVOCATION; // счётчик
+    p->constants.int_consts[1] = 0;                              // ноль
+    p->constants.int_consts[2] = 1;                               // единица
+    p->constants.int_count = 3;
+    p->constants.float_consts = NULL;
+    p->constants.float_count = 0;
+    p->constants.str_consts = NULL;
+    p->constants.str_count = 0;
+
+    // Регистры зарезервированы за MainLoop и не пересекаются с регистрами
+    // диспетчеризуемых алгоритмов (каждый из них исполняется в отдельном
+    // изолированном VMContext воркера, см. vm_pool.c).
+    enum { R_COUNTER = 10, R_ZERO = 11, R_ONE = 12 };
+
     Instruction code[] = {
-        { .operator_id = OP_LOAD_CONTEXT },
-        { .operator_id = OP_SPREAD_ACTIVATION },
-        { .operator_id = OP_EVALUATE_GOALS },
-        { .operator_id = OP_CALL, .arg[0] = (uint32_t)g_critic_main_algo_id },
-        { .operator_id = OP_HALT }
+        /*0*/ { .operator_id = OP_LOAD_CONST, .arg = { R_COUNTER, 0 } },
+        /*1*/ { .operator_id = OP_LOAD_CONST, .arg = { R_ZERO,    1 } },
+        /*2*/ { .operator_id = OP_LOAD_CONST, .arg = { R_ONE,     2 } },
+        /*3*/ { .operator_id = OP_LOAD_CONTEXT },                           // loop_start
+        /*4*/ { .operator_id = OP_EVALUATE_GOALS },                         // асинхронный диспетч
+        /*5*/ { .operator_id = OP_SPREAD_ACTIVATION },
+        /*6*/ { .operator_id = OP_SUB, .arg = { R_COUNTER, R_COUNTER, R_ONE } },
+        /*7*/ { .operator_id = OP_JGE, .arg = { R_COUNTER, R_ZERO, 3 } },   // counter>0 -> идти на idx3
+        /*8*/ { .operator_id = OP_CALL, .arg[0] = (uint32_t)g_critic_main_algo_id },
+        /*9*/ { .operator_id = OP_HALT }
     };
 
     size_t num = sizeof(code) / sizeof(code[0]);
     p->code_len = (uint32_t)num;
     memcpy(p->code, code, sizeof(code));
 
-    p->constants.int_consts = NULL;
-    p->constants.int_count = 0;
-
+    #undef MAIN_LOOP_TICKS_PER_INVOCATION
     return p;
 }
 
