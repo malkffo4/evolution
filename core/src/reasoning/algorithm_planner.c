@@ -135,7 +135,6 @@ static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
         // Извлекаем оценку алгоритма из HyperMemory.
         // Пока мы не внедрили полноценный механизм Score/Trust,
         // имитируем логику: ищем атом самого алгоритма и смотрим его уверенность.
-        NeuroAtom algo_atom;
         float mean = 0.5f;       // Приор: 50% успешности
         float confidence = 0.01f; // Приор: данных почти нет
 
@@ -177,7 +176,7 @@ int planner_select_algorithm(HyperMemory *hmem, node_id_t goal_id, VMContext *ct
 
     // 2. Если не нашли — ищем похожие цели (только если есть эмбеддинг)
     if (cand_count == 0) {
-        float query_emb[EMBEDDING_DIM];
+        float query_emb[VECTOR_DIM];
         if (load_embedding(ctx->memory.txn, goal_id, query_emb) == 0) { // транзакция не нужна, берём из кеша или глобальной БД
             uint64_t similar_goals[8];
             int sim_count = find_similar_nodes(ctx->memory.txn, query_emb, 8, similar_goals); // здесь txn=NULL, если load_embedding работает без txn

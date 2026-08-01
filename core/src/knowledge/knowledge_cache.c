@@ -132,16 +132,17 @@ int knowledge_cache_load_properties(VMContext *ctx, MDB_txn *txn, node_id_t node
 }
 
 int knowledge_cache_load_embeddings(VMContext *ctx, MDB_txn *txn, node_id_t node_id) {
-    float emb[EMBEDDING_DIM];
+    float emb[VECTOR_DIM];
     int rc = load_embedding(txn, node_id, emb);
-    if (rc != 0) return rc;
+    if (rc != 0) return rc;// Ищем свободный слот в верхней половине scratchpad (индексы 32..63)
 
     // Ищем свободный слот в верхней половине scratchpad (индексы 32..63)
     for (uint32_t i = 32; i < MAX_SCRATCHPAD; i++) {
         if (ctx->scratchpad[i].value == 0) {   // слот свободен
-            float *copy = malloc(EMBEDDING_DIM * sizeof(float));
+            float *copy = malloc(VECTOR_DIM * sizeof(float));
             if (!copy) return ENOMEM;
-            memcpy(copy, emb, EMBEDDING_DIM * sizeof(float));
+            memcpy(copy, emb, VECTOR_DIM * sizeof(float));
+
             ctx->scratchpad[i].key_hash = node_id;
             ctx->scratchpad[i].value = (int64_t)(uintptr_t)copy;
             return MDB_SUCCESS;

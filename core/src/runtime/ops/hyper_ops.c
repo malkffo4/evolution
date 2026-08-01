@@ -15,7 +15,7 @@ typedef struct { ko_id_t old_id; ko_id_t new_id; } IdMap;
 // Читает truth_confidence из уже сохранённого атома (belief теперь читается
 // напрямую из вектора truth, отдельный процесс ID_BELIEF больше не нужен
 // для confidence — но оставлен для обратной совместимости с legacy данными).
-static float get_atom_confidence(HyperMemory *mem, ko_id_t atom_id) {
+/* static float get_atom_confidence(HyperMemory *mem, ko_id_t atom_id) {
     MDB_val key = { sizeof(ko_id_t), &atom_id };
     MDB_val data;
     if (mdb_get(mem->txn, mem->dbi_atoms, &key, &data) == MDB_SUCCESS &&
@@ -24,7 +24,7 @@ static float get_atom_confidence(HyperMemory *mem, ko_id_t atom_id) {
         return a->truth_confidence;
     }
     return 0.5f; // дефолт для несуществующего/повреждённого атома
-}
+} */
 
 static ko_id_t get_parent_context(HyperMemory *mem, ko_id_t ctx_id) {
     if (ctx_id == 0) return 0;
@@ -86,8 +86,8 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
     atom.id = hyper_memory_new_id(ctx->hyper_mem);
     atom.process_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
 
-    atom.args[0].raw = ctx->reg[ins->arg[1]].i;
-    atom.args[1].raw = ctx->reg[ins->arg[2]].i;
+    atom.args[0].raw = (ko_id_t)ctx->reg[ins->arg[1]].i;
+    atom.args[1].raw = (ko_id_t)ctx->reg[ins->arg[2]].i;
 
     atom.truth_mean = 1.0f;
     atom.truth_confidence = 0.6f;   // прямое ASSERT чуть увереннее дефолта
@@ -115,8 +115,8 @@ int vm_op_derive(VMContext *ctx, const Instruction *ins) {
     atom.id = hyper_memory_new_id(ctx->hyper_mem);
     atom.process_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
 
-    atom.args[0].raw = ctx->reg[ins->arg[1]].i;
-    atom.args[1].raw = ctx->reg[ins->arg[2]].i;
+    atom.args[0].raw = (ko_id_t)ctx->reg[ins->arg[1]].i;
+    atom.args[1].raw = (ko_id_t)ctx->reg[ins->arg[2]].i;
 
     // Выведенное знание изначально менее уверенно, чем прямой ASSERT —
     // confidence зависит от источника (можно передавать через доп. регистр).

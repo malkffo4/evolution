@@ -242,7 +242,7 @@ int score_recompute(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject
 
     // 2. Вычислить среднее (сегодня просто среднее; завтра можно любую формулу)
     float new_trust = (float)(sum_outcome / valid_count);
-    float new_conf = 1.0f - expf(-0.1f * valid_count); // быстро растёт к 1.0
+    float new_conf = 1.0f - expf(-0.1f * (float)valid_count); // быстро растёт к 1.0
 
     // 3. Обновить или создать Score атом
     NeuroAtom *existing = find_score_atom(hmem, domain, subject_id);

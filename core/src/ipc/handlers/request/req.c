@@ -199,7 +199,7 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
         if (result) {
             strncpy((char *)resp->payload, result, IPC_PAYLOAD_SIZE - 1);
             resp->payload[IPC_PAYLOAD_SIZE - 1] = '\0';
-            
+
             // ФИКС: Берем длину уже обрезанного payload, а не потенциально гигантского result
             resp->payload_size = (uint32_t)strlen((char *)resp->payload);
             free(result);
@@ -337,13 +337,13 @@ void req_get_command_result(IPCPacket *req, IPCPacket *resp) {
         }
         cJSON_AddStringToObject(res_json, "output", output ? output : "");
         char *json_str = cJSON_PrintUnformatted(res_json);
-        
+
         strncpy((char *)resp->payload, json_str, IPC_PAYLOAD_SIZE - 1);
         resp->payload[IPC_PAYLOAD_SIZE - 1] = '\0'; // Гарантируем нуль-терминатор
-        
+
         // ФИКС: Берем длину уже обрезанного payload
         resp->payload_size = (uint32_t)strlen((char *)resp->payload);
-        
+
         free(json_str);
         cJSON_Delete(res_json);
         if (output) free(output);
@@ -361,7 +361,7 @@ void req_get_research_tasks(IPCPacket *req, IPCPacket *resp) {
     cJSON *arr = cJSON_CreateArray();
     for (int i = 0; i < count; i++) {
         cJSON *t = cJSON_CreateObject();
-        cJSON_AddNumberToObject(t, "node_id", tasks[i].node_id);
+        cJSON_AddNumberToObject(t, "node_id", (double)tasks[i].node_id);
         cJSON_AddStringToObject(t, "query", tasks[i].query);
         cJSON_AddItemToArray(arr, t);
     }
