@@ -5,6 +5,20 @@
 #include "runtime/capability/capability_types.h"
 #include "runtime/operator/operator_types.h"
 
+/* Instruction.flags — биты модификаторов выполнения.
+ *
+ * INS_FLAG_SOFT_FAIL:
+ *   Если инструкция вернула VM_NOT_FOUND, vm_execute() НЕ обрывает
+ *   Pipeline (в отличие от любого другого ненулевого статуса). Нужно
+ *   для шагов вида "могло не найтись — и это ожидаемо": OP_EVALUATE_GOALS
+ *   в MainLoop не обязан находить цель на каждом тике, и это не должно
+ *   отменять идущие следом в том же Pipeline OP_SPREAD_ACTIVATION и
+ *   запуск CriticMain.
+ * Формат сериализации Instruction не меняется — поле flags уже
+ * существовало и было нулевым у всех ранее сохранённых алгоритмов.
+ */
+#define INS_FLAG_SOFT_FAIL  0x0001u
+
 /*
  * Универсальная инструкция VM.
  *

@@ -74,9 +74,21 @@ int main(void) {
     assert(alarm > SCORE_PRIOR);
 
     // Аналитически предсказанные значения (см. обоснование в PR-описании)
-    assert(fabsf(fire  - 0.62f)  < 0.01f);
-    assert(fabsf(smoke - 0.5725f) < 0.01f);
-    assert(fabsf(alarm - 0.64f)  < 0.01f);
+    // БЫЛО:
+    // assert(fabsf(fire  - 0.62f)  < 0.01f);
+    // assert(fabsf(smoke - 0.5725f) < 0.01f);
+    // assert(fabsf(alarm - 0.64f)  < 0.01f);
+
+    // СТАЛО: аналитика под реальную Beta-Bernoulli формулу score_update_weighted()
+    // (kappa=6.0 для COGNITIVE_DOMAIN_HYPOTHESIS, приор Beta(0.5,0.5),
+    // пересобираемый из (truth_mean, truth_confidence) на каждом вызове —
+    // см. evaluation.c). Два обновления на узел:
+    //   FIRE:  w=1.0 (depth0) затем w=0.25 (depth2) -> 2/3
+    //   SMOKE: w=0.5 (depth1) затем w=0.25 (depth2) -> 13/21
+    //   ALARM: w=1.0 (depth0) затем w=0.5  (depth1) -> 7/10
+    assert(fabsf(fire  - (2.0f/3.0f))  < 0.001f);
+    assert(fabsf(smoke - (13.0f/21.0f)) < 0.001f);
+    assert(fabsf(alarm - 0.7f)          < 0.001f);
 
     // ALARM встречается на ДВУХ хопах (depth0 и depth1) -> получил больше
     // суммарного credit, чем FIRE и SMOKE, каждый из которых тоже на двух,
