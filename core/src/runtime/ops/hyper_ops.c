@@ -264,6 +264,10 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     ko_id_t parent = get_parent_context(ctx->hyper_mem, ctx->current_context);
 
     IdMap *id_map = count > 0 ? malloc(sizeof(IdMap) * count) : NULL;
+    if (!id_map && count > 0) {
+        if (atoms) free(atoms);
+        return VM_ERROR;
+    }
     size_t map_size = 0;
 
     for (size_t i = 0; i < count; i++) {

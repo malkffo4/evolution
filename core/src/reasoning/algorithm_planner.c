@@ -7,6 +7,7 @@
 #include "algorithm_planner.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "storage/vector_store/vector_store.h"
+#include "storage/db/db.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/logging/logging.h"
 #include "runtime/ops/opcode.h"
@@ -85,6 +86,36 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
 }
 
 /* ---------------------------------------------------------------- */
+/* Гомеостаз exploration_param: db.graph.properties, тот же паттерн, что
+ * reasoning/strategy_store.c::prop_get_float() использует для весов
+ * аналогии. Собственный "узел-контейнер" PLANNER_NODE_ID — не делит
+ * ключи со STRAT_NODE_ID (тот статичен и приватен для strategy_store.c).
+ * Пока ничего не ЗАПИСЫВАЕТ значение — только читает с фолбэком: до тех
+ * пор, пока какой-нибудь тюнер (по образцу reasoning_weights_sgd_update)
+ * не начнёт писать сюда, поведение планировщика идентично прежнему
+ * захардкоженному 0.5f.
+ */
+/* ---------------------------------------------------------------- */
+#define PLANNER_NODE_ID djb2_hash("Planner:AlgorithmSelection")
+
+typedef struct { node_id_t nid; uint64_t hash; } PlannerPropKey;
+
+static float planner_prop_get_float(MDB_txn *txn, uint64_t key_hash, float def) {
+    if (!txn) return def;
+    PlannerPropKey pk = { PLANNER_NODE_ID, key_hash };
+    MDB_val key = { sizeof(pk), &pk };
+    MDB_val data;
+    if (mdb_get(txn, db.graph.properties, &key, &data) != MDB_SUCCESS) return def;
+    if (data.mv_size < sizeof(NodeProperty)) return def;
+    NodeProperty hdr;
+    memcpy(&hdr, data.mv_data, sizeof(hdr));
+    if (hdr.type != PROP_FLOAT || data.mv_size < sizeof(hdr) + sizeof(float)) return def;
+    float v;
+    memcpy(&v, (const char *)data.mv_data + sizeof(hdr), sizeof(float));
+    return v;
+}
+
+/* ---------------------------------------------------------------- */
 /* Выбор лучшего алгоритма по статистике               */
 /* ---------------------------------------------------------------- */
 static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
@@ -93,7 +124,12 @@ static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
 
     node_id_t best_algo = candidates[0];
     float best_ucb = -1.0f;
-    float exploration_param = 0.5f; // C-коэффициент жажды знаний
+    // Было захардкожено: float exploration_param = 0.5f;
+    // Теперь дрейфующий параметр гомеостаза (пока read-only с фолбэком —
+    // см. комментарий у planner_prop_get_float выше).
+    float exploration_param = planner_prop_get_float(ctx->memory.txn,
+                                                       djb2_hash("exploration_param"),
+                                                       0.5f);
 
     for (int i = 0; i < count; i++) {
         // Извлекаем оценку алгоритма из HyperMemory.
