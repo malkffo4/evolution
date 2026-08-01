@@ -19,85 +19,76 @@
 #include "storage/string_pool/string_pool.h"
 #include "storage/vector_store/vector_store.h"
 
-// TODO
-// OP_INFER: Запускает движок логического вывода для указанного Объекта Знаний.
-// OP_FORK_CTX: Создает изолированную песочницу в оперативной памяти (arena.c) для генерации гипотезы.
-// OP_MERGE_CTX: Если гипотеза подтвердилась как полезная, извлеченные выводы интегрируются обратно в основную графовую базу.
-// OP_ANALYZE_PATH: Запускает поиск кратчайшего логического пути между двумя Объектами Знаний с учетом онтологических ограничений.
-
-/* STREAMING_CHUNK:Configuring system headers and checking VM registers... */
-
 // Вспомогательная функция для проверки валидности регистров
 static bool check_registers(uint32_t r1, uint32_t r2) {
-  return (r1 < VM_MAX_REGISTERS && r2 < VM_MAX_REGISTERS);
+    return (r1 < VM_MAX_REGISTERS && r2 < VM_MAX_REGISTERS);
 }
 
 /* STREAMING_CHUNK:Implementing atomic vector similarity operator... */
 
 /* OP_VECTOR_SIM
- * Аргументы инструкции:
- * arg[0] - Регистр-приемник (REG_FLOAT) - результат близости
- * arg[1] - Регистр первого узла (REG_NODE)
- * arg[2] - Регистр второго узла (REG_NODE)
- *
- * Атомарная операция вычисления косинусного сходства векторов.
- * Если векторы отсутствуют, делает фолбэк на SimHash (расстояние Хэмминга).
- * Это базовый вычислительный примитив для любых семантических сравнений. */
+Аргументы инструкции:
+arg[0] - Регистр-приемник (REG_FLOAT) - результат близости
+arg[1] - Регистр первого узла (REG_NODE)
+arg[2] - Регистр второго узла (REG_NODE)
+Атомарная операция вычисления косинусного сходства векторов.
+Если векторы отсутствуют, делает фолбэк на SimHash (расстояние Хэмминга).
+Это базовый вычислительный примитив для любых семантических сравнений. */
 int vm_op_vector_sim(VMContext *ctx, const Instruction *ins) {
-  uint32_t dst = ins->arg[0];
-  uint32_t reg_a = ins->arg[1];
-  uint32_t reg_b = ins->arg[2];
+    uint32_t dst = ins->arg[0];
+    uint32_t reg_a = ins->arg[1];
+    uint32_t reg_b = ins->arg[2];
 
-  if (!check_registers(dst, reg_a) || reg_b >= VM_MAX_REGISTERS) {
-    LOG_ERROR("VM Engine: Invalid registers in OP_VECTOR_SIM");
-    return VM_INVALID_REGISTER;
-  }
-
-  if (ctx->reg[reg_a].type != REG_NODE || ctx->reg[reg_b].type != REG_NODE) {
-    LOG_WARN("VM Engine: OP_VECTOR_SIM requires node registers as input");
-    return VM_INVALID_TYPE;
-  }
-
-  node_id_t node_a = ctx->reg[reg_a].node;
-  node_id_t node_b = ctx->reg[reg_b].node;
-
-  MDB_txn *txn = ctx->memory.txn;
-  if (!txn) {
-    LOG_ERROR("VM Engine: Active DB transaction is NULL");
-    return VM_ERROR;
-  }
-
-  float emb_a[EMBEDDING_DIM];
-  float emb_b[EMBEDDING_DIM];
-  float similarity = 0.0f;
-
-  // Пытаемся загрузить полные векторы для точного косинусного сходства
-  if (load_embedding(txn, node_a, emb_a) == 0 &&
-      load_embedding(txn, node_b, emb_b) == 0) {
-    float dot = 0.0f, norm_a = 0.0f, norm_b = 0.0f;
-    for (int i = 0; i < EMBEDDING_DIM; i++) {
-      dot += emb_a[i] * emb_b[i];
-      norm_a += emb_a[i] * emb_a[i];
-      norm_b += emb_b[i] * emb_b[i];
+    if (!check_registers(dst, reg_a) || reg_b >= VM_MAX_REGISTERS) {
+        LOG_ERROR("VM Engine: Invalid registers in OP_VECTOR_SIM");
+        return VM_INVALID_REGISTER;
     }
-    if (norm_a > 0.0f && norm_b > 0.0f) {
-      similarity = dot / (sqrtf(norm_a) * sqrtf(norm_b));
-    }
-  } else {
-    // Фолбэк на SimHash (аппаратная замена для экономии памяти)
-    Node n_a, n_b;
-    if (get_node(txn, node_a, &n_a) == MDB_SUCCESS &&
-        get_node(txn, node_b, &n_b) == MDB_SUCCESS) {
-      uint64_t diff = n_a.simhash ^ n_b.simhash;
-      int dist = __builtin_popcountll(diff);
-      similarity = 1.0f - ((float)dist / 128.0f);
-      if (similarity < 0.0f)
-        similarity = 0.0f;
-    }
-  }
 
-  vm_register_set_float(ctx, &ctx->reg[dst], (double)similarity);
-  return VM_OK;
+    if (ctx->reg[reg_a].type != REG_NODE || ctx->reg[reg_b].type != REG_NODE) {
+        LOG_WARN("VM Engine: OP_VECTOR_SIM requires node registers as input");
+        return VM_INVALID_TYPE;
+    }
+
+    node_id_t node_a = ctx->reg[reg_a].node;
+    node_id_t node_b = ctx->reg[reg_b].node;
+
+    MDB_txn *txn = ctx->memory.txn;
+    if (!txn) {
+        LOG_ERROR("VM Engine: Active DB transaction is NULL");
+        return VM_ERROR;
+        }
+
+    float emb_a[VECTOR_DIM];
+    float emb_b[VECTOR_DIM];
+    float similarity = 0.0f;
+
+    // Пытаемся загрузить полные векторы для точного косинусного сходства
+    if (load_embedding(txn, node_a, emb_a) == 0 && load_embedding(txn, node_b, emb_b) == 0) {
+        float dot = 0.0f, norm_a = 0.0f, norm_b = 0.0f;
+        for (int i = 0; i < VECTOR_DIM; i++) {
+            dot += emb_a[i] * emb_b[i];
+            norm_a += emb_a[i] * emb_a[i];
+            norm_b += emb_b[i] * emb_b[i];
+        }
+        if (norm_a > 0.0f && norm_b > 0.0f) {
+            similarity = dot / (sqrtf(norm_a) * sqrtf(norm_b));
+        }
+        } else {
+            // Фолбэк на SimHash (аппаратная замена для экономии памяти)
+            Node n_a, n_b;
+            if (get_node(txn, node_a, &n_a) == MDB_SUCCESS &&
+            get_node(txn, node_b, &n_b) == MDB_SUCCESS) {
+            uint64_t diff = n_a.simhash ^ n_b.simhash;
+            int dist = __builtin_popcountll(diff);
+            // simhash в Node занимает 64 бита, поэтому делим на 64.0f
+            similarity = 1.0f - ((float)dist / 64.0f);
+            if (similarity < 0.0f)
+            similarity = 0.0f;
+        }
+    }
+
+    vm_register_set_float(ctx, &ctx->reg[dst], (double)similarity);
+    return VM_OK;
 }
 
 /* STREAMING_CHUNK:Implementing atomic node property operations... */
@@ -174,10 +165,11 @@ int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
     for (uint32_t i = 0; i < ctx->preloaded_property_count; i++) {
         if (ctx->preloaded_properties[i].node_id == node_id &&
             ctx->preloaded_properties[i].key_hash == prop_key) {
-            slot = i;
-            break;
+                slot = i;
+                break;
         }
     }
+
     if (slot == UINT32_MAX) {
         if (ctx->preloaded_property_count >= MAX_PRELOADED_PROPERTIES)
             return VM_OUT_OF_MEMORY;
@@ -217,46 +209,46 @@ int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
  * Пошаговый обход графа. Возвращает список всех исходящих связей текущего узла.
  * Позволяет внешним пайплайнам делать BFS/DFS и искать логические пути. */
 int vm_op_node_traverse(VMContext *ctx, const Instruction *ins) {
-  uint32_t dst = ins->arg[0];
-  uint32_t src = ins->arg[1];
+    uint32_t dst = ins->arg[0];
+    uint32_t src = ins->arg[1];
 
-  if (!check_registers(dst, src))
-    return VM_INVALID_REGISTER;
-  if (ctx->reg[src].type != REG_NODE)
-    return VM_INVALID_TYPE;
+    if (!check_registers(dst, src))
+        return VM_INVALID_REGISTER;
 
-  node_id_t source_node = ctx->reg[src].node;
-  MDB_txn *txn = ctx->memory.txn;
+    if (ctx->reg[src].type != REG_NODE)
+        return VM_INVALID_TYPE;
 
-  // Аллоцируем динамический EdgeList
-  EdgeList *list = calloc(1, sizeof(EdgeList));
-  if (!list)
-    return VM_OUT_OF_MEMORY;
+    node_id_t source_node = ctx->reg[src].node;
+    MDB_txn *txn = ctx->memory.txn;
 
-  int rc = get_edges_from_node(txn, source_node, list);
-  if (rc != MDB_SUCCESS) {
-    free(list);
-    return VM_ERROR;
-  }
+    // Аллоцируем динамический EdgeList
+    EdgeList *list = calloc(1, sizeof(EdgeList));
+    if (!list) return VM_OUT_OF_MEMORY;
 
-  // Создаем Arena-объект типа OBJECT_EDGESET
-  VMHandle handle = vm_object_new(&ctx->arena, OBJECT_EDGESET);
-  if (handle.index == UINT32_MAX) {
-    if (list->items)
-      free(list->items);
-    free(list);
-    return VM_OUT_OF_MEMORY;
-  }
+    int rc = get_edges_from_node(txn, source_node, list);
+    if (rc != MDB_SUCCESS) {
+        free(list);
+        return VM_ERROR;
+    }
 
-  VMObject *obj = vm_object_get(&ctx->arena, handle);
-  obj->data = list;
+    // Создаем Arena-объект типа OBJECT_EDGESET
+    VMHandle handle = vm_object_new(&ctx->arena, OBJECT_EDGESET);
+    if (handle.index == UINT32_MAX) {
+        if (list->items)
+            free(list->items);
+        free(list);
+        return VM_OUT_OF_MEMORY;
+    }
 
-  // Записываем дескриптор объекта в регистр-приемник
-  vm_register_clear(ctx, &ctx->reg[dst]);
-  ctx->reg[dst].type = REG_OBJECT;
-  ctx->reg[dst].handle = handle;
+    VMObject *obj = vm_object_get(&ctx->arena, handle);
+    obj->data = list;
 
-  return VM_OK;
+    // Записываем дескриптор объекта в регистр-приемник
+    vm_register_clear(ctx, &ctx->reg[dst]);
+    ctx->reg[dst].type = REG_OBJECT;
+    ctx->reg[dst].handle = handle;
+
+    return VM_OK;
 }
 
 /* STREAMING_CHUNK:Implementing atomic working memory activation... */
@@ -270,33 +262,33 @@ int vm_op_node_traverse(VMContext *ctx, const Instruction *ins) {
  * "мозга". С помощью этой инструкции программы мышления могут "думать" о вещах,
  * привлекая к ним вычислительные ресурсы фоновых демонов подсознания. */
 int vm_op_wm_activate(VMContext *ctx, const Instruction *ins) {
-  uint32_t node_reg = ins->arg[0];
-  uint32_t act_reg = ins->arg[1];
-  uint32_t prime_reg = ins->arg[2];
+    uint32_t node_reg = ins->arg[0];
+    uint32_t act_reg = ins->arg[1];
+    uint32_t prime_reg = ins->arg[2];
 
-  if (!check_registers(node_reg, act_reg) || prime_reg >= VM_MAX_REGISTERS) {
-    return VM_INVALID_REGISTER;
-  }
+    if (!check_registers(node_reg, act_reg) || prime_reg >= VM_MAX_REGISTERS) {
+        return VM_INVALID_REGISTER;
+    }
 
-  if (ctx->reg[node_reg].type != REG_NODE ||
-      ctx->reg[act_reg].type != REG_FLOAT ||
-      ctx->reg[prime_reg].type != REG_FLOAT) {
-    return VM_INVALID_TYPE;
-  }
+    if (ctx->reg[node_reg].type != REG_NODE ||
+        ctx->reg[act_reg].type != REG_FLOAT ||
+        ctx->reg[prime_reg].type != REG_FLOAT) {
+        return VM_INVALID_TYPE;
+    }
 
-  node_id_t node_id = ctx->reg[node_reg].node;
-  float activation = (float)ctx->reg[act_reg].f;
-  float priming = (float)ctx->reg[prime_reg].f;
+    node_id_t node_id = ctx->reg[node_reg].node;
+    float activation = (float)ctx->reg[act_reg].f;
+    float priming = (float)ctx->reg[prime_reg].f;
 
-  WorkingMemory *wm = ctx->memory.wm;
-  if (!wm) {
-    LOG_ERROR("VM Engine: Working Memory context is missing");
-    return VM_ERROR;
-  }
+    WorkingMemory *wm = ctx->memory.wm;
+    if (!wm) {
+        LOG_ERROR("VM Engine: Working Memory context is missing");
+        return VM_ERROR;
+    }
 
-  // Возбуждаем узел в ассоциативной памяти
-  wm_activate(wm, node_id, activation, priming);
-  return VM_OK;
+    // Возбуждаем узел в ассоциативной памяти
+    wm_activate(wm, node_id, activation, priming);
+    return VM_OK;
 }
 
 /* STREAMING_CHUNK:Implementing low-level edge write operations... */
@@ -312,44 +304,45 @@ int vm_op_wm_activate(VMContext *ctx, const Instruction *ins) {
  * создавать гипотезы, записывать выводы. Сама логика "когда создавать гипотезу"
  * теперь описывается в пайплайне нейрона, а не жестко зашита в Си! */
 int vm_op_edge_write(VMContext *ctx, const Instruction *ins) {
-  uint32_t src_reg = ins->arg[0];
-  uint32_t rel_reg = ins->arg[1];
-  uint32_t tgt_reg = ins->arg[2];
+    uint32_t src_reg = ins->arg[0];
+    uint32_t rel_reg = ins->arg[1];
+    uint32_t tgt_reg = ins->arg[2];
 
-  if (!check_registers(src_reg, rel_reg) || tgt_reg >= VM_MAX_REGISTERS) {
-    return VM_INVALID_REGISTER;
-  }
+    if (!check_registers(src_reg, rel_reg) ||
+        tgt_reg >= VM_MAX_REGISTERS) {
+        return VM_INVALID_REGISTER;
+    }
 
-  if (ctx->reg[src_reg].type != REG_NODE ||
-      ctx->reg[tgt_reg].type != REG_NODE) {
-    return VM_INVALID_TYPE;
-  }
+    if (ctx->reg[src_reg].type != REG_NODE ||
+        ctx->reg[tgt_reg].type != REG_NODE) {
+        return VM_INVALID_TYPE;
+    }
 
-  node_id_t source = ctx->reg[src_reg].node;
-  node_id_t target = ctx->reg[tgt_reg].node;
-  node_id_t relation = 0;
+    node_id_t source = ctx->reg[src_reg].node;
+    node_id_t target = ctx->reg[tgt_reg].node;
+    node_id_t relation = 0;
+    MDB_txn *txn = ctx->memory.txn;
 
-  MDB_txn *txn = ctx->memory.txn;
+    if (ctx->reg[rel_reg].type == REG_NODE) {
+        relation = ctx->reg[rel_reg].node;
+    } else if (ctx->reg[rel_reg].type == REG_STRING) {
+        relation = djb2_hash(ctx->reg[rel_reg].string.data);
+        add_string_to_pool(txn, ctx->reg[rel_reg].string.data);
+    } else {
+        return VM_INVALID_TYPE;
+    }
 
-  if (ctx->reg[rel_reg].type == REG_NODE) {
-    relation = ctx->reg[rel_reg].node;
-  } else if (ctx->reg[rel_reg].type == REG_STRING) {
-    relation = djb2_hash(ctx->reg[rel_reg].string.data);
-    add_string_to_pool(txn, ctx->reg[rel_reg].string.data);
-  } else {
-    return VM_INVALID_TYPE;
-  }
+    // Формируем ребро (связь) с дефолтными физическими параметрами
+    Edge edge = {
+        .key = {.source = source, .relation = relation, .target = target},
+        .confidence = 1.0f,
+        .evidence_count = 1,
+        .context = 0,
+        .created_at = (uint64_t)time(NULL)
+    };
 
-  // Формируем ребро (связь) с дефолтными физическими параметрами
-  Edge edge = {
-      .key = {.source = source, .relation = relation, .target = target},
-      .confidence = 1.0f, // Атомарное действие по умолчанию абсолютно уверено
-      .evidence_count = 1,
-      .context = 0,
-      .created_at = (uint64_t)time(NULL)};
-
-  int rc = upsert_edge(txn, &edge);
-  return (rc == MDB_SUCCESS) ? VM_OK : VM_ERROR;
+    int rc = upsert_edge(txn, &edge);
+    return (rc == MDB_SUCCESS) ? VM_OK : VM_ERROR;
 }
 
 /* STREAMING_CHUNK:Implementing control flow conditional branching... */

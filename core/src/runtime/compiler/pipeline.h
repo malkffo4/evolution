@@ -38,6 +38,6 @@ typedef struct Pipeline {
 } Pipeline;
 
 Pipeline* pipeline_create(void);
-Pipeline *pipeline_create_with_capacity(int capacity);
+Pipeline *pipeline_create_with_capacity(uint32_t capacity);
 VMStatus pipeline_add_instruction(Pipeline *p, const Instruction *ins);
 void pipeline_free(Pipeline *p);

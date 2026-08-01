@@ -8,7 +8,7 @@ Pipeline *pipeline_create(void) {
     return pipeline_create_with_capacity(MAX_PIPELINE_CODE);
 }
 
-Pipeline *pipeline_create_with_capacity(int capacity) {
+Pipeline *pipeline_create_with_capacity(uint32_t capacity) {
     if (capacity <= 0 || capacity > MAX_PIPELINE_CODE)
         return NULL;
 
@@ -16,7 +16,7 @@ Pipeline *pipeline_create_with_capacity(int capacity) {
     if (!p)
         return NULL;
 
-    p->code = calloc(capacity, sizeof(Instruction));
+    p->code = calloc((size_t)capacity, sizeof(Instruction));
     if (!p->code) {
         free(p);
         return NULL;

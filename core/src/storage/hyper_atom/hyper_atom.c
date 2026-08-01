@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdatomic.h>
 
+#include "storage/vector_store/vector_store.h"
 #include "storage/db/db.h"
 #include "hyper_atom.h"
 
@@ -271,10 +272,9 @@ int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cau
 }
 
 int hyper_vector_save(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, const Vector128 *vec) {
+    (void)dbi; // Игнорируем dbi, save_embedding сам пишет в idx_vectors и simhash_index
     if (!txn || !vec) return -1;
-    MDB_val key = { sizeof(ko_id_t), (void*)&atom_id };
-    MDB_val data = { sizeof(Vector128), (void*)vec };
-    return mdb_put(txn, dbi, &key, &data, 0);
+    return save_embedding(txn, atom_id, vec->data);
 }
 
 int hyper_vector_load(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, Vector128 *out) {

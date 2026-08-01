@@ -116,7 +116,7 @@ int main(void) {
 
     // Регистр R0 = ключ "dangerous"
     ctx.reg[0].type = REG_STRING;
-    ctx.reg[0].string.data = dangerous_str;
+    ctx.reg[0].string.data = (char *)dangerous_str;
     ctx.reg[0].string.len  = (uint32_t)strlen(dangerous_str);
 
     // Тест 1: strcpy

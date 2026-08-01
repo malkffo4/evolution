@@ -69,7 +69,7 @@ int main() {
     i1.arg[0]=1; i1.arg[1]=2; i1.arg[2]=3; i1.arg[3]=11;
     rc = vm_op_assert(&ctx, &i1);
     assert(rc == VM_OK);
-    ko_id_t smoke_alarm_id = ctx.reg[11].i;
+    ko_id_t smoke_alarm_id = (ko_id_t)ctx.reg[11].i;
 
     // DERIVE fire CAUSES alarm с причиной smoke_alarm_id
     // Сигнатура: arg[0]=process, arg[1]=arg0, arg[2]=arg1, arg[3]=cause_reg, arg[4]=dst_id_reg
@@ -81,7 +81,7 @@ int main() {
     i2.arg[0]=1; i2.arg[1]=2; i2.arg[2]=3; i2.arg[3]=4; i2.arg[4]=12;
     rc = vm_op_derive(&ctx, &i2);
     assert(rc == VM_OK);
-    ko_id_t derived_id = ctx.reg[12].i;
+    ko_id_t derived_id = (ko_id_t)ctx.reg[12].i;
 
     // TRACE от derived
     ctx.reg[12].i = (int64_t)derived_id;

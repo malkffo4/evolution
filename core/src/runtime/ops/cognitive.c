@@ -169,34 +169,35 @@ int vm_op_find_similar(VMContext *ctx, const Instruction *ins) {
         ? (float)ctx->reg[threshold_reg].f
         : 0.7f;
 
-    // Загружаем вектор цели
     Vector128 target_vec;
     if (hyper_vector_load(ctx->memory.txn, db.graph.hyper.idx_vectors, target_id, &target_vec) != 0)
         return VM_NOT_FOUND;
 
-    // Сканируем все векторы в индексе (MVP – позже можно добавить ANN)
-    MDB_cursor *cursor;
-    if (mdb_cursor_open(ctx->memory.txn, db.graph.hyper.idx_vectors, &cursor) != MDB_SUCCESS)
-        return VM_ERROR;
+    // Запрашиваем 8 кандидатов за O(log N) + легкий скан соседей по хэшу
+    // Было MVP, стало ANN
+    uint64_t results[8];
+    int count = find_similar_nodes(ctx->memory.txn, target_vec.data, 8, results);
 
-    MDB_val key, data;
-    float best_sim = -1.0f;
+    if (count <= 0) return VM_NOT_FOUND;
+
     ko_id_t best_id = 0;
-
-    int rc = mdb_cursor_get(cursor, &key, &data, MDB_FIRST);
-    while (rc == MDB_SUCCESS) {
-        ko_id_t candidate_id = *(ko_id_t*)key.mv_data;
-        if (candidate_id == target_id) { rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT); continue; }
-        if (data.mv_size == sizeof(Vector128)) {
-            Vector128 *cand_vec = (Vector128*)data.mv_data;
-            float sim = vector_cosine_similarity(&target_vec, cand_vec);
-            if (sim > best_sim) { best_sim = sim; best_id = candidate_id; }
+    // find_similar_nodes УЖЕ отсортировал результаты по убыванию косинусного сходства (Min-Heap).
+    // Нам нужно просто взять первый элемент, который не равен самому target_id,
+    // и убедиться, что он проходит threshold.
+    for (int i = 0; i < count; i++) {
+        if (results[i] != target_id) {
+            Vector128 cand_vec;
+            if (hyper_vector_load(ctx->memory.txn, db.graph.hyper.idx_vectors, results[i], &cand_vec) == 0) {
+                float sim = vector_cosine_similarity(&target_vec, &cand_vec);
+                if (sim >= threshold) {
+                    best_id = results[i];
+                    break;
+                }
+            }
         }
-        rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT);
     }
-    mdb_cursor_close(cursor);
 
-    if (best_sim < threshold) return VM_NOT_FOUND;
+    if (best_id == 0) return VM_NOT_FOUND;
 
     ctx->reg[dst_reg].type = REG_NODE;
     ctx->reg[dst_reg].node = best_id;
@@ -332,26 +333,26 @@ int vm_op_load_context(VMContext *ctx, const Instruction *ins) {
     // Всегда загружаем контекст для всех активных узлов WM,
     // наличие цели необязательно — алгоритмы могут работать с любыми узлами.
     ctx->preloaded_edge_count = 0;
-    
+
     for (uint32_t i = 0; i < ctx->memory.wm->count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; i++) {
         node_id_t nid = ctx->memory.wm->nodes[i].node_id;
 
         NeuroAtom *fwd_atoms = NULL;
         size_t fwd_count = 0;
-        
+
         if (hyper_find_by_participant(ctx->hyper_mem, nid, 0, &fwd_atoms, &fwd_count) == 0) {
             for (size_t j = 0; j < fwd_count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; j++) {
                 if (fwd_atoms[j].process_id == djb2_hash("EDGE_FWD")) {
                     node_id_t rel = HYPER_GET_ID(fwd_atoms[j].args[1].raw);
-                    
+
                     NeuroAtom *rev_atoms = NULL;
                     size_t rev_count = 0;
-                    
+
                     if (hyper_find_by_participant(ctx->hyper_mem, rel, 0, &rev_atoms, &rev_count) == 0) {
                         for (size_t k = 0; k < rev_count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; k++) {
                             if (rev_atoms[k].process_id == djb2_hash("EDGE_REV") &&
                                 HYPER_GET_ID(rev_atoms[k].args[0].raw) == rel) {
-                                
+
                                 ctx->preloaded_edges[ctx->preloaded_edge_count++] = (CachedEdge){
                                     .source = nid,
                                     .relation = rel,

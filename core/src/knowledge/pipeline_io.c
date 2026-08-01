@@ -27,34 +27,34 @@ static bool parse_constant_pool(cJSON *const_json, ConstantPool *c) {
 
     cJSON *item = cJSON_GetObjectItem(const_json, "int_consts");
     if (cJSON_IsArray(item)) {
-        c->int_count = cJSON_GetArraySize(item);
+        c->int_count = (uint32_t)cJSON_GetArraySize(item);
         if (c->int_count > 0) {
             c->int_consts = calloc(c->int_count, sizeof(int64_t));
             if (!c->int_consts) goto cleanup;
             for (uint32_t i = 0; i < c->int_count; i++)
-                c->int_consts[i] = (int64_t)cJSON_GetNumberValue(cJSON_GetArrayItem(item, i));
+                c->int_consts[i] = (int64_t)cJSON_GetNumberValue(cJSON_GetArrayItem(item, (int)i));
         }
     }
 
     item = cJSON_GetObjectItem(const_json, "float_consts");
     if (cJSON_IsArray(item)) {
-        c->float_count = cJSON_GetArraySize(item);
+        c->float_count = (uint32_t)cJSON_GetArraySize(item);
         if (c->float_count > 0) {
             c->float_consts = calloc(c->float_count, sizeof(double));
             if (!c->float_consts) goto cleanup;
             for (uint32_t i = 0; i < c->float_count; i++)
-                c->float_consts[i] = cJSON_GetNumberValue(cJSON_GetArrayItem(item, i));
+                c->float_consts[i] = cJSON_GetNumberValue(cJSON_GetArrayItem(item, (int)i));
         }
     }
 
     item = cJSON_GetObjectItem(const_json, "str_consts");
     if (cJSON_IsArray(item)) {
-        c->str_count = cJSON_GetArraySize(item);
+        c->str_count = (uint32_t)cJSON_GetArraySize(item);
         if (c->str_count > 0) {
             c->str_consts = calloc(c->str_count, sizeof(StringView));
             if (!c->str_consts) goto cleanup;
             for (uint32_t i = 0; i < c->str_count; i++) {
-                const char *s = cJSON_GetStringValue(cJSON_GetArrayItem(item, i));
+                const char *s = cJSON_GetStringValue(cJSON_GetArrayItem(item, (int)i));
                 if (s) {
                     c->str_consts[i].len = (uint32_t)strlen(s);
                     c->str_consts[i].data = strdup(s);
@@ -79,7 +79,7 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
     cJSON *code_arr = cJSON_GetObjectItem(root, "code");
     if (!cJSON_IsArray(code_arr)) return NULL;
 
-    uint32_t len = cJSON_GetArraySize(code_arr);
+    uint32_t len = (uint32_t)cJSON_GetArraySize(code_arr);
     Pipeline *p = pipeline_create_with_capacity(len);
     if (!p) return NULL;
 
@@ -87,7 +87,7 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
 
     if (len > 0) {
         for (uint32_t i = 0; i < len; i++) {
-            cJSON *ins = cJSON_GetArrayItem(code_arr, i);
+            cJSON *ins = cJSON_GetArrayItem(code_arr, (int)i);
             const char *op_name = cJSON_GetStringValue(cJSON_GetObjectItem(ins, "operator_id"));
             p->code[i].operator_id = operator_find_by_name(op_name);
             cJSON *arg_arr = cJSON_GetObjectItem(ins, "arg");

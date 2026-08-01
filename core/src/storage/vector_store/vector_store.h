@@ -3,24 +3,23 @@
 
 #include <stdint.h>
 #include <lmdb.h>
+#include "storage/hyper_atom/hyper_atom.h" // Подключаем для VECTOR_DIM и ko_id_t
 
 #define HASH_BITS           256
-#define EMBEDDING_DIM       768
-
 #define HAMMING_THRESHOLD   30
 #define MAX_CANDIDATES      1000
 
-// Initialize the SimHash projection matrix (load from DB or generate)
+// Инициализация проекционной матрицы
 int init_simhash(MDB_txn *txn);
 
-// Compute 256-bit semantic hash from embedding
+// Вычисление 256-битного SimHash из вектора
 void compute_simhash256(const float *embedding, uint64_t hash[4]);
 
-// Save embedding and update SimHash index
-int save_embedding(MDB_txn *txn, uint64_t node_id, const float *emb);
+// Сохраняет вектор в единую таблицу idx_vectors и обновляет simhash_index
+int save_embedding(MDB_txn *txn, ko_id_t node_id, const float *emb);
 
-// Load embedding for a node
-int load_embedding(MDB_txn *txn, uint64_t node_id, float *emb_out);
+// Читает вектор из единой таблицы idx_vectors
+int load_embedding(MDB_txn *txn, ko_id_t node_id, float *emb_out);
 
-// Find similar nodes using SimHash + cosine similarity
+// Быстрый LSH-поиск (возвращает отсортированный массив ID)
 int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t *results);

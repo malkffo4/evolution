@@ -144,7 +144,7 @@ static char **build_exec_argv(const char *interpreter, const char *script_path, 
     if (argv) {
         while (argv[user_args]) user_args++;
     }
-    char **a = calloc(extra + user_args + 1, sizeof(char*));
+    char **a = calloc((size_t)(extra + user_args + 1), sizeof(char*));
     if (!a) return NULL;
     a[0] = strdup(interpreter);
     a[1] = strdup(script_path);
@@ -267,7 +267,11 @@ int executor_enqueue_script(const char *interpreter, const char *script_path,
     t->script_path = strdup(script_path);
     if (argv) {
         int cnt = 0; while (argv[cnt]) cnt++;
-        t->argv = calloc(cnt + 1, sizeof(char*));
+        t->argv = calloc((size_t)(cnt + 1), sizeof(char*));
+        if (!t->argv) {
+            free(t);
+            return -1;
+        }
         for (int i = 0; i < cnt; i++) t->argv[i] = strdup(argv[i]);
         t->argv[cnt] = NULL;
     }

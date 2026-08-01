@@ -17,7 +17,7 @@ static char **duplicate_string_array(const char **src, int *out_count) {
     while (src[count]) count++;
     if (out_count) *out_count = count;
 
-    char **copy = calloc(count + 1, sizeof(char *));
+    char **copy = calloc((size_t)(count + 1), sizeof(char *));
     if (!copy) return NULL;
 
     for (int i = 0; i < count; ++i) {
@@ -35,6 +35,7 @@ Module *load_module(const char *path, char **error_message) {
     }
 
     Module *module = calloc(1, sizeof(*module));
+    if (!module) return NULL;
     module->handle = handle;
     module->path = strdup(path);
 
@@ -52,7 +53,7 @@ Module *load_module(const char *path, char **error_message) {
     // 2. Получаем описание
     void *ptr_desc = dlsym(handle, "module_description");
     if (ptr_desc) {
-        const char* (*get_desc_func)(void) = (const char* (*)(void))ptr_desc;
+        const char* (*get_desc_func)(void) = (const char* (*)(void))(intptr_t)ptr_desc;
         module->description = strdup(get_desc_func());
     } else {
         module->description = strdup("No description");
@@ -62,7 +63,7 @@ Module *load_module(const char *path, char **error_message) {
     void *ptr_funcs = dlsym(handle, "module_function_names");
     if (ptr_funcs) {
         // Объявляем тип: функция, возвращающая массив строк (const char**)
-        const char** (*get_funcs_func)(void) = (const char** (*)(void))ptr_funcs;
+        const char** (*get_funcs_func)(void) = (const char** (*)(void))(intptr_t)ptr_funcs;
         const char **names = get_funcs_func();
         module->function_names = duplicate_string_array(names, &module->function_count);
     }
