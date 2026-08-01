@@ -115,7 +115,11 @@ int vm_execute(VMContext *ctx, const Pipeline *pipeline) {
 
         if(rc != VM_OK) {
             p->failures++;
-            return rc; // Немедленно прерываем выполнение и возвращаем код ошибки
+
+            /* Мягкая неудача: см. INS_FLAG_SOFT_FAIL в instruction.h. */
+            bool soft_fail = (rc == VM_NOT_FOUND) && (ins->flags & INS_FLAG_SOFT_FAIL);
+            if (!soft_fail)
+                return rc; // Немедленно прерываем выполнение и возвращаем код ошибки
         }
     }
 

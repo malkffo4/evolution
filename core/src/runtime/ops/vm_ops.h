@@ -78,3 +78,7 @@ int vm_op_critic_apply(VMContext *, const Instruction *);
 int vm_op_match_pattern(VMContext *, const Instruction *);
 
 int vm_op_credit_assign(VMContext *, const Instruction *);
+
+int vm_op_wm_top_goal(VMContext *, const Instruction *);
+int vm_op_select_algorithm(VMContext *, const Instruction *);
+int vm_op_dispatch_async(VMContext *, const Instruction *);

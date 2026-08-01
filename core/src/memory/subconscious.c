@@ -178,11 +178,11 @@ static Pipeline* build_main_loop_pipeline(void) {
         /*2*/  { .operator_id = OP_LOAD_CONST, .arg = { R_ONE,         2 } },
         /*3*/  { .operator_id = OP_LOAD_CONST, .arg = { R_CRITIC_ALGO, 3 } },
         /*4*/  { .operator_id = OP_LOAD_CONTEXT },                          // loop_start
-        /*5*/  { .operator_id = OP_EVALUATE_GOALS },                        // асинхронный диспетч
+        /*5*/  { .operator_id = OP_EVALUATE_GOALS, .flags = INS_FLAG_SOFT_FAIL }, // <-- правка
         /*6*/  { .operator_id = OP_SPREAD_ACTIVATION },
         /*7*/  { .operator_id = OP_SUB, .arg = { R_COUNTER, R_COUNTER, R_ONE } },
-        /*8*/  { .operator_id = OP_JGE, .arg = { R_COUNTER, R_ZERO, 4 } },   // counter>0 -> на idx4
-        /*9*/  { .operator_id = OP_EXEC_ALGORITHM, .arg[0] = R_CRITIC_ALGO }, // ИСПРАВЛЕНО: было OP_CALL
+        /*8*/  { .operator_id = OP_JGE, .arg = { R_COUNTER, R_ZERO, 4 } },
+        /*9*/  { .operator_id = OP_EXEC_ALGORITHM, .arg[0] = R_CRITIC_ALGO },
         /*10*/ { .operator_id = OP_HALT }
     };
 
@@ -218,38 +218,64 @@ static Pipeline* build_core_planner_pipeline(void) {
     Pipeline *p = pipeline_create();
     if (!p) return NULL;
 
-    // ИСПРАВЛЕНИЕ: раньше здесь был OP_LOAD_CONTEXT перед OP_HALT. Поскольку
-    // vm_op_evaluate_goals() считает пайплайн "содержащим логику", если в
-    // нём есть ЛЮБАЯ инструкция кроме OP_HALT, присутствие OP_LOAD_CONTEXT
-    // ошибочно помечало пустую заглушку как "готовый планировщик" и НАВСЕГДА
-    // прерывало выполнение до шага 2 (fallback wm_get_highest_goal +
-    // planner_select_algorithm). Реальный Goal->Algorithm цикл никогда не
-    // запускался через MainLoop/think. Оставляем заглушку буквально пустой,
-    // как и написано в комментарии автора ниже.
-    //
-    // Пока CorePlanner — просто заглушка.
-    // В будущем сюда будет добавлен байт-код для обратного вывода.
+    /*
+     * CorePlanner (Cognitive Cycle, шаг Plan) — 9 инструкций вместо
+     * захардкоженного C-фолбэка в vm_op_evaluate_goals():
+     *
+     *   R_GOAL, R_FOUND      = OP_WM_TOP_GOAL()
+     *   нет цели             -> HALT
+     *   R_ALGO, R_ALGO_FOUND = OP_SELECT_ALGORITHM(R_GOAL)
+     *   нет алгоритма        -> HALT (OP_SELECT_ALGORITHM уже поставил
+     *                                  research-задачу и cooldown)
+     *   OP_DISPATCH_ASYNC(R_GOAL, R_ALGO)  -> vm_pool, новый поток
+     *   HALT
+     *
+     * Ни конкретный алгоритм подбора (UCB1), ни структура Working Memory
+     * здесь не зашиты — CorePlanner лишь вызывает уже зарегистрированные
+     * Capability. Заменить UCB1 на Thompson Sampling или вставить шаг
+     * аналогии перед диспетчеризацией — значит отредактировать эти
+     * 9 инструкций в LMDB, не пересобирая ядро.
+     */
+    enum { R_GOAL = 20, R_FOUND = 21, R_ALGO = 22, R_ALGO_FOUND = 23, R_ZERO = 24 };
+
+    p->constants.int_consts = malloc(sizeof(int64_t));
+    if (!p->constants.int_consts) { pipeline_free(p); return NULL; }
+    p->constants.int_consts[0] = 0;
+    p->constants.int_count = 1;
+
     Instruction code[] = {
-        { .operator_id = OP_HALT }
+        /*0*/ { .operator_id = OP_LOAD_CONST,      .arg = { R_ZERO, 0 } },
+        /*1*/ { .operator_id = OP_WM_TOP_GOAL,      .arg = { R_GOAL, R_FOUND } },
+        /*2*/ { .operator_id = OP_JGE,              .arg = { R_FOUND, R_ZERO, 4 } },
+        /*3*/ { .operator_id = OP_HALT },
+        /*4*/ { .operator_id = OP_SELECT_ALGORITHM, .arg = { R_GOAL, R_ALGO, R_ALGO_FOUND } },
+        /*5*/ { .operator_id = OP_JGE,              .arg = { R_ALGO_FOUND, R_ZERO, 7 } },
+        /*6*/ { .operator_id = OP_HALT },
+        /*7*/ { .operator_id = OP_DISPATCH_ASYNC,   .arg = { R_GOAL, R_ALGO } },
+        /*8*/ { .operator_id = OP_HALT }
     };
 
     size_t num = sizeof(code) / sizeof(code[0]);
     p->code_len = (uint32_t)num;
     memcpy(p->code, code, sizeof(code));
 
-    p->constants.int_consts = NULL;
-    p->constants.int_count = 0;
     return p;
 }
 
 // В ensure_main_loop_exists (или рядом) добавить:
 static void ensure_core_planner_exists(MDB_txn *txn) {
     uint64_t core_planner_id = djb2_hash("CorePlanner");
+
     Pipeline *existing = NULL;
-    if (algorithm_load(txn, core_planner_id, &existing) == 0) {
-        if (existing) pipeline_free(existing);
-        return;
+    if (algorithm_load(txn, core_planner_id, &existing) == 0 && existing) {
+        bool is_stub = true;
+        for (uint32_t i = 0; i < existing->code_len; i++) {
+            if (existing->code[i].operator_id != OP_HALT) { is_stub = false; break; }
+        }
+        pipeline_free(existing);
+        if (!is_stub) return;   // уже настоящий планировщик — не трогаем
     }
+
     Pipeline *cp = build_core_planner_pipeline();
     if (cp) {
         if (algorithm_save(txn, core_planner_id, cp) != MDB_SUCCESS)

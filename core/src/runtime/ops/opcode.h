@@ -91,7 +91,13 @@ typedef enum {
     OP_CRITIC_APPLY,
 
     OP_MATCH_PATTERN,
-    OP_CREDIT_ASSIGN,          // NEW: RFC-0001 credit assignment по idx_causal
+    OP_CREDIT_ASSIGN,          // RFC-0001 credit assignment по idx_causal
+
+    // --- Plan как Pipeline, не C (см. subconscious.c::build_core_planner_pipeline) ---
+    OP_WM_TOP_GOAL,             // читает WorkingMemory -> (goal_id, found)
+    OP_SELECT_ALGORITHM,        // UCB1 по Score(ALGORITHM) -> (algo_id, found)
+    OP_DISPATCH_ASYNC,          // algorithm_load + vm_pool_submit (новый поток)
+
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

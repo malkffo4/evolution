@@ -154,6 +154,11 @@ void operator_registry_init(void) {
     operator_register_native(OP_MATCH_PATTERN, "match_pattern", 0, vm_op_match_pattern, NULL, 0, 0);
     operator_register_native(OP_CREDIT_ASSIGN, "credit_assign", 0, vm_op_credit_assign, NULL, 0, 0);
 
+    // Plan как Pipeline (см. planner_ops.c)
+    operator_register_native(OP_WM_TOP_GOAL,      "wm_top_goal",      0, vm_op_wm_top_goal,      NULL, 0, 0);
+    operator_register_native(OP_SELECT_ALGORITHM, "select_algorithm", 0, vm_op_select_algorithm, NULL, 0, 0);
+    operator_register_native(OP_DISPATCH_ASYNC,   "dispatch_async",   0, vm_op_dispatch_async,   NULL, 0, 0);
+
     // Управление потоком, необходимое для ограниченных циклов (MainLoop и
     // любые пайплайны, реализующие итеративный/дедуктивный обход).
     operator_register_native(OP_BRANCH, "branch", 0, vm_op_branch, NULL, 0, 0);
