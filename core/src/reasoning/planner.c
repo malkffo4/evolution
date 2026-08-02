@@ -53,6 +53,15 @@ void set_goal_cooldown(uint64_t goal_id) {
     }
 }
 
+void clear_goal_cooldown(uint64_t goal_id) {
+    for (int i = 0; i < 128; i++) {
+        if (cooldown_list[i].goal_id == goal_id) {
+            cooldown_list[i].ignore_until = 0;
+            return;
+        }
+    }
+}
+
 void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
     if (!wm || !txn) return;
 
@@ -87,7 +96,7 @@ void planner_evaluate_goals(WorkingMemory *wm, void *txn) {
                     // В будущем семантический процессор будет сам определять смысл связи
                     if (relation_name && (strcasestr(relation_name, "cause") || strcasestr(relation_name, "achieve") || strcasestr(relation_name, "приводит"))) {
                         uint64_t required_step_id = incoming_edges.items[j].key.source;
-                        
+
                         // НЕ активируем подцель, если она на кулдауне
                         if (is_goal_on_cooldown(required_step_id)) {
                             const char *step_name = get_string_from_pool(txn, required_step_id);

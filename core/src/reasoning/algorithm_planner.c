@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #include "algorithm_planner.h"
 #include "storage/hyper_atom/hyper_atom.h"
@@ -15,35 +16,50 @@
 #include "memory/critic_state.h"
 #include "knowledge/evaluation.h"
 
+#define GOAL_ALGO_REL_CACHE_MAX 16
+static node_id_t g_goal_algo_rel_cache[GOAL_ALGO_REL_CACHE_MAX];
+static size_t    g_goal_algo_rel_cache_count = 0;
+static bool       g_goal_algo_rel_cache_valid = false;
+
+void invalidate_goal_algorithm_relation_cache(void) {
+    g_goal_algo_rel_cache_valid = false;
+}
+
 // Ищет все идентификаторы процессов, которые связывают Goal и Algorithm.
 // Возвращает количество найденных отношений.
 size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size_t max_rels) {
-    // ИСПРАВЛЕНИЕ: атомы из perceive_hyper_json() (Python "learn") всегда
-    // проходят через proc_make(hash, kind) для собственного process_id.
-    // IS_A-мета-триплет должен быть явно помечен "kind":"relation" на
-    // стороне Python (см. патч bootstrap.py ниже) — здесь ищем именно
-    // PROC_KIND_RELATION-версию хэша.
+    if (g_goal_algo_rel_cache_valid) {
+        size_t n = g_goal_algo_rel_cache_count < max_rels ? g_goal_algo_rel_cache_count : max_rels;
+        memcpy(rel_ids, g_goal_algo_rel_cache, n * sizeof(node_id_t));
+        return n;
+    }
+
     node_id_t is_a = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);
-    node_id_t goal_algo_rel = djb2_hash("GoalAlgorithmRelation"); // значение-аргумент, не process_id — остаётся "сырым"
+    node_id_t goal_algo_rel = djb2_hash("GoalAlgorithmRelation");
 
     NeuroAtom *isa_atoms = NULL;
     size_t isa_count = 0;
+    // Единственный полный скан idx_process("IS_A") за весь процесс жизни
+    // (до первого успеха). Раньше это происходило на КАЖДОМ тике MainLoop
+    // × КАЖДОМ кандидате WM — O(1) амортизированно после первого вызова.
     if (hyper_find_by_process(hmem, is_a, 0, 0, &isa_atoms, &isa_count) != 0 || !isa_atoms)
         return 0;
 
     size_t found = 0;
     for (size_t i = 0; i < isa_count && found < max_rels; i++) {
         if (isa_atoms[i].args[1].raw != goal_algo_rel) continue;
-
-        // args[0] хранит ИМЯ отношения как значение (просто хэш строки).
-        // Сами атомы этого отношения (HAS_ALGORITHM(...)), если тоже
-        // помечены "kind":"relation", имеют process_id = proc_make(...).
         node_id_t rel_name_hash = isa_atoms[i].args[0].raw;
-        if (rel_name_hash != 0) {
+        if (rel_name_hash != 0)
             rel_ids[found++] = proc_make(rel_name_hash, PROC_KIND_RELATION);
-        }
     }
     free(isa_atoms);
+
+    if (found > 0) {
+        size_t n = found < GOAL_ALGO_REL_CACHE_MAX ? found : GOAL_ALGO_REL_CACHE_MAX;
+        memcpy(g_goal_algo_rel_cache, rel_ids, n * sizeof(node_id_t));
+        g_goal_algo_rel_cache_count = n;
+        g_goal_algo_rel_cache_valid = true;
+    }
     return found;
 }
 

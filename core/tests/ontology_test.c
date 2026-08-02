@@ -18,7 +18,7 @@
 #include "storage/edge/edge.h"
 #include "storage/graph/graph.h"
 #include "storage/string_pool/string_pool.h"
-#include "storage/property.h"
+#include "storage/property/property.h"
 #include "math/hash.h"
 #include "knowledge/knowledge_cache.h"
 

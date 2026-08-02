@@ -136,6 +136,10 @@ void operator_registry_init(void) {
     operator_register_native(OP_PROP_SET,  "set_property",  0, vm_op_prop_set,  NULL, 0, 0);
     operator_register_native(OP_SET_TMP, "set_tmp", 0, vm_op_set_tmp, NULL, 0, 0);
 
+    operator_register_native(OP_LOAD_STR,        "load_str",        0, vm_op_load_str,        NULL, 0, 0);
+    operator_register_native(OP_TOOL_EXEC,       "tool_exec",       0, vm_op_tool_exec,       NULL, 0, 0);
+    operator_register_native(OP_LOAD_PROPERTIES, "load_properties", 0, vm_op_load_properties, NULL, 0, 0);
+
     operator_register_native(OP_QUERY,       "query",        0, vm_op_query,       NULL, 0, 0);
     operator_register_native(OP_ASSERT,      "assert",       0, vm_op_assert,      NULL, 0, 0);
     operator_register_native(OP_DERIVE,      "derive",       0, vm_op_derive,      NULL, 0, 0);

@@ -82,3 +82,7 @@ int vm_op_credit_assign(VMContext *, const Instruction *);
 int vm_op_wm_top_goal(VMContext *, const Instruction *);
 int vm_op_select_algorithm(VMContext *, const Instruction *);
 int vm_op_dispatch_async(VMContext *, const Instruction *);
+
+int vm_op_load_str(VMContext *, const Instruction *);
+int vm_op_tool_exec(VMContext *, const Instruction *);
+int vm_op_load_properties(VMContext *, const Instruction *);

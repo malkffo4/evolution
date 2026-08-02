@@ -3,7 +3,7 @@
 
 #include <lmdb.h>
 
-#include "reasoning/strategy.h"
+#include "strategy.h"
 
 // Загружает текущие веса аналогии (persist через существующую db.graph.properties,
 // без новых LMDB-таблиц). Если записи ещё нет — возвращает разумный дефолт.

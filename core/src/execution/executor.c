@@ -49,7 +49,8 @@ typedef struct ExecResult {
     struct ExecResult *next;
 } ExecResult;
 
-static pthread_t exec_thread;
+#define EXECUTOR_POOL_SIZE 4
+static pthread_t exec_threads[EXECUTOR_POOL_SIZE];
 static pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
 static ExecTask *queue_head = NULL;
@@ -179,7 +180,9 @@ static void *executor_thread_main(void *arg) {
             res->id = task->id;
             res->output = strdup("[ERROR] failed to create pipe");
             res->exit_code = -1;
+            pthread_mutex_lock(&queue_mutex);
             push_result(res);
+            pthread_mutex_unlock(&queue_mutex);
             free_task(task);
             continue;
         }
@@ -191,7 +194,9 @@ static void *executor_thread_main(void *arg) {
             res->id = task->id;
             res->output = strdup("[ERROR] fork failed");
             res->exit_code = -1;
+            pthread_mutex_lock(&queue_mutex);
             push_result(res);
+            pthread_mutex_unlock(&queue_mutex);
             free_task(task);
             continue;
         }
@@ -239,8 +244,15 @@ int executor_start_daemon(void) {
     pthread_mutex_lock(&queue_mutex);
     if (executor_running) { pthread_mutex_unlock(&queue_mutex); return 0; }
     executor_running = 1;
-    int rc = pthread_create(&exec_thread, NULL, executor_thread_main, NULL);
-    pthread_cond_signal(&queue_cond);
+    int rc = 0;
+    for (int i = 0; i < EXECUTOR_POOL_SIZE; i++) {
+        if (pthread_create(&exec_threads[i], NULL, executor_thread_main, NULL) != 0) {
+            rc = -1;
+            executor_running = 0;
+            break;
+        }
+    }
+    pthread_cond_broadcast(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
     return rc;
 }
@@ -249,11 +261,13 @@ int executor_stop_daemon(void) {
     pthread_mutex_lock(&queue_mutex);
     if (!executor_running) { pthread_mutex_unlock(&queue_mutex); return 0; }
     executor_running = 0;
-    pthread_cond_signal(&queue_cond);
+    // ВАЖНО: broadcast, не signal — при пуле из N потоков signal разбудит
+    // только один, остальные N-1 навсегда зависнут в pthread_cond_wait().
+    pthread_cond_broadcast(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
-    pthread_join(exec_thread, NULL);
+    for (int i = 0; i < EXECUTOR_POOL_SIZE; i++)
+        pthread_join(exec_threads[i], NULL);
 
-    // Очистить все невостребованные результаты
     free_all_results();
     return 0;
 }

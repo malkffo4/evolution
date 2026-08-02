@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <assert.h>
 #include <unistd.h>
-
 #include <lmdb.h>
 
 #include "storage/db/db.h"
@@ -13,7 +12,6 @@
 #include "storage/hyper_atom/hyper_atom.h"
 #include "math/hash.h"
 #include "memory/working.h"
-
 #include "runtime/vm/vm.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/instruction.h"
@@ -21,7 +19,6 @@
 #include "runtime/operator/operator.h"
 #include "runtime/ops/opcode.h"
 #include "runtime/ops/vm_ops.h"
-
 #include "knowledge/algorithm_saver.h"
 
 /*
@@ -42,7 +39,7 @@ static Pipeline *build_sql_injection_rule(uint64_t input_a, uint64_t db_query,
 
     p->constants.int_consts = malloc(8 * sizeof(int64_t));
     if (!p->constants.int_consts) { pipeline_free(p); return NULL; }
-    
+
     p->constants.int_consts[0] = (int64_t)input_a;
     p->constants.int_consts[1] = (int64_t)db_query;
     p->constants.int_consts[2] = (int64_t)flows_to_proc;
@@ -73,7 +70,7 @@ static Pipeline *build_sql_injection_rule(uint64_t input_a, uint64_t db_query,
 
         // Посылка 1: ?x FLOWS_TO ?y, где ?x = InputA
         /*8*/  { .operator_id = OP_QUERY, .arg = { R_FLOWS_TO_PROC, R_INPUT_A, R_CONTEXT, 0,  R_FLOWS_COUNT, 0 } },
-        
+
         // Посылка 2: ?x HAS_PROPERTY Unsanitized, где ?x = InputA
         /*9*/  { .operator_id = OP_QUERY, .arg = { R_HAS_PROP_PROC, R_INPUT_A, R_CONTEXT, 10, R_PROP_COUNT,  0 } },
 
@@ -184,11 +181,11 @@ int main(void) {
     s.db_query      = djb2_hash("DatabaseQuery");
     s.unsanitized   = djb2_hash("Unsanitized");
     s.sql_injection = djb2_hash("SQL_Injection");
-    
+
     s.flows_to_proc = proc_make(djb2_hash("FLOWS_TO"), PROC_KIND_RELATION);
     s.has_prop_proc = proc_make(djb2_hash("HAS_PROPERTY"), PROC_KIND_RELATION);
     s.has_vuln_proc = proc_make(djb2_hash("HAS_VULNERABILITY"), PROC_KIND_RELATION);
-    
+
     s.goal_id       = djb2_hash("FindSQLInjection");
     s.algo_id       = djb2_hash("SqlInjectionRule");
 
@@ -208,7 +205,7 @@ int main(void) {
     // --- Один такт сознания: MainLoop находит цель и АСИНХРОННО спавнит воркер ---
     MDB_txn *plan_txn;
     assert(mdb_txn_begin(db.env, NULL, MDB_RDONLY, &plan_txn) == MDB_SUCCESS);
-    
+
     HyperMemory *plan_hmem = hyper_memory_new(plan_txn,
         db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
@@ -224,8 +221,8 @@ int main(void) {
     assert(rc == VM_OK); // немедленный возврат — задача уже в пуле воркеров
 
     vm_destroy(&ctx);
-    
-    // ИСПРАВЛЕНИЕ 1: Освобождаем plan_hmem, так как фоновый воркер 
+
+    // ИСПРАВЛЕНИЕ 1: Освобождаем plan_hmem, так как фоновый воркер
     // теперь создаёт свою собственную изолированную копию HyperMemory!
     hyper_memory_free(plan_hmem);
     mdb_txn_abort(plan_txn);
@@ -254,13 +251,13 @@ int main(void) {
                     HYPER_GET_ID(results[i].args[0].raw) == s.db_query &&
                     HYPER_GET_ID(results[i].args[1].raw) == s.sql_injection) {
                     found = true;
-                    // ИСПРАВЛЕНИЕ 2: Убрали двойной free и двойной abort. 
+                    // ИСПРАВЛЕНИЕ 2: Убрали двойной free и двойной abort.
                     // Просто выходим из цикла, все ресурсы штатно очистятся ниже.
                     break;
                 }
             }
         }
-        
+
         if (results) free(results);
         mdb_txn_abort(poll_txn);
     }

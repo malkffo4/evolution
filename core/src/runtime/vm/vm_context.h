@@ -11,7 +11,7 @@
 #include "runtime/arena/arena.h"
 #include "runtime/register/register.h"
 #include "storage/edge/edge.h"
-#include "storage/property.h"
+#include "storage/property/property.h"
 #include "storage/hyper_atom/hyper_atom.h"
 
 #define MAX_PRELOADED_EDGES         512

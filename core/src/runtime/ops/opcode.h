@@ -98,6 +98,10 @@ typedef enum {
     OP_SELECT_ALGORITHM,        // UCB1 по Score(ALGORITHM) -> (algo_id, found)
     OP_DISPATCH_ASYNC,          // algorithm_load + vm_pool_submit (новый поток)
 
+    OP_LOAD_STR,
+    OP_TOOL_EXEC,
+    OP_LOAD_PROPERTIES,
+
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

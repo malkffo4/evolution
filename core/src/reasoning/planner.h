@@ -1,4 +1,4 @@
-// core/src/reasoning/planner.h
+// reasoning/planner.h
 #pragma once
 
 #include <stdbool.h>
@@ -18,3 +18,4 @@ typedef struct {
 void planner_evaluate_goals(WorkingMemory *wm, void *txn);
 void set_goal_cooldown(uint64_t goal_id);
 bool is_goal_on_cooldown(uint64_t goal_id);
+void clear_goal_cooldown(uint64_t goal_id);
