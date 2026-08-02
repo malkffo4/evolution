@@ -15,7 +15,7 @@
 #include "storage/edge/edge.h"
 #include "storage/graph/graph.h"
 #include "storage/node/node.h"
-#include "storage/property.h"
+#include "storage/property/property.h"
 #include "storage/string_pool/string_pool.h"
 #include "storage/vector_store/vector_store.h"
 
@@ -108,30 +108,24 @@ int vm_op_prop_get(VMContext *ctx, const Instruction *ins) {
     if (!check_registers(dst, entity_reg) || key_reg >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
-    if (ctx->reg[entity_reg].type != REG_NODE || ctx->reg[key_reg].type != REG_STRING)
+    if ((ctx->reg[entity_reg].type != REG_NODE && ctx->reg[entity_reg].type != REG_INT) ||
+        ctx->reg[key_reg].type != REG_STRING)
         return VM_INVALID_TYPE;
 
-    node_id_t node_id = ctx->reg[entity_reg].node;
+    node_id_t node_id = (ctx->reg[entity_reg].type == REG_NODE)
+        ? ctx->reg[entity_reg].node : (node_id_t)ctx->reg[entity_reg].i;
     uint64_t prop_key = djb2_hash(ctx->reg[key_reg].string.data);
 
-    // Ищем свойство в кэше
     for (uint32_t i = 0; i < ctx->preloaded_property_count; i++) {
         if (ctx->preloaded_properties[i].node_id == node_id &&
             ctx->preloaded_properties[i].key_hash == prop_key) {
             CachedProperty *cp = &ctx->preloaded_properties[i];
             vm_register_clear(ctx, &ctx->reg[dst]);
             switch (cp->type) {
-                case PROP_INT:
-                    vm_register_set_int(ctx, &ctx->reg[dst], cp->value.i);
-                    break;
-                case PROP_FLOAT:
-                    vm_register_set_float(ctx, &ctx->reg[dst], (double)cp->value.f);
-                    break;
-                case PROP_BOOL:
-                    vm_register_set_bool(ctx, &ctx->reg[dst], cp->value.b);
-                    break;
-                default:
-                    return VM_INVALID_TYPE;
+                case PROP_INT:   vm_register_set_int(ctx, &ctx->reg[dst], cp->value.i); break;
+                case PROP_FLOAT: vm_register_set_float(ctx, &ctx->reg[dst], (double)cp->value.f); break;
+                case PROP_BOOL:  vm_register_set_bool(ctx, &ctx->reg[dst], cp->value.b); break;
+                default: return VM_INVALID_TYPE;
             }
             return VM_OK;
         }
@@ -153,50 +147,55 @@ int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
     if (!check_registers(entity_reg, key_reg) || val_reg >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
-    if (ctx->reg[entity_reg].type != REG_NODE || ctx->reg[key_reg].type != REG_STRING)
+    if ((ctx->reg[entity_reg].type != REG_NODE && ctx->reg[entity_reg].type != REG_INT) ||
+        ctx->reg[key_reg].type != REG_STRING)
         return VM_INVALID_TYPE;
 
-    node_id_t node_id = ctx->reg[entity_reg].node;
-    uint64_t prop_key = djb2_hash(ctx->reg[key_reg].string.data);
+    node_id_t node_id = (ctx->reg[entity_reg].type == REG_NODE)
+        ? ctx->reg[entity_reg].node : (node_id_t)ctx->reg[entity_reg].i;
+    const char *key_str = ctx->reg[key_reg].string.data;
+    if (!key_str) return VM_INVALID_TYPE;
+    uint64_t prop_key = djb2_hash(key_str);
     Register *val = &ctx->reg[val_reg];
 
-    // Ищем слот в кэше или создаём новый
+    PropertyType ptype;
+    const void *payload; uint32_t psize;
+    int64_t ival; float fval; bool bval;
+
+    switch (val->type) {
+        case REG_INT:   ptype = PROP_INT;   ival = val->i;          payload = &ival; psize = sizeof(ival); break;
+        case REG_FLOAT: ptype = PROP_FLOAT; fval = (float)val->f;   payload = &fval; psize = sizeof(fval); break;
+        case REG_BOOL:  ptype = PROP_BOOL;  bval = val->b;          payload = &bval; psize = sizeof(bval); break;
+        default: return VM_INVALID_TYPE;
+    }
+
+    // Персистентная запись НЕМЕДЛЕННО, в той же write-транзакции, что владеет
+    // текущим VMContext (ctx->memory.txn — писатель db_writer или vm_pool-
+    // воркер, у обоих есть валидная write-транзакция). Раньше OP_PROP_SET
+    // писал только в кэш и ждал никогда не реализованный OP_COMMIT.
+    if (property_set(ctx->memory.txn, node_id, key_str, ptype, payload, psize) != MDB_SUCCESS)
+        return VM_ERROR;
+
     uint32_t slot = UINT32_MAX;
     for (uint32_t i = 0; i < ctx->preloaded_property_count; i++) {
         if (ctx->preloaded_properties[i].node_id == node_id &&
-            ctx->preloaded_properties[i].key_hash == prop_key) {
-                slot = i;
-                break;
-        }
+            ctx->preloaded_properties[i].key_hash == prop_key) { slot = i; break; }
     }
-
-    if (slot == UINT32_MAX) {
-        if (ctx->preloaded_property_count >= MAX_PRELOADED_PROPERTIES)
-            return VM_OUT_OF_MEMORY;
+    if (slot == UINT32_MAX && ctx->preloaded_property_count < MAX_PRELOADED_PROPERTIES) {
         slot = ctx->preloaded_property_count++;
         ctx->preloaded_properties[slot].node_id = node_id;
         ctx->preloaded_properties[slot].key_hash = prop_key;
     }
-
-    CachedProperty *cp = &ctx->preloaded_properties[slot];
-    switch (val->type) {
-        case REG_INT:
-            cp->type = PROP_INT;
-            cp->value.i = val->i;
-            break;
-        case REG_FLOAT:
-            cp->type = PROP_FLOAT;
-            cp->value.f = (float)val->f;
-            break;
-        case REG_BOOL:
-            cp->type = PROP_BOOL;
-            cp->value.b = val->b;
-            break;
-        default:
-            return VM_INVALID_TYPE;
+    if (slot != UINT32_MAX) {
+        CachedProperty *cp = &ctx->preloaded_properties[slot];
+        cp->type = ptype;
+        switch (ptype) {
+            case PROP_INT:   cp->value.i = ival; break;
+            case PROP_FLOAT: cp->value.f = fval; break;
+            case PROP_BOOL:  cp->value.b = bval; break;
+            default: break;
+        }
     }
-
-    // ВАЖНО: здесь нет mdb_put! Фиксация в LMDB будет через OP_COMMIT
     return VM_OK;
 }
 

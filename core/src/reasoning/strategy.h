@@ -1,6 +1,5 @@
 // reasoning/strategy.h
-#ifndef REASONING_STRATEGY_H
-#define REASONING_STRATEGY_H
+#pragma once
 
 #include <stdbool.h>
 #include "types/id.h"
@@ -54,5 +53,3 @@ typedef struct {
     ReasoningThresholds thresholds;
     ReasoningStatistics statistics;
 } ReasoningStrategy;
-
-#endif

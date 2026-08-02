@@ -10,6 +10,7 @@
 #include "storage/graph/graph.h"
 #include "storage/string_pool/string_pool.h"
 #include "storage/hyper_atom/hyper_atom.h"
+#include "storage/property/property.h"
 #include <cjson/cJSON.h>
 #include "math/hash.h"
 #include "runtime/logging/logging.h"
@@ -168,7 +169,6 @@ static ko_id_t resolve_arg(cJSON *arg_item) {
 }
 
 int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
-    (void)txn;
     if (!json_str || !hmem) return -1;
 
     cJSON *root = cJSON_Parse(json_str);
@@ -257,7 +257,44 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             LOG_ERROR("Failed to assert NeuroAtom");
             continue;
         }
+        // --- Открытая сумка свойств (Шаг 1: Deep Knowledge Ingestion) ---
+        // Произвольные метаданные не помещаются в жёсткие 64 байта
+        // NeuroAtom. Каждое поле properties{} -> отдельная запись в
+        // db.graph.properties, ключ = (atom.id, djb2_hash(имя_поля)).
+        cJSON *props_json = cJSON_GetObjectItem(atom_item, "properties");
+        if (cJSON_IsObject(props_json)) {
+            cJSON *prop;
+            cJSON_ArrayForEach(prop, props_json) {
+                const char *pkey = prop->string;
+                if (!pkey || !pkey[0]) continue;
 
+                if (cJSON_IsString(prop) && prop->valuestring) {
+                    property_set(txn, atom.id, pkey, PROP_STRING,
+                        prop->valuestring, (uint32_t)strlen(prop->valuestring) + 1);
+                } else if (cJSON_IsBool(prop)) {
+                    bool v = cJSON_IsTrue(prop);
+                    property_set(txn, atom.id, pkey, PROP_BOOL, &v, sizeof(v));
+                } else if (cJSON_IsNumber(prop)) {
+                    double d = prop->valuedouble;
+                    if (d == (double)(int64_t)d) {
+                        int64_t v = (int64_t)d;
+                        property_set(txn, atom.id, pkey, PROP_INT, &v, sizeof(v));
+                    } else {
+                        float v = (float)d;
+                        property_set(txn, atom.id, pkey, PROP_FLOAT, &v, sizeof(v));
+                    }
+                } else if (cJSON_IsArray(prop) || cJSON_IsObject(prop)) {
+                    // Открытая онтология: вложенные структуры не пытаемся
+                    // автоматически разворачивать в отдельные NeuroAtom —
+                    // сохраняем как сырой JSON-текст, ничего не теряя.
+                    char *sub = cJSON_PrintUnformatted(prop);
+                    if (sub) {
+                        property_set(txn, atom.id, pkey, PROP_STRING, sub, (uint32_t)strlen(sub) + 1);
+                        free(sub);
+                    }
+                }
+            }
+        }
         // Если kind не является базовым (т.е. это метатип вроде "skill"),
         // добавляем атом IS_A, связывающий этот объект с соответствующим концептом
         if (cJSON_IsString(kind_json)) {

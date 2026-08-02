@@ -21,6 +21,8 @@
 #include "storage/hyper_atom/hyper_atom.h"
 #include "storage/hyper_atom/hyper_pattern.h"
 #include "math/hash.h"
+#include "reasoning/algorithm_planner.h"
+#include "reasoning/planner.h"
 
 typedef struct {
     IPCPacket *req;
@@ -103,6 +105,19 @@ static int learn_txn_fn(MDB_txn *txn, void *arg) {
     if (job->is_pattern)
         return hyper_pattern_save(txn, db.graph.hyper.patterns, &job->pattern) == MDB_SUCCESS ? 0 : -1;
 
+    // КРИТИЧЕСКИЙ ФИКС: LMDB освобождает структуру MDB_txn* при mdb_txn_commit().
+    // global_hyper_mem->txn после старта процесса указывает на уже закоммиченную
+    // (main.c) или чужую (предыдущий тик MainLoop) транзакцию. hyper_assert*()
+    // внутри perceive_hyper_json()/perceive_and_activate() пишут через
+    // hmem->txn — без этой строки почти каждый "learn" от agent.py писал бы
+    // через use-after-commit транзакцию (UB, тихая порча LMDB).
+    hyper_memory_set_txn(global_hyper_mem, txn);
+
+    // Дешёвая инвалидация кэша find_goal_algorithm_relations() (см. 3.2):
+    // мета-факт GoalAlgorithmRelation меняется исключительно через "learn".
+    if (strstr(job->req->payload, "GoalAlgorithmRelation"))
+        invalidate_goal_algorithm_relation_cache();
+
     cJSON *probe = cJSON_Parse(job->req->payload);
     bool has_atoms = probe && cJSON_HasObjectItem(probe, "atoms");
     bool has_nodes = probe && cJSON_HasObjectItem(probe, "nodes");
@@ -175,4 +190,29 @@ void cmd_think(IPCPacket *req, IPCPacket *resp) {
     const char* ok_msg = "{\"ok\": true, \"msg\": \"MainLoop triggered\"}";
     strncpy(resp->payload, ok_msg, sizeof(resp->payload)-1);
     resp->payload_size = (uint32_t)strlen(ok_msg);
+}
+
+void cmd_clear_cooldown(IPCPacket *req, IPCPacket *resp) {
+    cJSON *root = cJSON_Parse((const char *)req->payload);
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "clear_cooldown", sizeof(resp->name) - 1);
+
+    if (!root) {
+        const char *err = "{\"error\": \"invalid JSON\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+    cJSON *goal_json = cJSON_GetObjectItem(root, "goal");
+    if (cJSON_IsString(goal_json)) {
+        uint64_t goal_id = djb2_hash(goal_json->valuestring);
+        clear_goal_cooldown(goal_id);
+        snprintf(resp->payload, sizeof(resp->payload),
+                 "{\"ok\": true, \"goal_id\": %llu}", (unsigned long long)goal_id);
+    } else {
+        const char *err = "{\"error\": \"missing 'goal'\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+    }
+    cJSON_Delete(root);
+    resp->payload_size = (uint32_t)strlen(resp->payload);
 }

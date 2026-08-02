@@ -15,6 +15,7 @@
 #include "types/exec.h"             // EXEC
 #include "core/globals.h"
 #include "memory/subconscious.h"
+#include "storage/property/property.h"
 
 #define AUDIT_BATCH_SIZE 500
 
@@ -493,4 +494,89 @@ void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
     resp->payload_size = (uint32_t)strlen((char *)resp->payload);
     free(json_str);
     cJSON_Delete(arr);
+}
+
+void req_get_property(IPCPacket *req, IPCPacket *resp) {
+    cJSON *json = cJSON_Parse((const char *)req->payload);
+    uint64_t node_id = 0;
+    char key[256] = {0};
+    if (json) {
+        cJSON *n = cJSON_GetObjectItem(json, "node_id");
+        cJSON *subj = cJSON_GetObjectItem(json, "subject");
+        cJSON *k = cJSON_GetObjectItem(json, "key");
+        if (cJSON_IsNumber(n)) node_id = (uint64_t)n->valuedouble;
+        else if (cJSON_IsString(subj)) node_id = djb2_hash(subj->valuestring);
+        if (cJSON_IsString(k)) strncpy(key, k->valuestring, sizeof(key) - 1);
+        cJSON_Delete(json);
+    }
+
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "get_property", sizeof(resp->name) - 1);
+
+    if (node_id == 0 || key[0] == '\0') {
+        const char *err = "{\"error\": \"node_id/subject and key required\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    MDB_txn *txn;
+    if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) != MDB_SUCCESS) {
+        const char *err = "{\"error\": \"DB transaction failed\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    PropertyType type;
+    uint8_t buf[4096];
+    uint32_t size = 0;
+    int rc = property_get(txn, node_id, key, &type, buf, sizeof(buf), &size);
+    if (rc != MDB_SUCCESS) {
+        mdb_txn_abort(txn);
+        const char *err = "{\"error\": \"not found\"}";
+        strncpy(resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    switch (type) {
+        case PROP_INT: {
+            int64_t v; memcpy(&v, buf, sizeof(v));
+            cJSON_AddNumberToObject(root, "value", (double)v);
+            cJSON_AddStringToObject(root, "type", "int");
+            break;
+        }
+        case PROP_FLOAT: {
+            float v; memcpy(&v, buf, sizeof(v));
+            cJSON_AddNumberToObject(root, "value", (double)v);
+            cJSON_AddStringToObject(root, "type", "float");
+            break;
+        }
+        case PROP_BOOL: {
+            bool v; memcpy(&v, buf, sizeof(v));
+            cJSON_AddBoolToObject(root, "value", v);
+            cJSON_AddStringToObject(root, "type", "bool");
+            break;
+        }
+        case PROP_STRING: {
+            char sbuf[4097];
+            uint32_t n = size < sizeof(sbuf) - 1 ? size : sizeof(sbuf) - 1;
+            memcpy(sbuf, buf, n); sbuf[n] = '\0';
+            cJSON_AddStringToObject(root, "value", sbuf);
+            cJSON_AddStringToObject(root, "type", "string");
+            break;
+        }
+        default:
+            cJSON_AddStringToObject(root, "type", "binary");
+            cJSON_AddNumberToObject(root, "size", size);
+    }
+    mdb_txn_abort(txn);
+
+    char *s = cJSON_PrintUnformatted(root);
+    snprintf(resp->payload, sizeof(resp->payload), "%s", s);
+    resp->payload_size = (uint32_t)strlen(resp->payload);
+    free(s);
+    cJSON_Delete(root);
 }

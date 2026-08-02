@@ -4,7 +4,7 @@
 
 #include "reasoning/strategy_store.h"
 #include "storage/db/db.h"
-#include "storage/property.h"
+#include "storage/property/property.h"
 #include "math/hash.h"
 
 #define STRAT_NODE_ID djb2_hash("ReasoningStrategy:Analogy")
