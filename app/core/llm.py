@@ -1,10 +1,15 @@
 # app/core/llm.py
 import os
+import sys
 import json
 import asyncio
 import httpx
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError
+from dotenv import load_dotenv
+
+# Загружаем ключи из .env файла
+load_dotenv()
 
 OLLAMA_API = "http://localhost:11434/api/generate"
 OPENAI_API = "https://api.openai.com/v1/chat/completions"
@@ -13,7 +18,17 @@ ANTHROPIC_API = "https://api.anthropic.com/v1/messages"
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 class LLMClient:
-    def __init__(self, provider="ollama", model=None, api_key=None):
+    def __init__(self, provider="auto", model=None, api_key=None):
+        if provider == "auto" or provider == "ollama":
+            if provider == "ollama":
+                try:
+                    requests.get("http://localhost:11434/", timeout=0.5)
+                except requests.RequestException:
+                    provider = "auto"
+
+            if provider == "auto":
+                provider = self._auto_discover_provider()
+
         self.provider = provider
         self.model = model or {
             "ollama": "qwen2.5:3b",
@@ -26,16 +41,49 @@ class LLMClient:
             "web_gemini": "gemini"
         }.get(provider, "default")
 
-        # Берем ключ из аргументов или из переменных окружения
-        self.api_key = api_key or os.getenv(f"{provider.upper()}_API_KEY")
+        self.api_key = api_key or os.getenv(f"{self.provider.upper()}_API_KEY")
         self._web_client = None
+
+    def _auto_discover_provider(self):
+        """Пытается найти доступный API-ключ. Игнорирует русские заглушки из .env."""
+        def is_valid_key(k):
+            if not k: return False
+            if "ваш_ключ" in k or "другой_ключ" in k: return False
+            try:
+                # HTTP-заголовки (Bearer) упадут, если ключ содержит не-ASCII символы
+                k.encode('ascii')
+                return True
+            except UnicodeEncodeError:
+                return False
+
+        # 1. Проверяем облачные ключи
+        if is_valid_key(os.getenv("OPENAI_API_KEY")): return "openai"
+        if is_valid_key(os.getenv("GEMINI_API_KEY")): return "gemini"
+        if is_valid_key(os.getenv("DEEPSEEK_API_KEY")): return "deepseek"
+        if is_valid_key(os.getenv("ANTHROPIC_API_KEY")): return "anthropic"
+
+        # 2. Проверяем локальную Ollama
+        try:
+            resp = requests.get("http://localhost:11434/", timeout=0.5)
+            if resp.status_code == 200:
+                return "ollama"
+        except requests.RequestException:
+            pass
+
+        # 3. Фолбэк на бесплатный браузерный Web LLM
+        print("[LLM] ⚠️ Облачные ключи не найдены, Ollama не отвечает. Переход на web_deepseek.")
+        return "web_deepseek"
 
     def query(self, prompt: str, system: str = None, json_mode: bool = True, timeout: int = 120) -> str:
         """Синхронная обертка для обратной совместимости."""
         if self.provider.startswith("web_"):
             return self._query_web(prompt, system, json_mode)
 
-        return asyncio.run(self.aquery(prompt, system, json_mode, timeout))
+        try:
+            return asyncio.run(self.aquery(prompt, system, json_mode, timeout))
+        except Exception as e:
+            print(f"\n[LLM] ⚠️ Ошибка генерации: {e}", file=sys.stderr)
+            return "{}" if json_mode else "Произошла ошибка связи с LLM."
 
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=30),
@@ -59,12 +107,10 @@ class LLMClient:
                 raise ValueError(f"Unknown async provider: {self.provider}")
 
     # --- Асинхронные провайдеры ---
-
     async def _aquery_ollama(self, client: httpx.AsyncClient, prompt: str, system: str, json_mode: bool) -> str:
         payload = {"model": self.model, "prompt": prompt, "stream": False}
         if system: payload["system"] = system
         if json_mode: payload["format"] = "json"
-
         resp = await client.post(OLLAMA_API, json=payload)
         resp.raise_for_status()
         return resp.json().get("response", "")
@@ -74,24 +120,19 @@ class LLMClient:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": prompt})
-
         payload = {"model": self.model, "messages": messages, "temperature": 0.1}
         if json_mode: payload["response_format"] = {"type": "json_object"}
-
         resp = await client.post(OPENAI_API, headers=headers, json=payload)
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
 
     async def _aquery_deepseek(self, client: httpx.AsyncClient, prompt: str, system: str, json_mode: bool) -> str:
         if not self.api_key: raise ValueError("DEEPSEEK_API_KEY is missing")
-        # DeepSeek API совместим с OpenAI форматом
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": prompt})
-
         payload = {"model": self.model, "messages": messages, "temperature": 0.1}
         if json_mode: payload["response_format"] = {"type": "json_object"}
-
         resp = await client.post(DEEPSEEK_API, headers=headers, json=payload)
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
@@ -111,9 +152,7 @@ class LLMClient:
         }
         if system: payload["system"] = system
         if json_mode:
-            # Claude не имеет response_format="json_object", заставляем его выдавать JSON префиллингом
             payload["messages"].append({"role": "assistant", "content": "{"})
-
         resp = await client.post(ANTHROPIC_API, headers=headers, json=payload)
         resp.raise_for_status()
         content = resp.json()["content"][0]["text"]
@@ -122,7 +161,6 @@ class LLMClient:
     async def _aquery_gemini(self, client: httpx.AsyncClient, prompt: str, system: str, json_mode: bool) -> str:
         if not self.api_key: raise ValueError("GEMINI_API_KEY is missing")
         url = GEMINI_API.format(model=self.model) + f"?key={self.api_key}"
-
         full_prompt = f"System: {system}\n\nUser: {prompt}" if system else prompt
         payload = {
             "contents": [{"parts": [{"text": full_prompt}]}],
@@ -130,7 +168,6 @@ class LLMClient:
         }
         if json_mode:
             payload["generationConfig"]["responseMimeType"] = "application/json"
-
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -143,6 +180,7 @@ class LLMClient:
 
         if json_mode:
             prompt += "\n\nОтветь СТРОГО в формате валидного JSON без markdown-обрамления."
+
         if system:
             prompt = f"Системные инструкции: {system}\n\nЗапрос: {prompt}"
 

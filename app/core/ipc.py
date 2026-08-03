@@ -58,12 +58,29 @@ class IPCClient:
     def _send(self, packet):
         if not self.file:
             raise IPCError("Not connected")
+
         name = packet.get("name", "")
         payload = packet.get("payload", "")
+
         # Если payload – dict, сериализуем в JSON-строку
         if isinstance(payload, (dict, list)):
             payload = json.dumps(payload)
+
         # Если payload – строка, кодируем в байты
+        if isinstance(payload, str):
+            payload_bytes = payload.encode('utf-8')
+        elif isinstance(payload, bytes):
+            payload_bytes = payload
+        else:
+            payload_bytes = b''
+
+        id = packet.get("id", 0)
+        parent_id = packet.get("parent_id", 0)
+        timestamp = packet.get("timestamp", 0)
+        ptype = packet.get("type", 0)
+        source = packet.get("source", "\\").encode('utf-8')[:32]
+        destination = packet.get("destination", "").encode('utf-8')[:32]
+        name_enc = name.encode('utf-8')[:64] # Если payload – строка, кодируем в байты
         if isinstance(payload, str):
             payload_bytes = payload.encode()
         elif isinstance(payload, bytes):
@@ -101,9 +118,11 @@ class IPCClient:
     def _recv(self):
         if not self.file:
             raise IPCError("Not connected")
+
         header_data = self.file.read(HEADER_SIZE)
         if len(header_data) < HEADER_SIZE:
             raise IPCError("Connection closed")
+
         id, parent_id, timestamp, ptype, source, destination, name_enc, payload_size = \
             struct.unpack(HEADER_FMT, header_data)
 
@@ -116,7 +135,17 @@ class IPCClient:
         flags_data = self.file.read(FLAGS_SIZE)
         if len(flags_data) < FLAGS_SIZE:
             raise IPCError("Connection closed")
+
         flags = struct.unpack(FLAGS_FMT, flags_data)[0]
+
+        # Определяем тип содержимого
+        if flags & IPC_FLAG_BINARY:
+            payload = payload_data  # сырые байты
+        else:
+            try:
+                payload = json.loads(payload_data.decode('utf-8'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                payload = payload_data.decode('utf-8', errors='replace')
 
         # Определяем тип содержимого
         if flags & IPC_FLAG_BINARY:

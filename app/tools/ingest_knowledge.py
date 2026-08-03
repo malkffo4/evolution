@@ -36,8 +36,8 @@ async def extract_and_learn_chunk(core: CoreClient, llm: LLMClient, chunk: str, 
     async with sem:  # Ограничиваем параллелизм
         prompt = EXTRACTION_PROMPT.format(chunk=chunk)
         raw_response = await llm.aquery(prompt, json_mode=True)
-
         data = parse_json(raw_response)
+
         if not data or "atoms" not in data or not isinstance(data["atoms"], list):
             return 0
 
@@ -52,7 +52,6 @@ async def extract_and_learn_chunk(core: CoreClient, llm: LLMClient, chunk: str, 
         # Отправляем в C-ядро асинхронно. CoreClient внутри использует threading.Lock,
         # так что IPC-сокет не сломается от одновременных записей.
         resp = await core.learn_async({"atoms": atoms})
-
         if resp.get("name") == "error":
             print(f"\n[ERROR] Core rejected atoms: {resp.get('payload')}", file=sys.stderr)
             return 0
@@ -81,10 +80,11 @@ async def ingest_file_async(core: CoreClient, llm: LLMClient, path: Path, source
     total_atoms = sum(results)
     return {"file": str(path), "chunks": len(chunks), "atoms": total_atoms}
 
+
 def main():
     ap = argparse.ArgumentParser(description="Parallel NeuroCore Knowledge Ingestion")
     ap.add_argument("path", type=Path, help="Путь к текстовому файлу (.txt, .md)")
-    ap.add_argument("--provider", default="openai", choices=["ollama", "openai", "gemini", "deepseek", "anthropic"])
+    ap.add_argument("--provider", default="auto", choices=["auto", "ollama", "openai", "gemini", "deepseek", "anthropic"])
     ap.add_argument("--source", default=None, help="Тег источника (по умолчанию имя файла)")
     ap.add_argument("--workers", type=int, default=5, help="Количество параллельных потоков (по умолчанию 5)")
     args = ap.parse_args()

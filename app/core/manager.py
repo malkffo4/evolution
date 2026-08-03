@@ -3,29 +3,37 @@ import signal, subprocess, time, os, sys, json
 import atexit
 from pathlib import Path
 
-from core.ipc import IPCClient, DEFAULT_SOCKET, LOCK_FILE
+from core.ipc import DEFAULT_SOCKET, LOCK_FILE
+from core.sdk import CoreClient
 from core.llm import LLMClient
 from core.bootstrap import bootstrap_knowledge
+
 from services.chat_service import ChatService
 from services.mvp_agent import MvpAgent
+from services.mind_agent import MindAgent
 
 class EvolutionManager:
     def __init__(self):
         self.root = Path(__file__).resolve().parents[2]
         self.core_dir = self.root / "core"
-        self.core_bin = self.core_dir / "build" / "debug" / "bin" / "evolution_core" # Changed to release!
+        self.core_bin = self.core_dir / "build" / "release" / "bin" / "evolution_core"
         self.makefile = self.core_dir / "Makefile"
-
         self.core_process = None
-        self.ipc = IPCClient()
+
+        self.core_client = CoreClient(timeout=2.0)
+        self.llm_client = LLMClient()
+        self.ipc = self.core_client._ipc # Legacy compatibility
+
         self.running = True
         self.core_started_by_manager = False
 
         self.research_worker = self.root / "app" / "services" / "research_worker.py"
         self.research_worker_process = None
 
-        self.chat = ChatService(self.ipc)
-        self.mvp = MvpAgent(self.ipc, LLMClient())
+        # Интегрированные сервисы (используют единый LLM и Core SDK)
+        self.chat = ChatService(self.ipc, self.llm_client)
+        self.mvp = MvpAgent(self.ipc, self.llm_client)
+        self.mind = MindAgent(self.core_client, self.llm_client)
 
         self.core_log_path = "/tmp/evolution_core.log"
         self.core_log_fd = None
@@ -33,10 +41,8 @@ class EvolutionManager:
         self.research_worker_log_fd = None
 
     def initialize(self):
-        # Если запускаем не в тихом режиме (например, не для одноразовой CLI команды), можно принтовать
         self.check_project()
         self.build_core_if_needed()
-
         if self.is_core_responding():
             self.core_started_by_manager = False
             self.connect_ipc()
@@ -44,14 +50,12 @@ class EvolutionManager:
             self.start_core()
             self.core_started_by_manager = True
             self.wait_core()
-
         try:
             self.start_research_worker()
         except Exception:
             self.shutdown()
             raise
 
-    # ... (Оставляем методы start_research_worker, _stop_research_worker, is_core_responding, wait_core, check_project без изменений) ...
     def start_research_worker(self):
         try:
             if self.research_worker_process and self.research_worker_process.poll() is None:
@@ -96,11 +100,10 @@ class EvolutionManager:
     def is_core_responding(self):
         if not os.path.exists(DEFAULT_SOCKET): return False
         try:
-            test = IPCClient(timeout=2.0)
+            test = CoreClient(timeout=1.0)
             test.connect()
-            ok = test.ping()
             test.close()
-            return ok
+            return True
         except Exception:
             return False
 
@@ -110,10 +113,9 @@ class EvolutionManager:
                 raise RuntimeError(f"Core died! Check {self.core_log_path}")
             try:
                 self.connect_ipc()
-                if self.ipc.ping(): return
+                return
             except Exception:
-                self.ipc.close()
-                self.ipc.sock = None
+                pass
             time.sleep(interval)
         raise RuntimeError(f"IPC timeout. Core might be stuck.")
 
@@ -124,7 +126,7 @@ class EvolutionManager:
     def build_core_if_needed(self):
         if self.core_bin.exists(): return
         print("[Manager] Building C core (release mode)...")
-        result = subprocess.run(["make", "release"], cwd=self.core_dir) # Build release by default!
+        result = subprocess.run(["make", "release"], cwd=self.core_dir)
         if result.returncode != 0: raise RuntimeError("Core build failed.")
         if not self.core_bin.exists(): raise RuntimeError("Compiled binary not found.")
 
@@ -147,8 +149,7 @@ class EvolutionManager:
         return self.is_core_responding()
 
     def connect_ipc(self):
-        if self.ipc.sock is None:
-            self.ipc.connect()
+        self.core_client.connect()
 
     def format_and_print_response(self, response):
         if not response:
@@ -172,8 +173,6 @@ class EvolutionManager:
         else:
             print(f"\nAI (Raw): {response}")
 
-    # Убрали метод run(), он теперь будет в отдельном REPL-классе (или в main.py)
-
     def execute_command(self, cmd_name: str, *args):
         """Метод для выполнения разовых команд (из CLI или REPL)."""
         cmd_name = cmd_name.lower()
@@ -184,7 +183,7 @@ class EvolutionManager:
                 time.sleep(0.5)
             except Exception as e:
                 print(f"[ERROR] {e}")
-            return False # Signal to stop
+            return False
 
         elif cmd_name == "retrieve":
             keyword = " ".join(args)
@@ -197,16 +196,15 @@ class EvolutionManager:
             text_to_learn = " ".join(args)
             print("[Learner] Extracting triplets and writing to C-core...")
             try:
-                graph = self.mvp.extract_triplets(text_to_learn)
-                resp = self.mvp.store_graph(graph)
-                print(f"[Learner] nodes={len(graph.get('nodes', []))} "
-                      f"edges={len(graph.get('edges', []))} -> {resp.get('payload')}")
+                graph = self.mvp.extract_atoms(text_to_learn)
+                resp = self.mvp.store_atoms(graph)
+                print(f"[Learner] atoms={len(graph.get('atoms', []))} -> {resp.get('payload')}")
             except Exception as e: print(f"[ERROR] {e}")
 
         elif cmd_name == "think":
             try:
-                resp = self.ipc.command("think")
-                self.format_and_print_response(resp)
+                self.core_client.think()
+                print("\n[OK] MainLoop triggered.")
             except Exception as e: print(f"[ERROR] {e}")
 
         elif cmd_name == "bootstrap":
@@ -227,30 +225,34 @@ class EvolutionManager:
                 print(f"\nAI: {reply}")
             except Exception as e: print(f"[ERROR] {e}")
 
+        elif cmd_name == "agent":
+            text = " ".join(args)
+            try:
+                reply = self.mind.think(text)
+                print(f"\nAI: {reply}")
+            except Exception as e: print(f"[ERROR] {e}")
+
         elif cmd_name == "ingest":
              file_path = args[0] if args else None
              if not file_path:
                  print("Usage: ingest <file_path>")
              else:
-                 # Делегируем вызов нашему скрипту
                  print(f"[Manager] Starting parallel ingestion for {file_path}...")
                  from tools.ingest_knowledge import main as run_ingest
-                 # Подменяем sys.argv чтобы argparse внутри ingest_knowledge сработал правильно
                  sys.argv = ["ingest_knowledge.py", file_path]
                  run_ingest()
-
         else:
             print(f"Unknown command: {cmd_name}")
-
-        return True # Continue running
+        return True
 
     def shutdown(self):
         if getattr(self, "_shutdown_done", False): return
         self._shutdown_done = True
         self.running = False
-        try: self.ipc.close()
+        try: self.core_client.close()
         except Exception: pass
         self._stop_research_worker(force=True)
+
         if self.core_started_by_manager:
             if self.core_process and self.core_process.poll() is None:
                 try:
@@ -262,6 +264,7 @@ class EvolutionManager:
             if os.path.exists(DEFAULT_SOCKET):
                 try: os.unlink(DEFAULT_SOCKET)
                 except Exception: pass
+
         if getattr(self, 'core_log_fd', None):
             try: self.core_log_fd.close()
             except: pass

@@ -19,6 +19,7 @@
 static int listen_fd = -1;
 static IPCClient clients[MAX_CLIENTS];
 static pthread_t accept_thread;
+static pthread_t broadcast_thread; // Поток для рассылки событий
 static volatile int running = 0;
 
 static int send_all(int fd, const void *buf, size_t len) {
@@ -146,26 +147,38 @@ static void *client_rx_loop(void *arg) {
         if (transport_recv_fd(client->fd, &request) != IPC_OK)
             break;
 
+        // --- ПЕРЕХВАТ КОМАНДЫ ПОДПИСКИ НА СОБЫТИЯ ---
+        if (request.type == IPC_COMMAND && strcmp(request.name, "subscribe") == 0) {
+            client->is_subscriber = 1;
+            memset(&response, 0, sizeof(response));
+            response.id = request.id;
+            response.type = IPC_RESPONSE;
+            snprintf(response.name, sizeof(response.name), "subscribe");
+            snprintf((char *)response.payload, sizeof(response.payload), "{\"ok\": true}");
+            response.payload_size = (uint32_t)strlen((char *)response.payload);
+            transport_send_fd(client->fd, &response);
+            LOG_IPC("Client fd=%d subscribed to event stream", client->fd);
+            continue; // Не отдаем в диспетчер
+        }
+
         memset(&response, 0, sizeof(response));
         response.id = request.id;
         response.type = IPC_RESPONSE;
 
-        // ИСПРАВЛЕНИЕ: Вызываем диспетчер напрямую в потоке клиента, а не шину
+        // Вызываем диспетчер напрямую в потоке клиента, а не шину
         int rc = ipc_dispatch(&request, &response);
-
         if (rc != IPC_OK) {
             if (response.payload[0] == '\0') {
                 response.type = IPC_RESPONSE;
                 snprintf(response.name, sizeof(response.name), "error");
-                snprintf(response.payload, sizeof(response.payload), "Internal dispatch error");
-                response.payload_size = (uint32_t)strlen(response.payload);
+                snprintf((char *)response.payload, sizeof(response.payload), "Internal dispatch error");
+                response.payload_size = (uint32_t)strlen((char *)response.payload);
             }
         }
 
         // Отправляем ответ обратно клиенту только если сокет жив
         if (client->alive) {
-            IPCStatus st = transport_send_fd(client->fd, &response);
-            if (st != IPC_OK) {
+            if (transport_send_fd(client->fd, &response) != IPC_OK) {
                 break;
             }
         }
@@ -175,6 +188,27 @@ static void *client_rx_loop(void *arg) {
     close(client->fd);
     client->fd = -1;
     client->alive = 0;
+    return NULL;
+}
+
+// --- ФОНОВЫЙ ПОТОК РАССЫЛКИ СОБЫТИЙ ---
+static void *broadcast_loop(void *arg) {
+    (void)arg;
+    IPCPacket packet;
+
+    while (running) {
+        // bus_tx_pop блокируется до появления события или вызова bus_stop()
+        if (bus_tx_pop(&packet) == IPC_OK) {
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                // Если клиент жив и подписался на события — отправляем
+                if (clients[i].alive && clients[i].is_subscriber) {
+                    transport_send_fd(clients[i].fd, &packet);
+                }
+            }
+        } else {
+            break; // Шина была остановлена
+        }
+    }
     return NULL;
 }
 
@@ -188,18 +222,22 @@ static void *accept_loop(void *arg) {
             }
             continue;
         }
+
         if (!running) {
             close(fd);
             break;
         }
+
         IPCClient *client = alloc_client();
         if (!client) {
             LOG_WARN("Too many IPC clients connected simultaneously");
             close(fd);
             continue;
         }
+
         client->fd = fd;
         LOG_IPC("Client connected fd=%d", fd);
+
         int rc = pthread_create(&client->thread, NULL, client_rx_loop, client);
         if (rc != 0) {
             LOG_ERROR("pthread_create() failed: %s", strerror(errno));
@@ -213,27 +251,33 @@ static void *accept_loop(void *arg) {
 IPCStatus transport_server_start(void) {
     struct sockaddr_un addr;
     unlink(SOCKET_PATH);
+
     listen_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (listen_fd < 0) {
         LOG_ERROR("socket() failed: %s", strerror(errno));
         return IPC_ERROR;
     }
+
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
+
     if (bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         LOG_ERROR("bind() failed: %s", strerror(errno));
         close(listen_fd);
         listen_fd = -1;
         return IPC_ERROR;
     }
+
     if (listen(listen_fd, 64) < 0) {
         LOG_ERROR("listen() failed: %s", strerror(errno));
         close(listen_fd);
         listen_fd = -1;
         return IPC_ERROR;
     }
+
     running = 1;
+
     int rc = pthread_create(&accept_thread, NULL, accept_loop, NULL);
     if (rc != 0) {
         LOG_ERROR("pthread_create(accept_thread) failed: %s", strerror(errno));
@@ -241,6 +285,16 @@ IPCStatus transport_server_start(void) {
         listen_fd = -1;
         return IPC_ERROR;
     }
+
+    // Запускаем поток-броадкастер
+    int rc_bcast = pthread_create(&broadcast_thread, NULL, broadcast_loop, NULL);
+    if (rc_bcast != 0) {
+        LOG_ERROR("pthread_create(broadcast_thread) failed: %s", strerror(errno));
+        close(listen_fd);
+        listen_fd = -1;
+        return IPC_ERROR;
+    }
+
     LOG_IPC("IPC server listening on %s", SOCKET_PATH);
     return IPC_OK;
 }
@@ -249,7 +303,7 @@ void transport_server_stop(void) {
     if (!running) return;
     running = 0;
 
-    // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Вызываем shutdown() перед close().
+    // Вызываем shutdown() перед close().
     // Это гарантированно заставляет блокирующий вызов accept() в accept_thread проснуться и выйти.
     if (listen_fd >= 0) {
         shutdown(listen_fd, SHUT_RDWR);
@@ -258,6 +312,7 @@ void transport_server_stop(void) {
     }
 
     pthread_join(accept_thread, NULL);
+    pthread_join(broadcast_thread, NULL); // Дожидаемся завершения бродкастера
 
     // Мягко закрываем всех клиентов
     for (int i = 0; i < MAX_CLIENTS; ++i) {
@@ -270,6 +325,7 @@ void transport_server_stop(void) {
             }
         }
     }
+
     unlink(SOCKET_PATH);
     LOG_IPC("IPC server stopped cleanly");
 }
