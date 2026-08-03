@@ -1,6 +1,7 @@
 // core/src/memory/working.c
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <stdbool.h>
 
 #include "working.h"
@@ -12,6 +13,7 @@
 #include "storage/hyper_atom/hyper_atom.h"
 #include "reasoning/algorithm_planner.h"
 #include "reasoning/planner.h"
+#include "ipc/ipc.h"
 
 int wm_init(WorkingMemory *wm, uint32_t node_cap, uint32_t edge_cap) {
     if (!wm) return 1;
@@ -48,13 +50,14 @@ int wm_init(WorkingMemory *wm, uint32_t node_cap, uint32_t edge_cap) {
     }
     wm->count = 0;
     wm->tick = 0;
-    
+
     return 0;
 }
 
 void wm_clear(WorkingMemory *wm) {
     if (!wm) return;
     pthread_rwlock_wrlock(&wm->lock);
+
     if (wm->active_nodes.items) {
         free(wm->active_nodes.items);
         wm->active_nodes.items = NULL;
@@ -78,6 +81,7 @@ void wm_clear(WorkingMemory *wm) {
     wm->active_nodes.count = 0;
     wm->active_edges.count = 0;
     wm->count = 0;
+
     pthread_rwlock_unlock(&wm->lock);
     pthread_rwlock_destroy(&wm->lock);
 }
@@ -85,6 +89,7 @@ void wm_clear(WorkingMemory *wm) {
 void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float base_emotion) {
     if (!wm) return;
     pthread_rwlock_wrlock(&wm->lock);
+
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
         return;
@@ -107,6 +112,12 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
         wm->nodes[wm->count].properties = NULL;
         wm->nodes[wm->count].attention_weight = base_emotion;
         wm->count++;
+
+        // Транслируем событие о том, что узел попал в фокус мозга
+        char event_buf[128];
+        snprintf(event_buf, sizeof(event_buf), "{\"node_id\": %llu, \"activation\": %.2f}",
+                 (unsigned long long)node_id, activation);
+        ipc_emit_event("NodeActivated", event_buf);
     }
     pthread_rwlock_unlock(&wm->lock);
 }
@@ -114,16 +125,16 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
 void wm_decay(WorkingMemory *wm) {
     if (!wm) return;
     pthread_rwlock_wrlock(&wm->lock);
+
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
         return;
     }
 
     for (uint32_t i = 0; i < wm->count; i++) {
-        wm->nodes[i].activation *= 0.9f; // Угасание мысли на 10% каждый тик
+        wm->nodes[i].activation *= 0.9f;
         wm->nodes[i].state.urgency *= 0.8f;
 
-        // Если узел остыл - освобождаем динамические свойства и вычищаем из массива
         if (wm->nodes[i].activation < 0.05f) {
             DynamicProperty *curr = wm->nodes[i].properties;
             while (curr) {
@@ -133,7 +144,7 @@ void wm_decay(WorkingMemory *wm) {
             }
             wm->nodes[i] = wm->nodes[wm->count - 1];
             wm->count--;
-            i--; // Повторяем проверку для сдвинутого элемента
+            i--;
         }
     }
     pthread_rwlock_unlock(&wm->lock);
@@ -142,7 +153,9 @@ void wm_decay(WorkingMemory *wm) {
 void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn) {
     (void)lmdb_txn;
     if (!wm) return;
+
     pthread_rwlock_wrlock(&wm->lock);
+
     if (!wm->nodes || wm->count < 2) {
         pthread_rwlock_unlock(&wm->lock);
         return;
@@ -155,7 +168,7 @@ void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn) {
             if (wm->nodes[j].activation < 0.2f) continue;
 
             float transfer = wm->nodes[i].activation * wm->nodes[j].activation * 0.1f;
-            
+
             if (wm->nodes[i].state.danger > 0.5f) {
                 wm->nodes[j].state.danger += transfer;
             }
@@ -170,6 +183,7 @@ void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn) {
 void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const char *value) {
     if (!wm || !key || !value) return;
     pthread_rwlock_wrlock(&wm->lock);
+
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
         return;
@@ -188,7 +202,6 @@ void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const
                 }
                 curr = curr->next;
             }
-
             DynamicProperty *new_prop = calloc(1, sizeof(DynamicProperty));
             if (!new_prop) {
                 pthread_rwlock_unlock(&wm->lock);
@@ -199,7 +212,7 @@ void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const
             new_prop->value[sizeof(new_prop->value) - 1] = '\0';
             new_prop->next = wm->nodes[i].properties;
             wm->nodes[i].properties = new_prop;
-            
+
             pthread_rwlock_unlock(&wm->lock);
             return;
         }
@@ -210,6 +223,7 @@ void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const
 const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key) {
     if (!wm || !key) return NULL;
     pthread_rwlock_rdlock(&wm->lock);
+
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
         return NULL;
@@ -217,6 +231,7 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
 
     uint64_t key_hash = djb2_hash(key);
     const char *result = NULL;
+
     for (uint32_t i = 0; i < wm->count; i++) {
         if (wm->nodes[i].node_id == node_id) {
             DynamicProperty *curr = wm->nodes[i].properties;
@@ -236,8 +251,8 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
 
 node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem, float activation_threshold) {
     if (!wm) return 0;
-
     pthread_rwlock_rdlock(&wm->lock);
+
     if (!wm->nodes) {
         pthread_rwlock_unlock(&wm->lock);
         return 0;
@@ -248,21 +263,17 @@ node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem, float activa
 
     for (uint32_t i = 0; i < wm->count; i++) {
         WorkingNode *n = &wm->nodes[i];
-        // Единый гомеостатический порог вместо раздельных хардкодов 0.6f/0.7f.
-        // usefulness должен быть чуть строже activation — коэффициент 1.15
-        // отражает то, что "полезность" исторически была более консервативным
-        // фильтром в исходном коде; сохраняем это отношение, но привязываем
-        // оба к одному дрейфующему параметру.
+
         if (n->activation < activation_threshold ||
             n->state.usefulness < activation_threshold * 1.15f)
             continue;
+
         if (is_goal_on_cooldown(n->node_id)) continue;
 
-        // Динамическая проверка: есть ли атом отношения Goal-Algorithm?
         node_id_t rel_ids[16];
         size_t rel_count = find_goal_algorithm_relations(hmem, rel_ids, 16);
-
         bool is_goal = false;
+
         for (size_t r = 0; r < rel_count; r++) {
             NeuroAtom *atoms = NULL;
             size_t count = 0;
@@ -284,20 +295,16 @@ node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem, float activa
             best_id = n->node_id;
         }
     }
-
     pthread_rwlock_unlock(&wm->lock);
     return best_id;
 }
 
-// Потокобезопасные обёртки для ручной блокировки из VM-операторов при необходимости
 void wm_rdlock(WorkingMemory *wm) {
     if (wm) pthread_rwlock_rdlock(&wm->lock);
 }
-
 void wm_wrlock(WorkingMemory *wm) {
     if (wm) pthread_rwlock_wrlock(&wm->lock);
 }
-
 void wm_unlock(WorkingMemory *wm) {
     if (wm) pthread_rwlock_unlock(&wm->lock);
 }

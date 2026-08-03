@@ -25,9 +25,7 @@ static const Route request_routes[] = {
 };
 
 static const Route response_routes[] = {
-    { "generate_reply", resp_generate_reply },
-    { "embedding",      resp_embedding },
-    { "rerank",         resp_rerank },
+    // Ядро больше не ждет синхронных ответов от Python
     { NULL, NULL }
 };
 
@@ -42,9 +40,7 @@ static const Route command_routes[] = {
 };
 
 static const Route event_routes[] = {
-    { "generate_reply", evt_generate_reply },
-    { "embedding",      evt_embedding },
-    { "rerank",         evt_rerank },
+    // Входящие события от Python нам пока не нужны, ядро только отправляет их
     { NULL, NULL }
 };
 
@@ -69,10 +65,8 @@ static Handler find_handler(const Route *table, const char *name) {
 int ipc_dispatch(IPCPacket *req, IPCPacket *resp) {
     if (!req || !resp)
         return IPC_ERROR;
-
     if (req->type >= sizeof(routes)/sizeof(routes[0]))
         return IPC_ERROR;
-
     return dispatch_table(routes[req->type], req, resp);
 }
 
@@ -81,13 +75,11 @@ static int dispatch_table(const Route *table, IPCPacket *req, IPCPacket *resp) {
         ipc_send_error(req, resp, "Invalid route table");
         return IPC_ERROR;
     }
-
     Handler h = find_handler(table, req->name);
     if (!h) {
         ipc_send_error(req, resp, "Unknown route");
         return IPC_ERROR;
     }
-
     h(req, resp);
     return IPC_OK;
 }
@@ -97,5 +89,5 @@ void ipc_send_error(IPCPacket *req, IPCPacket *resp, const char *message) {
     resp->type = IPC_RESPONSE;
     snprintf(resp->name, sizeof(resp->name), "error");
     snprintf((char *)resp->payload, sizeof(resp->payload), "%s", message);
-    resp->payload_size = (uint32_t)strlen(resp->payload);
+    resp->payload_size = (uint32_t)strlen((char *)resp->payload);
 }
