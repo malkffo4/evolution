@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-# app/tools/verify_persistence.py
+# app/tests/verify_persistence.py
 """Запускать ПОСЛЕ перезапуска ядра. LMDB (./data) уже персистентна по
 умолчанию — этот скрипт только ставит это под проверку, никакого нового
 кода для самой персистентности не требуется."""
-from agi_client import connect, get_score, get_episodes
+
+import sys
+from pathlib import Path
+
+# ИСПРАВЛЕНИЕ: Добавляем корень 'app' в sys.path для корректных импортов
+APP_DIR = Path(__file__).resolve().parents[1]
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+
+from tools.agi_client import connect, get_score, get_episodes
 
 ALGO = "AverageOfThree"
 GOAL = "ComputeAverage"
