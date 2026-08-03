@@ -3,5 +3,6 @@ wikipedia-api
 requests
 python-dotenv
 playwright
-# openai
-# google
+httpx
+tenacity
+tqdm

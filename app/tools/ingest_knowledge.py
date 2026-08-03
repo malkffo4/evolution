@@ -1,129 +1,113 @@
 #!/usr/bin/env python3
 # app/tools/ingest_knowledge.py
 """
-Knowledge Ingestion Pipeline (RFC-0002, TODO Priority 2).
+Асинхронный параллельный Knowledge Ingestion Pipeline.
+Разбивает текст на чанки и парсит их через облачные API одновременно,
+что ускоряет загрузку целых книг в десятки раз.
 
-Text -> Chunking -> LLM extraction (EXTRACTION_PROMPT) -> IPC "learn" ->
-perceive_hyper_json() -> HyperMemory. Использует тот же формат атомов
-и тот же IPC-путь, что и app/services/research_worker.py — никаких
-новых C-структур или таблиц LMDB.
+Зависит от: pip install httpx tenacity tqdm
 """
+
+import asyncio
 import argparse
-import json
-import re
 import sys
-import time
 from pathlib import Path
 
+# Чтобы импорты из корня app работали корректно
 APP_DIR = Path(__file__).resolve().parents[1]
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-from core.ipc import IPCClient
+try:
+    from tqdm.asyncio import tqdm
+except ImportError:
+    print("[ERROR] Please install dependencies: pip install tqdm httpx tenacity", file=sys.stderr)
+    sys.exit(1)
+
+from core.sdk import CoreClient, chunk_text, parse_json
 from core.llm import LLMClient
 from knowledge.prompts import EXTRACTION_PROMPT
 
-CHUNK_SIZE_CHARS = 2800   # запас под EXTRACTION_PROMPT.format(chunk=text[:3000])
-CHUNK_OVERLAP = 200       # не рвём сущность/предложение на границе чанка
-MAX_RETRIES = 2
+# Максимальное количество одновременных запросов к API
+MAX_CONCURRENT_TASKS = 5
 
+async def extract_and_learn_chunk(core: CoreClient, llm: LLMClient, chunk: str, source_tag: str, sem: asyncio.Semaphore) -> int:
+    """Асинхронный воркер: запрашивает LLM и отправляет извлеченные атомы в ядро."""
+    async with sem:  # Ограничиваем параллелизм
+        prompt = EXTRACTION_PROMPT.format(chunk=chunk)
+        raw_response = await llm.aquery(prompt, json_mode=True)
 
-def chunk_text(text: str, size: int = CHUNK_SIZE_CHARS, overlap: int = CHUNK_OVERLAP) -> list:
-    """Режем по границам предложений, а не посередине слова."""
-    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-    chunks, current = [], ""
-    for s in sentences:
-        if len(current) + len(s) + 1 > size and current:
-            chunks.append(current.strip())
-            current = current[-overlap:] + " " + s
-        else:
-            current = (current + " " + s).strip()
-    if current.strip():
-        chunks.append(current.strip())
-    return chunks
+        data = parse_json(raw_response)
+        if not data or "atoms" not in data or not isinstance(data["atoms"], list):
+            return 0
 
-
-def _parse_llm_json(raw: str):
-    if not raw:
-        return None
-    raw = re.sub(r"^```(json)?", "", raw.strip()).strip()
-    raw = re.sub(r"```$", "", raw).strip()
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
-    m = re.search(r"\{.*\}", raw, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(0))
-        except json.JSONDecodeError:
-            return None
-    return None
-
-
-def extract_atoms(llm: LLMClient, chunk: str) -> list:
-    for attempt in range(MAX_RETRIES + 1):
-        raw = llm.query(EXTRACTION_PROMPT.format(chunk=chunk), json_mode=True)
-        parsed = _parse_llm_json(raw)
-        if parsed is not None and isinstance(parsed.get("atoms"), list):
-            return parsed["atoms"]
-        print(f"  [ingest] невалидный JSON от LLM (попытка {attempt+1}/{MAX_RETRIES+1}), retry...",
-              file=sys.stderr)
-    return []
-
-
-def ingest_file(ipc: IPCClient, llm: LLMClient, path: Path, source_tag: str = None) -> dict:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    chunks = chunk_text(text)
-    source_tag = source_tag or path.name
-    total_atoms = 0
-
-    print(f"[ingest] '{path.name}': {len(chunks)} чанк(ов), ~{len(text)} символов")
-
-    for i, chunk in enumerate(chunks, 1):
-        atoms = extract_atoms(llm, chunk)
+        atoms = data["atoms"]
         if not atoms:
-            print(f"  [{i}/{len(chunks)}] атомов не извлечено, пропуск")
-            continue
+            return 0
 
-        # Provenance (docs/03_Knowledge.md: "Evidence") — если LLM не указала
-        # context сама, проставляем источник, чтобы знание не было "ничьим".
+        # Добавляем provenance (источник)
         for a in atoms:
             a.setdefault("context", source_tag)
 
-        resp = ipc.command("learn", json.dumps({"atoms": atoms}))
+        # Отправляем в C-ядро асинхронно. CoreClient внутри использует threading.Lock,
+        # так что IPC-сокет не сломается от одновременных записей.
+        resp = await core.learn_async({"atoms": atoms})
+
         if resp.get("name") == "error":
-            print(f"  [{i}/{len(chunks)}] learn failed: {resp.get('payload')}", file=sys.stderr)
-            continue
+            print(f"\n[ERROR] Core rejected atoms: {resp.get('payload')}", file=sys.stderr)
+            return 0
 
-        total_atoms += len(atoms)
-        print(f"  [{i}/{len(chunks)}] +{len(atoms)} атомов (всего: {total_atoms})")
-        time.sleep(0.05)  # не забиваем IPC-очередь одномоментно
+        return len(atoms)
 
+async def ingest_file_async(core: CoreClient, llm: LLMClient, path: Path, source_tag: str) -> dict:
+    """Читает файл, режет на чанки и запускает пул асинхронных воркеров."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    chunks = chunk_text(text)
+
+    print(f"[ingest] Начинаю парсинг '{path.name}': {len(chunks)} чанков, {len(text)} символов.")
+    print(f"[ingest] Модель: {llm.provider} ({llm.model})")
+
+    # Семафор ограничивает количество параллельных HTTP запросов к LLM провайдеру
+    sem = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+
+    tasks = [
+        extract_and_learn_chunk(core, llm, chunk, source_tag, sem)
+        for chunk in chunks
+    ]
+
+    # Запускаем все задачи с красивым прогресс-баром
+    results = await tqdm.gather(*tasks, desc="Извлечение знаний", unit="чанк")
+
+    total_atoms = sum(results)
     return {"file": str(path), "chunks": len(chunks), "atoms": total_atoms}
 
-
 def main():
-    ap = argparse.ArgumentParser(description="NeuroCore Knowledge Ingestion")
-    ap.add_argument("path", type=Path, help=".txt или .md файл")
-    ap.add_argument("--provider", default="ollama", choices=["ollama", "openai", "gemini"])
-    ap.add_argument("--source", default=None)
+    ap = argparse.ArgumentParser(description="Parallel NeuroCore Knowledge Ingestion")
+    ap.add_argument("path", type=Path, help="Путь к текстовому файлу (.txt, .md)")
+    ap.add_argument("--provider", default="openai", choices=["ollama", "openai", "gemini", "deepseek", "anthropic"])
+    ap.add_argument("--source", default=None, help="Тег источника (по умолчанию имя файла)")
+    ap.add_argument("--workers", type=int, default=5, help="Количество параллельных потоков (по умолчанию 5)")
     args = ap.parse_args()
 
     if not args.path.exists():
-        sys.exit(f"[ingest] файл не найден: {args.path}")
-    if args.path.suffix.lower() not in (".txt", ".md"):
-        sys.exit(f"[ingest] неподдерживаемое расширение: {args.path.suffix}")
+        sys.exit(f"[ERROR] Файл не найден: {args.path}")
 
-    ipc = IPCClient()
-    ipc.connect()
-    assert ipc.ping(), "Core not responding"
+    global MAX_CONCURRENT_TASKS
+    MAX_CONCURRENT_TASKS = args.workers
+
+    # Инициализация клиентов
+    core = CoreClient().connect()
     llm = LLMClient(provider=args.provider)
+    source_tag = args.source or args.path.name
 
-    result = ingest_file(ipc, llm, args.path, args.source)
-    print(f"\n[ingest] ГОТОВО: {result['atoms']} атомов из {result['chunks']} чанков -> HyperMemory")
-    ipc.close()
-
+    # Запуск асинхронного цикла
+    try:
+        result = asyncio.run(ingest_file_async(core, llm, args.path, source_tag))
+        print(f"\n[ingest] ГОТОВО! Успешно загружено {result['atoms']} атомов из {result['chunks']} чанков в HyperMemory.")
+    except KeyboardInterrupt:
+        print("\n[ingest] Прервано пользователем.")
+    finally:
+        core.close()
 
 if __name__ == "__main__":
     main()
