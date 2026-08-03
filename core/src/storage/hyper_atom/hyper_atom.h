@@ -19,6 +19,12 @@ typedef uint64_t ko_id_t;
 #define HYPER_TYPE_FLOAT  0x8000000000000000ULL // 10: Float (упакованный)
 #define HYPER_TYPE_STR    0xC000000000000000ULL // 11: Короткая строка (Inline)
 
+// --- ТЕНЕВЫЕ ID ДЛЯ ПЕСОЧНИЦЫ ---
+// Используем 61-й бит для обозначения временных атомов, живущих только в RAM.
+#define HYPER_SHADOW_BIT      0x2000000000000000ULL
+#define HYPER_IS_SHADOW(id)   (((id) & HYPER_SHADOW_BIT) != 0)
+#define HYPER_MAKE_SHADOW(id) ((id) | HYPER_SHADOW_BIT)
+
 // Макросы для работы с аргументами
 #define HYPER_GET_TYPE(val) ((val) & HYPER_TYPE_MASK)
 #define HYPER_GET_ID(val)   ((val) & HYPER_VALUE_MASK)
