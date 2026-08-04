@@ -16,7 +16,7 @@ class EvolutionManager:
     def __init__(self):
         self.root = Path(__file__).resolve().parents[2]
         self.core_dir = self.root / "core"
-        self.core_bin = self.core_dir / "build" / "release" / "bin" / "evolution_core"
+        self.core_bin = self.core_dir / "build" / "debug" / "bin" / "evolution_core"
         self.makefile = self.core_dir / "Makefile"
         self.core_process = None
 
@@ -155,7 +155,23 @@ class EvolutionManager:
         if not response:
             print("[System] No response received.")
             return
+
         payload_raw = response.get("payload", "")
+
+        # Если payload уже распарсен в словарь (благодаря ipc.py)
+        if isinstance(payload_raw, dict):
+            if "reply" in payload_raw:
+                print(f"\nAI: {payload_raw['reply']}")
+                return
+            if payload_raw.get("ok") is True:
+                msg = payload_raw.get("msg", "Command completed successfully.")
+                print(f"\n[OK] {msg}")
+                return
+            if "error" in payload_raw:
+                print(f"\n[ERROR] {payload_raw['error']}")
+                return
+
+        # Если payload остался строкой
         if isinstance(payload_raw, str) and payload_raw.strip():
             try:
                 payload = json.loads(payload_raw)
@@ -164,13 +180,16 @@ class EvolutionManager:
                         print(f"\nAI: {payload['reply']}")
                         return
                     if payload.get("ok") is True:
-                        print("\n[OK] Command completed successfully.")
+                        msg = payload.get("msg", "Command completed successfully.")
+                        print(f"\n[OK] {msg}")
+                        return
+                    if "error" in payload:
+                        print(f"\n[ERROR] {payload['error']}")
                         return
             except json.JSONDecodeError:
                 pass
-        if isinstance(payload_raw, str) and payload_raw.strip():
             print(f"\nAI: {payload_raw}")
-        else:
+        elif not isinstance(payload_raw, dict):
             print(f"\nAI (Raw): {response}")
 
     def execute_command(self, cmd_name: str, *args):

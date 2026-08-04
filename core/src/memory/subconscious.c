@@ -38,6 +38,129 @@ static uint64_t main_loop_algo_id = 0;
 static pthread_t decay_timer_thread;
 static volatile int decay_timer_running = 0;
 
+/*
+ * Регистровый контракт InductiveExtractor <-> MetaCriticGraph:
+ *   R12 = R_RULE_HEAD     — id первой инструкции сгенерированного правила
+ *   R13 = R_PATTERN_COUNT — сила паттерна (сколько раз наблюдался)
+ *   R14 = R_EVAL_STATUS   — VMStatus исполнения правила в песочнице
+ * Эти три регистра — единственный публичный интерфейс между алгоритмами,
+ * далее у каждого своё приватное окно.
+ */
+enum {
+    R_RULE_HEAD     = 12,
+    R_PATTERN_COUNT = 13,
+    R_EVAL_STATUS   = 14,
+
+    // --- приватное окно InductiveExtractor ---
+    R_GOAL           = 44,
+    R_GOAL_FOUND     = 45,
+    R_MINCOUNT       = 46,
+    R_PATTERN_PROC   = 47,
+    R_PATTERN_SAMPLE = 48,
+    R_PATTERN_FOUND  = 49,
+    R_ZERO           = 50,
+    R_SANDBOX_CTX    = 51,
+    R_CAUSE          = 52,
+    R_NEW_ATOM       = 53,
+    R_MAXTICKS       = 58,
+    R_META_ALGO      = 59,
+
+    // --- регистры ВНУТРИ сгенерированного правила (используются только
+    //     при его исполнении через OP_EVAL_GRAPH, не InductiveExtractor'ом) ---
+    RULE_R_PROC    = 60,
+    RULE_R_SUBJECT = 61,
+    RULE_R_CTX     = 62,
+    RULE_R_TMP     = 63,
+};
+
+static Pipeline* build_inductive_extractor_pipeline(node_id_t meta_critic_algo_id) {
+    Pipeline *p = pipeline_create();
+    if (!p) return NULL;
+
+    p->constants.int_consts = malloc(4 * sizeof(int64_t));
+    if (!p->constants.int_consts) { pipeline_free(p); return NULL; }
+    p->constants.int_consts[0] = 0;                          // R_ZERO
+    p->constants.int_consts[1] = 3;                           // R_MINCOUNT
+    p->constants.int_consts[2] = 16;                          // R_MAXTICKS (лимит тиков песочницы)
+    p->constants.int_consts[3] = (int64_t)meta_critic_algo_id;// R_META_ALGO
+    p->constants.int_count = 4;
+
+    union { float f; uint32_t u; } merge_thresh;
+    merge_thresh.f = 0.60f;   // порог, начиная с которого MERGE_CTX закрепит правило
+
+#define GEN_INSTR_FIELDS(sp_base, f0,f1,f2,f3,f4,f5) \
+    { OP_WRITE_SP, .arg={ (sp_base)+0, (f0) } }, \
+    { OP_WRITE_SP, .arg={ (sp_base)+1, (f1) } }, \
+    { OP_WRITE_SP, .arg={ (sp_base)+2, (f2) } }, \
+    { OP_WRITE_SP, .arg={ (sp_base)+3, (f3) } }, \
+    { OP_WRITE_SP, .arg={ (sp_base)+4, (f4) } }, \
+    { OP_WRITE_SP, .arg={ (sp_base)+5, (f5) } }
+
+    Instruction code[] = {
+        /*0*/  { OP_LOAD_CONST, .arg={R_ZERO, 0} },
+        /*1*/  { OP_LOAD_CONST, .arg={R_MINCOUNT, 1} },
+        /*2*/  { OP_LOAD_CONST, .arg={R_MAXTICKS, 2} },
+        /*3*/  { OP_LOAD_CONST, .arg={R_META_ALGO, 3} },
+
+        /*4*/  { OP_WM_TOP_GOAL, .arg={R_GOAL, R_GOAL_FOUND} },
+        /*5*/  { OP_JGE, .arg={R_GOAL_FOUND, R_ZERO, 7} },
+        /*6*/  { OP_HALT },
+
+        /*7*/  { OP_MINE_CAUSAL_PATTERN, .arg={R_GOAL, R_MINCOUNT, R_PATTERN_PROC, R_PATTERN_SAMPLE, R_PATTERN_COUNT, R_PATTERN_FOUND} },
+        /*8*/  { OP_JGE, .arg={R_PATTERN_FOUND, R_ZERO, 10} },
+        /*9*/  { OP_HALT },
+
+        /*10*/ { OP_SPAWN_CTX, .arg={R_SANDBOX_CTX} },
+        /*11*/ { OP_MOVE, .arg={R_CAUSE, R_ZERO} },   // старт цепочки, cause=0
+
+        // --- α: GLOAD_CONST dst=RULE_R_PROC, wide = R_PATTERN_PROC ---
+        GEN_INSTR_FIELDS(0, RULE_R_PROC,0,0,0,0,0),
+        /*18*/ { OP_ASSERT_INSTRUCTION, .arg={OP_GLOAD_CONST, 0, R_CAUSE, R_NEW_ATOM, R_PATTERN_PROC, 1} },
+        /*19*/ { OP_MOVE, .arg={R_RULE_HEAD, R_NEW_ATOM} },   // запоминаем ГОЛОВУ правила
+        /*20*/ { OP_MOVE, .arg={R_CAUSE, R_NEW_ATOM} },
+
+        // --- β: GLOAD_CONST dst=RULE_R_SUBJECT, wide = R_GOAL ---
+        GEN_INSTR_FIELDS(0, RULE_R_SUBJECT,0,0,0,0,0),
+        /*27*/ { OP_ASSERT_INSTRUCTION, .arg={OP_GLOAD_CONST, 0, R_CAUSE, R_NEW_ATOM, R_GOAL, 1} },
+        /*28*/ { OP_MOVE, .arg={R_CAUSE, R_NEW_ATOM} },
+
+        // --- γ0: GLOAD_CONST dst=RULE_R_CTX, wide = 0 (базовый контекст) ---
+        GEN_INSTR_FIELDS(0, RULE_R_CTX,0,0,0,0,0),
+        /*35*/ { OP_ASSERT_INSTRUCTION, .arg={OP_GLOAD_CONST, 0, R_CAUSE, R_NEW_ATOM, R_ZERO, 0} },
+        /*36*/ { OP_MOVE, .arg={R_CAUSE, R_NEW_ATOM} },
+
+        // --- γ: QUERY(proc=RULE_R_PROC, participant=RULE_R_SUBJECT, ctx=RULE_R_CTX,
+        //             sp_offset=0, count_dst=RULE_R_TMP, sti_off=0) ---
+        GEN_INSTR_FIELDS(0, RULE_R_PROC, RULE_R_SUBJECT, RULE_R_CTX, 0, RULE_R_TMP, 0),
+        /*43*/ { OP_ASSERT_INSTRUCTION, .arg={OP_QUERY, 0, R_CAUSE, R_NEW_ATOM, R_ZERO, 0} },
+        /*44*/ { OP_MOVE, .arg={R_CAUSE, R_NEW_ATOM} },
+
+        // --- δ: ASSERT(proc=RULE_R_PROC, arg0=RULE_R_SUBJECT, arg1=RULE_R_SUBJECT,
+        //               dst=RULE_R_TMP) — сжатие N наблюдений в одно усиленное убеждение ---
+        GEN_INSTR_FIELDS(0, RULE_R_PROC, RULE_R_SUBJECT, RULE_R_SUBJECT, RULE_R_TMP, 0, 0),
+        /*51*/ { OP_ASSERT_INSTRUCTION, .arg={OP_ASSERT, 0, R_CAUSE, R_NEW_ATOM, R_ZERO, 0} },
+        /*52*/ { OP_MOVE, .arg={R_CAUSE, R_NEW_ATOM} },
+
+        // --- Исполнить сгенерированное правило В ПЕСОЧНИЦЕ (max_ticks=16) ---
+        /*53*/ { OP_EVAL_GRAPH, .arg={R_RULE_HEAD, R_MAXTICKS, R_EVAL_STATUS} },
+
+        // --- Вызвать Мета-Критика (тоже алгоритм из LMDB, читает R12/R13/R14) ---
+        /*54*/ { OP_EXEC_ALGORITHM, .arg[0]=R_META_ALGO },
+
+        // --- Критик уже скорректировал truth_confidence R_RULE_HEAD внутри
+        //     песочницы. Схлопывание безусловно: порог отфильтрует сам. ---
+        /*55*/ { OP_MERGE_CTX, .arg={merge_thresh.u} },
+        /*56*/ { OP_HALT }
+    };
+
+#undef GEN_INSTR_FIELDS
+
+    size_t num = sizeof(code) / sizeof(code[0]);
+    p->code_len = (uint32_t)num;
+    memcpy(p->code, code, sizeof(code));
+    return p;
+}
+
 static int decay_txn_fn(MDB_txn *txn, void *arg) {
     (void)arg;
     if (!global_hyper_mem) return -1;
@@ -60,6 +183,15 @@ static void *decay_timer_loop(void *arg) {
         struct timespec ts = {10, 0}; // раз в 10 секунд, независимо от MainLoop
         nanosleep(&ts, NULL);
         if (!decay_timer_running || !g_running) break;
+
+        static int induction_nudge_counter = 0;
+        if (++induction_nudge_counter >= 6) {   // ~раз в минуту при tick=10с
+            induction_nudge_counter = 0;
+            wm_activate(&global_wm, djb2_hash("InductiveSynthesisGoal"), 0.8f, 0.7f);
+            for (uint32_t i = 0; i < global_wm.count; i++)
+                if (global_wm.nodes[i].node_id == djb2_hash("InductiveSynthesisGoal"))
+                    global_wm.nodes[i].state.usefulness = 0.85f;
+        }
 
         int rc = db_write_sync(decay_txn_fn, NULL);
         if (rc != 0) LOG_WARN("[SUBCONSCIOUS] Timed decay cycle failed rc=%d", rc);
@@ -99,6 +231,94 @@ int get_pending_tasks(ResearchTask *buffer, int max_count) {
     }
     pthread_mutex_unlock(&task_mutex);
     return cnt;
+}
+
+enum { MC_R_ZERO = 16, MC_R_DELTA = 17 };
+
+static Pipeline* build_meta_critic_pipeline(void) {
+    Pipeline *p = pipeline_create();
+    if (!p) return NULL;
+
+    p->constants.int_consts = malloc(sizeof(int64_t));
+    if (!p->constants.int_consts) { pipeline_free(p); return NULL; }
+    p->constants.int_consts[0] = 0;
+    p->constants.int_count = 1;
+
+    p->constants.float_consts = malloc(2 * sizeof(double));
+    if (!p->constants.float_consts) { pipeline_free(p); return NULL; }
+    p->constants.float_consts[0] = 0.40;   // награда: правило исполнилось чисто
+    p->constants.float_consts[1] = -0.30;  // штраф: сбой при исполнении в песочнице
+    p->constants.float_count = 2;
+
+    // Контракт: R12=R_RULE_HEAD, R14=R_EVAL_STATUS (заполнены InductiveExtractor'ом)
+    Instruction code[] = {
+        /*0*/ { OP_LOAD_CONST, .arg={MC_R_ZERO, 0} },
+        /*1*/ { OP_JGE, .arg={14 /*R_EVAL_STATUS*/, MC_R_ZERO, 5} }, // status>0 (ошибка) -> штраф
+        /*2*/ {  .arg={MC_R_DELTA, 0} },              // +0.40
+        /*3*/ { OP_ATOM_REINFORCE, .arg={12 /*R_RULE_HEAD*/, MC_R_DELTA} },
+        /*4*/ { OP_HALT },
+        /*5*/ { OP_LOAD_FCONST, .arg={MC_R_DELTA, 1} },              // -0.30
+        /*6*/ { OP_ATOM_REINFORCE, .arg={12 /*R_RULE_HEAD*/, MC_R_DELTA} },
+        /*7*/ { OP_HALT }
+    };
+
+    p->code_len = sizeof(code) / sizeof(code[0]);
+    memcpy(p->code, code, sizeof(code));
+    return p;
+}
+
+static void ensure_meta_critic_exists(MDB_txn *txn) {
+    node_id_t id = djb2_hash("MetaCriticGraph");
+    Pipeline *existing = NULL;
+    if (algorithm_load(txn, id, &existing) == 0 && existing) {
+        pipeline_free(existing);
+        return;   // уже загружен (в т.ч. возможно отредактирован вручную) — не трогаем
+    }
+    Pipeline *mc = build_meta_critic_pipeline();
+    if (mc) {
+        if (algorithm_save(txn, id, mc) != MDB_SUCCESS)
+            LOG_ERROR("Failed to save MetaCriticGraph algorithm");
+        pipeline_free(mc);
+    }
+}
+
+static void ensure_inductive_extractor_exists(MDB_txn *txn) {
+    node_id_t meta_id  = djb2_hash("MetaCriticGraph");
+    node_id_t algo_id  = djb2_hash("InductiveExtractor");
+    node_id_t goal_id  = djb2_hash("InductiveSynthesisGoal");
+
+    Pipeline *existing = NULL;
+    if (algorithm_load(txn, algo_id, &existing) == 0 && existing) {
+        pipeline_free(existing);
+        return;
+    }
+
+    Pipeline *ie = build_inductive_extractor_pipeline(meta_id);
+    if (!ie) return;
+    if (algorithm_save(txn, algo_id, ie) != MDB_SUCCESS)
+        LOG_ERROR("Failed to save InductiveExtractor algorithm");
+    pipeline_free(ie);
+
+    // Самостоятельная привязка к Goal — без единого Python-вызова.
+    if (global_hyper_mem) {
+        hyper_memory_set_txn(global_hyper_mem, txn);
+
+        NeuroAtom goal_type = {0};
+        goal_type.id = hyper_memory_new_id(global_hyper_mem);
+        goal_type.process_id = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);
+        goal_type.args[0].raw = HYPER_MAKE_REF(goal_id);
+        goal_type.args[1].raw = HYPER_MAKE_REF(djb2_hash("Goal"));
+        goal_type.truth_mean = 1.0f; goal_type.truth_confidence = 1.0f;
+        hyper_assert_unique(global_hyper_mem, &goal_type);
+
+        NeuroAtom link = {0};
+        link.id = hyper_memory_new_id(global_hyper_mem);
+        link.process_id = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION);
+        link.args[0].raw = HYPER_MAKE_REF(goal_id);
+        link.args[1].raw = HYPER_MAKE_REF(algo_id);
+        link.truth_mean = 1.0f; link.truth_confidence = 1.0f;
+        hyper_assert_unique(global_hyper_mem, &link);
+    }
 }
 
 static Pipeline* build_critic_main_pipeline(void) {
@@ -429,6 +649,8 @@ static int main_loop_tick_txn_fn(MDB_txn *txn, void *arg) {
     ensure_critic_main_exists(txn);
     ensure_core_planner_exists(txn);
     ensure_analogy_planner_exists(txn);
+    ensure_meta_critic_exists(txn);
+    ensure_inductive_extractor_exists(txn);
     ensure_main_loop_exists(txn);
 
     // Карантин проверяется ПОСЛЕ ensure_*_exists, но теперь при срабатывании

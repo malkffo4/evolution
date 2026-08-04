@@ -86,8 +86,8 @@ class NeuroCoreShell(cmd.Cmd):
 
     def do_exit(self, arg):
         """exit
-        Exit the shell. The core keeps running in the background."""
-        print("Leaving shell. Core remains running.")
+        Exit the shell."""
+        print("Exiting...")
         return True
 
     def do_EOF(self, arg):
@@ -140,7 +140,10 @@ Examples:
     try:
         if args.command is None:
             manager.initialize()
-            NeuroCoreShell(manager).cmdloop()
+            try:
+                NeuroCoreShell(manager).cmdloop()
+            except KeyboardInterrupt:
+                print("\n[System] Interrupted by user. Exiting...")
         else:
             print(f"Executing: {args.command}")
             manager.initialize()
@@ -159,7 +162,7 @@ Examples:
         print(f"\n[FATAL] {e}", file=sys.stderr)
         sys.exit(1)
     finally:
-        if args.command == "shutdown":
+        if args.command == "shutdown" or args.command is None:
             manager.shutdown()
 
 if __name__ == "__main__":

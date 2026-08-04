@@ -40,11 +40,12 @@ typedef uint64_t ko_id_t;
 #define VECTOR_DIM 128
 
 typedef enum {
-    PROC_KIND_RELATION = 0,  // связь (IS_A, CAUSES, ...)
-    PROC_KIND_ENTITY   = 1,  // любое понятие, включая мета-категории
-    PROC_KIND_RULE     = 2,  // правило вывода (IF..THEN)
-    PROC_KIND_EVENT    = 3,  // событие во времени
-    PROC_KIND_GOAL     = 4   // цель агента
+    PROC_KIND_RELATION      = 0,  // связь (IS_A, CAUSES, ...)
+    PROC_KIND_ENTITY        = 1,  // любое понятие, включая мета-категории
+    PROC_KIND_RULE          = 2,  // правило вывода (IF..THEN)
+    PROC_KIND_EVENT         = 3,  // событие во времени
+    PROC_KIND_GOAL          = 4,  // цель агента
+    PROC_KIND_INSTRUCTION   = 5   // атом = одна инструкция ВМ (Code-as-Data)
     // Всё остальное (SKILL, PREDICTION, BELIEF, ...) уходит в граф.
 } ProcKind;
 

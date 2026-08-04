@@ -70,6 +70,47 @@ int vm_op_clear(VMContext *ctx, const Instruction *ins) {
     return VM_OK;
 }
 
+int vm_op_read_sp(VMContext *ctx, const Instruction *ins) {
+    uint32_t dst_reg = ins->arg[0];
+    uint32_t sp_idx  = ins->arg[1];
+
+    if (dst_reg >= VM_MAX_REGISTERS || sp_idx >= MAX_SCRATCHPAD)
+        return VM_INVALID_REGISTER;
+
+    ctx->reg[dst_reg].type = REG_INT;          // scratchpad хранит int64_t
+    ctx->reg[dst_reg].i = ctx->scratchpad[sp_idx].value;
+    return VM_OK;
+}
+
+// arg[0] = sp_index (immediate), arg[1] = value (immediate)
+// Литеральная запись в scratchpad для стадирования полей будущей инструкции.
+int vm_op_write_sp(VMContext *ctx, const Instruction *ins) {
+    uint32_t sp_idx = ins->arg[0];
+    uint32_t value  = ins->arg[1];
+    if (sp_idx >= MAX_SCRATCHPAD) return VM_INVALID_REGISTER;
+    ctx->scratchpad[sp_idx].key_hash = 0;
+    ctx->scratchpad[sp_idx].value = (int64_t)value;
+    return VM_OK;
+}
+
+// Симметрично vm_op_load_const, но для ConstantPool.float_consts —
+// поле уже существует в структуре, но до сих пор не читалось ни одним опкодом.
+int vm_op_load_fconst(VMContext *ctx, const Instruction *ins) {
+    uint32_t dst = ins->arg[0];
+    uint32_t idx = ins->arg[1];
+    VMFrame *frame = &ctx->frames[ctx->frame];
+    const Pipeline *pl = frame->pipeline;
+
+    if (!pl) return VM_ERROR;
+    if (dst >= VM_MAX_REGISTERS) return VM_INVALID_REGISTER;
+    if (!pl->constants.float_consts || idx >= pl->constants.float_count)
+        return VM_ERROR;
+
+    ctx->reg[dst].type = REG_FLOAT;
+    ctx->reg[dst].f = pl->constants.float_consts[idx];
+    return VM_OK;
+}
+
 int vm_op_load_const(VMContext *ctx, const Instruction *ins) {
     uint32_t dst       = ins->arg[0];
     uint32_t const_idx = ins->arg[1];

@@ -74,6 +74,7 @@ typedef struct VMContext {
                                             // Assignment после завершения алгоритма.
                                             // Обнуляется вызывающей стороной перед
                                             // запуском и сразу после использования.
+    ko_id_t         graph_jmp_target;       // Указатель на следующий NeuroAtom при ветвлении;
     uint32_t        pc;
 } VMContext;
 
