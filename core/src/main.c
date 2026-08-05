@@ -1,7 +1,24 @@
-#include "runtime/vm/vm_pool.h"
+#include <sys/stat.h>
+#include <errno.h>
+#include <unistd.h>
+#include <string.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#include "memory/working.h"
+#include "memory/subconscious.h"
+#include "storage/db/db.h"
+#include "storage/db/db_writer.h"
+#include "ipc/ipc.h"
+#include "core/globals.h"
+#include "core/message_bus.h"
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
 #include "execution/executor.h"
+#include "runtime/vm/vm_pool.h"
 
 
 #define VERSION "0.4.0"
@@ -120,7 +137,7 @@ static int init_everything(void) {
 
     // Инициализируем HyperMemory
     MDB_txn *txn;
-    if (mdb_txn_begin(db.env, NULL, NULL, &txn) == MDB_SUCCESS) {
+    if (mdb_txn_begin(db.env, NULL, 0, &txn) == MDB_SUCCESS) {
         global_hyper_mem = hyper_memory_new(txn,
             db.graph.hyper.atoms,
             db.graph.hyper.idx_process,
@@ -160,7 +177,7 @@ int main(void) {
     // ИСПРАВЛЕНИЕ: Главный поток просто ждет сигнала завершения (g_running = 0)
     // Всю работу по приему и диспетчеризации делают потоки клиентов
     while (g_running) { //[cite: 32]
-        pause();
+        sleep(1);
     }
 
     shutdown_everything();
