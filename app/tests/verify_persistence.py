@@ -12,16 +12,18 @@ APP_DIR = Path(__file__).resolve().parents[1]
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-from tools.agi_client import connect, get_score, get_episodes
+from core.sdk import CoreClient
 
 ALGO = "AverageOfThree"
 GOAL = "ComputeAverage"
 
 
 def main():
-    ipc = connect()
-    score = get_score(ipc, ALGO)
-    episodes = get_episodes(ipc, GOAL)
+    core = CoreClient()
+    core.connect()
+
+    score = core.get_score(ALGO)
+    episodes = core.get_episodes(GOAL)
 
     print(f"Score({ALGO}) after restart = {score:.4f}")
     print(f"Episodes for '{GOAL}' after restart = {len(episodes)}")
@@ -31,7 +33,7 @@ def main():
 
     print("\nPERSISTENCE VERIFIED: knowledge and experience from the previous "
           "run are still available and were NOT recomputed from scratch.")
-    ipc.close()
+    core.close()
 
 
 if __name__ == "__main__":

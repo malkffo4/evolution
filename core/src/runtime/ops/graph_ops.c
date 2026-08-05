@@ -78,13 +78,10 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
             break;
         }
 
-        OperatorID op_id =
-            (OperatorID)(instr_atom.process_id & PROC_ID_MASK);
+        OperatorID op_id = (OperatorID)(instr_atom.process_id & PROC_ID_MASK);
 
         uint32_t unpacked[6];
-        graph_unpack_args(
-            HYPER_GET_ID(instr_atom.args[0].raw),
-            unpacked);
+        graph_unpack_args(HYPER_GET_ID(instr_atom.args[0].raw), unpacked);
 
         if (op_id == OP_GLOAD_CONST) {
             uint32_t dst = unpacked[0];

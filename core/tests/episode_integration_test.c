@@ -95,10 +95,10 @@ int main(void) {
     assert(rc == VM_OK);
 
     vm_destroy(&ctx);
-    
+
     // ИСПРАВЛЕНИЕ УТЕЧКИ: освобождаем hmem, созданный для read-only транзакции
     hyper_memory_free(read_hmem);
-    
+
     mdb_txn_abort(read_txn); // Закрываем RO транзакцию
 
 
@@ -110,16 +110,16 @@ int main(void) {
 
     for (int attempt = 0; attempt < 50 && !found; attempt++) {
         usleep(20000); // 20ms
-        
+
         MDB_txn *poll_txn;
         if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &poll_txn) != 0) continue;
-        
+
         HyperMemory *poll_hmem = hyper_memory_new(poll_txn,
             db.graph.hyper.atoms, db.graph.hyper.idx_process,
             db.graph.hyper.idx_args, db.graph.hyper.idx_context);
-            
+
         score = score_get(poll_hmem, COGNITIVE_DOMAIN_ALGORITHM, algo_id);
-        
+
         if (score > SCORE_PRIOR) {
             NeuroAtom *episodes = NULL;
             size_t count = 0;

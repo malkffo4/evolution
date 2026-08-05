@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# app/tools/learning_demo_arithmetic.py
+# app/tests/learning_demo_arithmetic.py
 """
 Первая end-to-end демонстрация замкнутого цикла обучения:
   Execution -> Observation -> Evaluation -> Credit Assignment -> Score -> Planner -> Better Action
@@ -64,7 +64,6 @@ def learn_bad_algo(ipc, name: str):
 
 def link_algorithm(ipc, algo_name: str, goal_id: str):
     learn(ipc, {"atoms": [
-        # ИСПРАВЛЕНИЕ: Добавлен "kind": "relation"
         {"process": "HAS_ALGORITHM", "kind": "relation", "args": [algo_name, goal_id], "confidence": 1.0}
     ]})
 
@@ -113,6 +112,10 @@ def main():
 
     # Сбросим кулдаун, чтобы планировщик мог немедленно взять цель снова
     ipc.command("clear_cooldown", json.dumps({"goal": GOAL_ID}))
+
+    # ИСПРАВЛЕНИЕ: Восстанавливаем уровень активации цели в рабочей памяти,
+    # так как за время Phase 1 он деградировал (Decay) ниже порога активации.
+    activate_goal(ipc, GOAL_ID)
 
     for i in range(5):
         think(ipc)

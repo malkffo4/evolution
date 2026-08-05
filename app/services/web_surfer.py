@@ -1,6 +1,6 @@
 # app/services/web_surfer.py
 # pip install playwright && playwright install
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 from core.base_service import BaseService
 
 class WebSurfer(BaseService):

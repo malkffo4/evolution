@@ -78,13 +78,13 @@ static int exec_algorithm_txn_fn(MDB_txn *txn, void *arg) {
             (r < VM_MAX_REGISTERS && ctx.reg[r].type == REG_INT) ? ctx.reg[r].i : 0;
     }
 
-    float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
-    score_update(hmem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, outcome, 0, 0);
+    // float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
+    // score_update(hmem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, outcome, 0, 0);
 
     vm_destroy(&ctx);
     hyper_memory_free(hmem);
     wm_clear(&local_wm);
-    return 0; // и успех, и провал — коммит (см. фикс Задачи 1)
+    return 0;
 }
 
 // Выполняется ИСКЛЮЧИТЕЛЬНО внутри write-транзакции потока db_writer.

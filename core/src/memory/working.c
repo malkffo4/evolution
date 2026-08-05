@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+#include "core/globals.h"
 #include "working.h"
 #include "storage/db/db.h"
 #include "math/hash.h"
@@ -268,7 +269,9 @@ node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem, float activa
             n->state.usefulness < activation_threshold * 1.15f)
             continue;
 
-        if (is_goal_on_cooldown(n->node_id)) continue;
+        // Игнорируем cooldown, если мы находимся в изолированном воркере.
+        // Cooldown нужен только глобальному сознанию (global_wm), чтобы не циклиться на одной задаче.
+        if (wm == &global_wm && is_goal_on_cooldown(n->node_id)) continue;
 
         node_id_t rel_ids[16];
         size_t rel_count = find_goal_algorithm_relations(hmem, rel_ids, 16);

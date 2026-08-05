@@ -151,6 +151,15 @@ class EvolutionManager:
     def connect_ipc(self):
         self.core_client.connect()
 
+    def run_tests(self):
+        """Интеграция AGI Olympics: Запускает все тесты через менеджер."""
+        print("\n[Manager] Запускаем тесты AGI Olympics...")
+        script_path = self.root / "app" / "tests" / "olympics" / "run_olympics.py"
+        try:
+            subprocess.run([sys.executable, str(script_path)], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"[Manager] Тесты завершились с ошибкой: {e}", file=sys.stderr)
+
     def format_and_print_response(self, response):
         if not response:
             print("[System] No response received.")
@@ -191,6 +200,8 @@ class EvolutionManager:
             print(f"\nAI: {payload_raw}")
         elif not isinstance(payload_raw, dict):
             print(f"\nAI (Raw): {response}")
+        else:
+            print(response)
 
     def execute_command(self, cmd_name: str, *args):
         """Метод для выполнения разовых команд (из CLI или REPL)."""
@@ -207,7 +218,7 @@ class EvolutionManager:
         elif cmd_name == "retrieve":
             keyword = " ".join(args)
             try:
-                resp = self.ipc.request("retrieve", {"query": keyword.lower()})
+                resp = self.ipc.request("retrieve", {"query": keyword})
                 self.format_and_print_response(resp)
             except Exception as e: print(f"[ERROR] {e}")
 

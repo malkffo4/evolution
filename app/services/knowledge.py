@@ -13,7 +13,7 @@ class KnowledgeService(BaseService):
     def get_graph_context(self, keyword: str) -> str:
         """Запрашивает семантический подграф у C-ядра"""
         try:
-            response = self.ipc.request("retrieve", {"query": keyword.lower()})
+            response = self.ipc.request("retrieve", {"query": keyword})
             payload = json.loads(response.get("payload", "{}"))
             atoms = payload.get("atoms", [])
             if not atoms:

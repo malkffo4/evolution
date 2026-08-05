@@ -31,7 +31,9 @@ HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB
     mem->idgen->session_id = 0;
     atomic_store(&mem->idgen->counter, 1);
 
-    mem->txn = txn;
+    mem->txn = txn; // TODO - Возможный SEGFAULT. Это очень опасно.
+                    // Лучше вообще не хранить MDB_txn * внутри структуры.
+                    // Передавать транзакцию параметром.
     mem->dbi_atoms = atoms;
     mem->dbi_idx_process = idx_proc;
     mem->dbi_idx_args = idx_args;
@@ -42,7 +44,8 @@ HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB
 
 void hyper_memory_free(HyperMemory *mem) {
     if (mem) {
-        free(mem->idgen);
+        if (mem->idgen)
+            free(mem->idgen);
         free(mem);
     }
 }
@@ -168,11 +171,13 @@ int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t particip
             // Добавляем в результат
             if (*count >= capacity) {
                 capacity *= 2;
-                *results = realloc(*results, sizeof(NeuroAtom) * capacity);
-                if (!*results) {
+                NeuroAtom *tmp = realloc(*results, capacity*sizeof(NeuroAtom));
+                if (!tmp) {
+                    free(*results);
                     mdb_cursor_close(cursor);
                     return -1;
                 }
+                *results = tmp;
             }
             memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
             (*count)++;
@@ -205,11 +210,14 @@ int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t 
             if (context_id == 0 || atom->context_or_time_link == context_id) {
                 if (*count >= capacity) {
                     capacity *= 2;
-                    *results = realloc(*results, sizeof(NeuroAtom) * capacity);
-                    if (!*results) {
+                    NeuroAtom *tmp = realloc(*results, sizeof(NeuroAtom) * capacity);
+                    if (!tmp) {
+                        free(*results);
+                        *results = NULL;
                         mdb_cursor_close(cursor);
                         return -1;
                     }
+                    *results = tmp;
                 }
                 memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
                 (*count)++;
@@ -261,11 +269,13 @@ int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cau
         MDB_val v_cause = { sizeof(ko_id_t), (void *)&cause_id };
 
         // Прямая связь (child -> cause)
-        mdb_put(mem->txn, mem->dbi_idx_causal, &k_child, &v_cause, MDB_APPENDDUP);
+        rc = mdb_put(mem->txn, mem->dbi_idx_causal, &k_child, &v_cause, 0);
+        if (rc != MDB_SUCCESS)
+            return rc;
 
         // Обратная связь (cause -> child) для сверхбыстрого ремаппинга в OP_MERGE_CTX
         if (db.graph.hyper.idx_causal_rev) {
-            mdb_put(mem->txn, db.graph.hyper.idx_causal_rev, &v_cause, &k_child, MDB_APPENDDUP);
+            rc = mdb_put(mem->txn, db.graph.hyper.idx_causal_rev, &v_cause, &k_child, 0);
         }
     }
     return rc;

@@ -25,7 +25,6 @@ def djb2_hash(s: str) -> int:
 # ============================================================================
 # JSON parsing
 # ============================================================================
-
 _MD_FENCE_OPEN = re.compile(r"^```(?:json)?", re.IGNORECASE)
 _MD_FENCE_CLOSE = re.compile(r"```$")
 _JSON_OBJ_OR_ARR = re.compile(r"[\{\[].*[\}\]]", re.DOTALL)
@@ -36,7 +35,6 @@ def parse_json(raw: Optional[str]) -> Optional[Union[dict, list]]:
       - обрамлению в ```json ... ``` / ``` ... ```;
       - тексту до/после JSON-блока ("Вот твой JSON:\\n{...}\\nНадеюсь помог!");
       - ведущим/замыкающим пробелам.
-
     Возвращает None, если валидный JSON-объект/массив не найден —
     НИКОГДА не бросает исключение. Вызывающий код обязан уметь
     обработать случай "LLM не смогла вернуть валидный JSON".
@@ -59,6 +57,7 @@ def parse_json(raw: Optional[str]) -> Optional[Union[dict, list]]:
             return json.loads(match.group(0))
         except json.JSONDecodeError:
             return None
+
     return None
 
 # ============================================================================
@@ -182,10 +181,11 @@ class CoreClient:
 
     def activate_goal(self, goal_id: str, utility: float = 0.9) -> None:
         self.learn({"atoms": [
-            {"process": "IS_A", "kind": "relation", "args": [goal_id, "Goal"], "confidence": 1.0}
+            {"process": "IS_A", "kind": "relation", "args": [goal_id, "Goal"]}
         ]})
+
         self.learn({"nodes": [
-            {"id": goal_id, "label": goal_id, "danger": 0.1, "utility": utility}
+            {"id": goal_id, "label": goal_id, "utility": utility}
         ]})
 
     def think(self) -> None:
@@ -209,8 +209,14 @@ class CoreClient:
         resp = self._request("get_property", {"subject": subject, "key": key})
         return self._payload_of(resp)
 
+    def get_stats(self) -> dict:
+        """Снимает метрики с LMDB таблиц ядра (количество знаний, эпизодов и т.д.)"""
+        resp = self._request("get_stats")
+        return self._payload_of(resp)
+
     def retrieve(self, query: str) -> dict:
-        resp = self._request("retrieve", {"query": query.lower()})
+        # Убрали .lower()! djb2_hash регистрозависим.
+        resp = self._request("retrieve", {"query": query})
         return self._payload_of(resp)
 
     def exec_algorithm(self, algo_name: str, report_regs: list[int]) -> dict:
@@ -231,6 +237,7 @@ class CoreClient:
             time.sleep(poll_interval)
         return None
 
+    # Async wrappers
     async def learn_async(self, payload: dict) -> dict:
         return await asyncio.to_thread(self.learn, payload)
 

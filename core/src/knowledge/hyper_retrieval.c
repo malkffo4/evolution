@@ -11,6 +11,7 @@
 
 static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) {
     Node n;
+    // Попытка 1: Узел существует
     if (get_node(txn, id, &n) == MDB_SUCCESS) {
         const char *label = get_string_from_pool(txn, n.name_hash);
         if (label) {
@@ -18,11 +19,13 @@ static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) 
             return;
         }
     }
+    // Попытка 2: Ищем хэш напрямую в пуле строк
     const char *pooled = get_string_from_pool(txn, id);
     if (pooled) {
         snprintf(out, out_size, "%s", pooled);
         return;
     }
+    // Попытка 3: Возвращаем число
     snprintf(out, out_size, "0x%llx", (unsigned long long)id);
 }
 
@@ -61,8 +64,13 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
                 snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].id);
                 cJSON_AddStringToObject(atom_json, "id", idbuf);
 
-                // process
-                const char *proc_label = get_string_from_pool(hmem->txn, results[i].process_id);
+                // Маскируем PROC_KIND перед обращением к строковому пулу,
+                // так как в пуле хранится чистый djb2_hash строки.
+                const char *proc_label = get_string_from_pool(hmem->txn, results[i].process_id & PROC_ID_MASK);
+                if (!proc_label) {
+                    // Страховочный фолбэк на случай старых/кастомных ID
+                    proc_label = get_string_from_pool(hmem->txn, results[i].process_id);
+                }
                 cJSON_AddStringToObject(atom_json, "process", proc_label ? proc_label : "UNKNOWN");
 
                 // args (только 2 слота)
