@@ -17,8 +17,7 @@ extern volatile int g_think_trigger;
 void start_subconscious_daemon(void);
 void stop_subconscious_daemon(void);
 
-void start_decay_timer(void);
-void stop_decay_timer(void);
-
 int get_pending_tasks(ResearchTask *buffer, int max_count);
 void enqueue_research_task(uint64_t node_id, const char *query);
+
+int subconscious_force_tick(void);

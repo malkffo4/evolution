@@ -21,6 +21,7 @@ static const Route request_routes[] = {
     { "rerank",         req_rerank },
     { "audit_atoms",    req_audit_atoms },
     { "get_property",   req_get_property },
+    { "get_stats",      req_get_stats },
     { NULL, NULL }
 };
 
