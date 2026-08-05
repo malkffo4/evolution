@@ -14,6 +14,7 @@
 #include "knowledge/pipeline_io.h"
 #include "perception/perception.h"
 #include "memory/working.h"
+#include "memory/subconscious.h"
 #include "runtime/compiler/pipeline.h"
 #include "runtime/logging/logging.h"
 #include "storage/db/db.h"
@@ -105,7 +106,7 @@ static int learn_txn_fn(MDB_txn *txn, void *arg) {
     if (job->is_pattern)
         return hyper_pattern_save(txn, db.graph.hyper.patterns, &job->pattern) == MDB_SUCCESS ? 0 : -1;
 
-    // КРИТИЧЕСКИЙ ФИКС: LMDB освобождает структуру MDB_txn* при mdb_txn_commit().
+    // LMDB освобождает структуру MDB_txn* при mdb_txn_commit().
     // global_hyper_mem->txn после старта процесса указывает на уже закоммиченную
     // (main.c) или чужую (предыдущий тик MainLoop) транзакцию. hyper_assert*()
     // внутри perceive_hyper_json()/perceive_and_activate() пишут через
@@ -134,10 +135,17 @@ static int learn_txn_fn(MDB_txn *txn, void *arg) {
 void cmd_learn(IPCPacket *req, IPCPacket *resp) {
     LearnJob job = { .req = req };
     cJSON *root = cJSON_Parse((char *)req->payload);
+
     if (root) {
         cJSON *type = cJSON_GetObjectItem(root, "type");
         if (cJSON_IsString(type) && strcmp(type->valuestring, "pipeline") == 0) {
+            const char *an = cJSON_GetStringValue(cJSON_GetObjectItem(root, "algo_name"));
             job.imported_pipeline = pipeline_from_json(root, &job.algo_id);
+
+            if (an && strlen(an) > 0) {
+                job.algo_id = djb2_hash(an);
+            }
+
         } else if (cJSON_IsString(type) && strcmp(type->valuestring, "hyper_pattern") == 0) {
             job.is_pattern = (hyper_pattern_from_json(root, &job.pattern) == 0);
         }
@@ -176,18 +184,22 @@ void cmd_shutdown(IPCPacket *req, IPCPacket *resp) {
 void cmd_think(IPCPacket *req, IPCPacket *resp) {
     (void)req;
 
-    // Принудительно дёргаем MainLoop вручную (без транзакции LMDB — демон сам управляет)
-    // Для этого просто отправляем событие пробуждения демону,
-    // либо, если у вас есть функция ручного запуска MainLoop, вызываем её.
+    int ticks = 0;
+    // Крутим MainLoop до тех пор, пока он не вернет 0 (т.е. пока есть работа)
+    // Ограничиваем 100 итерациями для защиты от вечного зависания
+    while (subconscious_force_tick() == 1 && ticks < 100) {
+        ticks++;
+    }
 
-    // Простейший вариант: ставим флаг, который демон проверяет.
-    // Пока что просто отвечаем OK, что триггернуло демон.
-    extern int g_think_trigger;  // объявим в subconscious.c
+    // Будим фоновый цикл на всякий случай
+    extern volatile int g_think_trigger;
     g_think_trigger = 1;
 
     resp->type = IPC_RESPONSE;
     strncpy(resp->name, "think", sizeof(resp->name)-1);
-    const char* ok_msg = "{\"ok\": true, \"msg\": \"MainLoop triggered\"}";
+
+    char ok_msg[128];
+    snprintf(ok_msg, sizeof(ok_msg), "{\"ok\": true, \"msg\": \"MainLoop executed %d ticks\"}", ticks);
     strncpy(resp->payload, ok_msg, sizeof(resp->payload)-1);
     resp->payload_size = (uint32_t)strlen(ok_msg);
 }

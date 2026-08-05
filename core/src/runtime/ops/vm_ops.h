@@ -57,8 +57,6 @@ int vm_op_find_similar(VMContext *, const Instruction *);
 
 int vm_op_get_neighbors(VMContext *, const Instruction *);
 
-int vm_op_read_sp(VMContext *, const Instruction *);
-
 int vm_op_query(VMContext *, const Instruction *);
 int vm_op_assert(VMContext *, const Instruction *);
 int vm_op_derive(VMContext *, const Instruction *);
@@ -86,3 +84,13 @@ int vm_op_dispatch_async(VMContext *, const Instruction *);
 int vm_op_load_str(VMContext *, const Instruction *);
 int vm_op_tool_exec(VMContext *, const Instruction *);
 int vm_op_load_properties(VMContext *, const Instruction *);
+
+int vm_op_eval_graph(VMContext *, const Instruction *);
+int vm_op_gload_const_stub(VMContext *, const Instruction *);
+int vm_op_assert_instruction(VMContext *, const Instruction *);
+int vm_op_atom_reinforce(VMContext *, const Instruction *);
+int vm_op_mine_causal_pattern(VMContext *, const Instruction *);
+int vm_op_read_sp(VMContext *, const Instruction *);
+int vm_op_write_sp(VMContext *, const Instruction *);
+int vm_op_load_fconst(VMContext *, const Instruction *);
+int vm_op_jge_graph(VMContext *, const Instruction *);

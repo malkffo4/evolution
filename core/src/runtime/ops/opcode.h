@@ -102,6 +102,13 @@ typedef enum {
     OP_TOOL_EXEC,
     OP_LOAD_PROPERTIES,
 
+    OP_EVAL_GRAPH,           // интерпретатор графа NeuroAtom как программы
+    OP_MINE_CAUSAL_PATTERN,  // индуктивный примитив: поиск повторов в idx_causal_rev
+    OP_ASSERT_INSTRUCTION,   // сборка атома-инструкции + причинная связь с предыдущим
+    OP_ATOM_REINFORCE,       // EMA-корректировка truth_confidence существующего атома
+    OP_GLOAD_CONST,          // псевдо-опкод: широкая 62-битная константа из args[1]
+    OP_LOAD_FCONST,
+    OP_JGE_GRAPH,            // Условный переход внутри графовой программы
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

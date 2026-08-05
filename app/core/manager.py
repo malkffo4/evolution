@@ -16,7 +16,7 @@ class EvolutionManager:
     def __init__(self):
         self.root = Path(__file__).resolve().parents[2]
         self.core_dir = self.root / "core"
-        self.core_bin = self.core_dir / "build" / "release" / "bin" / "evolution_core"
+        self.core_bin = self.core_dir / "build" / "debug" / "bin" / "evolution_core"
         self.makefile = self.core_dir / "Makefile"
         self.core_process = None
 
@@ -151,11 +151,36 @@ class EvolutionManager:
     def connect_ipc(self):
         self.core_client.connect()
 
+    def run_tests(self):
+        """Интеграция AGI Olympics: Запускает все тесты через менеджер."""
+        print("\n[Manager] Запускаем тесты AGI Olympics...")
+        script_path = self.root / "app" / "tests" / "olympics" / "run_olympics.py"
+        try:
+            subprocess.run([sys.executable, str(script_path)], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"[Manager] Тесты завершились с ошибкой: {e}", file=sys.stderr)
+
     def format_and_print_response(self, response):
         if not response:
             print("[System] No response received.")
             return
+
         payload_raw = response.get("payload", "")
+
+        # Если payload уже распарсен в словарь (благодаря ipc.py)
+        if isinstance(payload_raw, dict):
+            if "reply" in payload_raw:
+                print(f"\nAI: {payload_raw['reply']}")
+                return
+            if payload_raw.get("ok") is True:
+                msg = payload_raw.get("msg", "Command completed successfully.")
+                print(f"\n[OK] {msg}")
+                return
+            if "error" in payload_raw:
+                print(f"\n[ERROR] {payload_raw['error']}")
+                return
+
+        # Если payload остался строкой
         if isinstance(payload_raw, str) and payload_raw.strip():
             try:
                 payload = json.loads(payload_raw)
@@ -164,14 +189,19 @@ class EvolutionManager:
                         print(f"\nAI: {payload['reply']}")
                         return
                     if payload.get("ok") is True:
-                        print("\n[OK] Command completed successfully.")
+                        msg = payload.get("msg", "Command completed successfully.")
+                        print(f"\n[OK] {msg}")
+                        return
+                    if "error" in payload:
+                        print(f"\n[ERROR] {payload['error']}")
                         return
             except json.JSONDecodeError:
                 pass
-        if isinstance(payload_raw, str) and payload_raw.strip():
             print(f"\nAI: {payload_raw}")
-        else:
+        elif not isinstance(payload_raw, dict):
             print(f"\nAI (Raw): {response}")
+        else:
+            print(response)
 
     def execute_command(self, cmd_name: str, *args):
         """Метод для выполнения разовых команд (из CLI или REPL)."""
@@ -188,7 +218,7 @@ class EvolutionManager:
         elif cmd_name == "retrieve":
             keyword = " ".join(args)
             try:
-                resp = self.ipc.request("retrieve", {"query": keyword.lower()})
+                resp = self.ipc.request("retrieve", {"query": keyword})
                 self.format_and_print_response(resp)
             except Exception as e: print(f"[ERROR] {e}")
 

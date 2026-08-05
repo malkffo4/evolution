@@ -130,7 +130,6 @@ void operator_registry_init(void) {
     operator_register_native(OP_EXEC_ALGORITHM, "exec_algorithm", 0, vm_op_exec_algorithm, NULL, 0, 0);
     operator_register_native(OP_GET_NEIGHBORS, "get_neighbors", 0, vm_op_get_neighbors, NULL, 0, 0);
     operator_register_native(OP_FIND_SIMILAR,  "find_similar",  0, vm_op_find_similar,  NULL, 0, 0);
-    operator_register_native(OP_READ_SP,       "read_sp",       0, vm_op_read_sp,       NULL, 0, 0);
     operator_register_native(OP_CONCAT_PATHS,  "concat_paths",  0, vm_op_concat_paths,  NULL, 0, 0);
     operator_register_native(OP_PROP_GET,  "get_property",  0, vm_op_prop_get,  NULL, 0, 0);
     operator_register_native(OP_PROP_SET,  "set_property",  0, vm_op_prop_set,  NULL, 0, 0);
@@ -168,6 +167,15 @@ void operator_registry_init(void) {
     operator_register_native(OP_BRANCH, "branch", 0, vm_op_branch, NULL, 0, 0);
     operator_register_native(OP_JGE, "cond_branch_gt", 0, vm_op_cond_branch, NULL, 0, 0);
 
+    operator_register_native(OP_EVAL_GRAPH,          "eval_graph",           0, vm_op_eval_graph,          NULL,0,0);
+    operator_register_native(OP_GLOAD_CONST,         "gload_const_stub",     0, vm_op_gload_const_stub,    NULL,0,0);
+    operator_register_native(OP_ASSERT_INSTRUCTION,  "assert_instruction",   0, vm_op_assert_instruction,  NULL,0,0);
+    operator_register_native(OP_ATOM_REINFORCE,      "atom_reinforce",       0, vm_op_atom_reinforce,      NULL,0,0);
+    operator_register_native(OP_MINE_CAUSAL_PATTERN, "mine_causal_pattern",  0, vm_op_mine_causal_pattern, NULL,0,0);
+    operator_register_native(OP_READ_SP,             "read_sp",              0, vm_op_read_sp,             NULL,0,0);
+    operator_register_native(OP_WRITE_SP,            "write_sp",             0, vm_op_write_sp,            NULL,0,0);
+    operator_register_native(OP_LOAD_FCONST,         "load_fconst",          0, vm_op_load_fconst,         NULL,0,0);
+    operator_register_native(OP_JGE_GRAPH,           "jge_graph",            0, vm_op_jge_graph,           NULL,0,0);
     // 2. Операторы с возможностями
     // ObjectType in_node[] = { REG_NODE };
     // operator_register_native(OP_GET_OUT_EDGES, "get_out_edges", CAP_GET_OUT_EDGES, vm_op_get_out_edges, in_node, 1, REG_EDGESET);

@@ -56,6 +56,20 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
         wm_clear(&local_wm);
         return -1;
     }
+
+    // Инъекция цели напрямую в локальную рабочую память воркера,
+    // чтобы алгоритмы, опирающиеся на OP_WM_TOP_GOAL (например, InductiveExtractor
+    // или AnalogyPlanner), могли ее обнаружить.
+    if (job->goal_id != 0) {
+        wm_activate(&local_wm, job->goal_id, 1.0f, 1.0f);
+        for (uint32_t i = 0; i < local_wm.count; i++) {
+            if (local_wm.nodes[i].node_id == job->goal_id) {
+                local_wm.nodes[i].state.usefulness = 1.0f;
+                break;
+            }
+        }
+    }
+
     ctx.hyper_mem = worker_hmem;
 
     uint64_t t_start = vm_rdtsc();
@@ -149,7 +163,7 @@ void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id) {
         pipeline_free(pipeline);
         return;
     }
-    
+
     job->pipeline       = pipeline;
     job->goal_id        = goal_id;
     job->algo_id        = algo_id;

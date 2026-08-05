@@ -185,18 +185,21 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
 
     uint64_t participant_id = djb2_hash(query);
     LOG_IPC("Hyper-retrieve for '%s' (hash: %lu)", query, participant_id);
-
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) == MDB_SUCCESS) {
-        HyperMemory local_hm;
-        local_hm.txn = txn;
-        local_hm.dbi_atoms = db.graph.hyper.atoms;
-        local_hm.dbi_idx_process = db.graph.hyper.idx_process;
-        local_hm.dbi_idx_args = db.graph.hyper.idx_args;
-        local_hm.dbi_idx_context = db.graph.hyper.idx_context;
+        HyperMemory *hmem = hyper_memory_new(txn,
+            db.graph.hyper.atoms, db.graph.hyper.idx_process,
+            db.graph.hyper.idx_args, db.graph.hyper.idx_context);
+        if (!hmem) {
+            const char* err = "{\"error\": \"hyper_memory_new error\"}";
+            strncpy((char *)resp->payload, err, sizeof(resp->payload)-1);
+            resp->payload_size = (uint32_t)strlen(err);
+            return;
+        }
 
-        char *result = hyper_retrieve_json(&local_hm, participant_id, 2, 30);
+        char *result = hyper_retrieve_json(hmem, participant_id, 2, 30);
         mdb_txn_abort(txn);
+        hyper_memory_free(hmem);
         if (result) {
             strncpy((char *)resp->payload, result, IPC_PAYLOAD_SIZE - 1);
             resp->payload[IPC_PAYLOAD_SIZE - 1] = '\0';
@@ -578,5 +581,43 @@ void req_get_property(IPCPacket *req, IPCPacket *resp) {
     snprintf(resp->payload, sizeof(resp->payload), "%s", s);
     resp->payload_size = (uint32_t)strlen(resp->payload);
     free(s);
+    cJSON_Delete(root);
+}
+
+void req_get_stats(IPCPacket *req, IPCPacket *resp) {
+    (void)req;
+    MDB_txn *txn;
+
+    if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) != MDB_SUCCESS) {
+        resp->type = IPC_RESPONSE;
+        strncpy(resp->name, "error", sizeof(resp->name) - 1);
+        const char *err = "{\"error\": \"DB transaction failed\"}";
+        strncpy((char *)resp->payload, err, sizeof(resp->payload) - 1);
+        resp->payload_size = (uint32_t)strlen(err);
+        return;
+    }
+
+    MDB_stat stat_atoms, stat_vectors, stat_causal, stat_episodes;
+
+    mdb_stat(txn, db.graph.hyper.atoms, &stat_atoms);
+    mdb_stat(txn, db.graph.hyper.idx_vectors, &stat_vectors);
+    mdb_stat(txn, db.graph.hyper.idx_causal, &stat_causal);
+    mdb_stat(txn, db.memory.episodes, &stat_episodes);
+
+    mdb_txn_abort(txn);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "atoms_total", (double)stat_atoms.ms_entries);
+    cJSON_AddNumberToObject(root, "vectors_total", (double)stat_vectors.ms_entries);
+    cJSON_AddNumberToObject(root, "causal_links", (double)stat_causal.ms_entries);
+    cJSON_AddNumberToObject(root, "episodes_total", (double)stat_episodes.ms_entries);
+
+    resp->type = IPC_RESPONSE;
+    strncpy(resp->name, "get_stats", sizeof(resp->name) - 1);
+    char *json_str = cJSON_PrintUnformatted(root);
+    snprintf((char *)resp->payload, sizeof(resp->payload), "%s", json_str);
+    resp->payload_size = (uint32_t)strlen((char *)resp->payload);
+
+    free(json_str);
     cJSON_Delete(root);
 }
