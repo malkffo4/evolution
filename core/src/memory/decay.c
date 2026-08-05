@@ -87,14 +87,14 @@ static void archive_atom(MDB_txn *txn, HyperMemory *hmem, const NeuroAtom *atom)
     mdb_del(txn, hmem->dbi_atoms, &k, NULL);
 }
 
-int subconscious_decay_cycle(HyperMemory *hmem, const DecayPolicy *policy, DecayStats *out_stats) {
-    if (!hmem || !hmem->txn) return -1;
+int subconscious_decay_cycle(MDB_txn *txn, HyperMemory *hmem, const DecayPolicy *policy, DecayStats *out_stats) {
+    if (!hmem || !txn) return -1;
     if (!policy) policy = &DECAY_POLICY_DEFAULT;
 
     DecayStats stats = {0};
 
     MDB_cursor *cursor;
-    int rc = mdb_cursor_open(hmem->txn, hmem->dbi_atoms, &cursor);
+    int rc = mdb_cursor_open(txn, hmem->dbi_atoms, &cursor);
     if (rc != MDB_SUCCESS) {
         LOG_ERROR("[DECAY] mdb_cursor_open failed: %s", mdb_strerror(rc));
         return rc;
@@ -155,7 +155,7 @@ int subconscious_decay_cycle(HyperMemory *hmem, const DecayPolicy *policy, Decay
             MDB_val peek_key, peek_data;
             int peek_rc = mdb_cursor_get(cursor, &peek_key, &peek_data, MDB_NEXT);
 
-            archive_atom(hmem->txn, hmem, &atom);
+            archive_atom(txn, hmem, &atom);
             stats.archived++;
 
             if (peek_rc == MDB_SUCCESS) {
@@ -199,9 +199,6 @@ int subconscious_decay_cycle(HyperMemory *hmem, const DecayPolicy *policy, Decay
     mdb_cursor_close(cursor);
 
     if (out_stats) *out_stats = stats;
-
-    LOG_MEMORY("[DECAY] cycle: scanned=%u updated=%u archived=%u",
-               stats.scanned, stats.updated, stats.archived);
 
     return 0;
 }

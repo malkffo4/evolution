@@ -58,7 +58,6 @@ int subconscious_force_tick(void) {
 static int decay_txn_fn(MDB_txn *txn, void *arg) {
     (void)arg;
     if (!global_hyper_mem) return -1;
-    hyper_memory_set_txn(global_hyper_mem, txn);
 
     MDB_stat stat;
     uint64_t total_atoms = 0;
@@ -68,7 +67,7 @@ static int decay_txn_fn(MDB_txn *txn, void *arg) {
     homeostasis_step(&g_homeostasis, &HOMEOSTASIS_DEFAULT, &global_wm, total_atoms);
 
     DecayStats stats;
-    return subconscious_decay_cycle(global_hyper_mem, &g_homeostasis.policy, &stats);
+    return subconscious_decay_cycle(txn, global_hyper_mem, &g_homeostasis.policy, &stats);
 }
 
 static void *decay_timer_loop(void *arg) {
@@ -132,8 +131,6 @@ static int main_loop_tick_txn_fn(MDB_txn *txn, void *arg) {
     result->executed_ok = false;
     result->quarantined = false;
 
-    if (global_hyper_mem)
-        hyper_memory_set_txn(global_hyper_mem, txn);
 
     // Ядро просто ищет алгоритм в базе. Если Питоном он не залит — ядро спит.
     main_loop_algo_id = djb2_hash("MainLoop");

@@ -34,8 +34,7 @@ int main(void) {
     MDB_txn *txn;
     assert(mdb_txn_begin(db.env, NULL, 0, &txn) == 0);
 
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     assert(hmem != NULL);
     hyper_memory_set_db_causal(hmem, db.graph.hyper.idx_causal);
@@ -53,7 +52,7 @@ int main(void) {
     precedent.args[1].raw = HYPER_MAKE_REF(FLY);
     precedent.truth_mean = 1.0f;
     precedent.truth_confidence = 1.0f;
-    assert(hyper_assert_with_cause(hmem, &precedent, 0) >= 0);
+    assert(hyper_assert_with_cause(txn, hmem, &precedent, 0) >= 0);
 
     VMContext ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -80,19 +79,19 @@ int main(void) {
     assert(hypothesis_id != 0);
     assert(ctx.last_result_id == hypothesis_id); // канал сработал
 
-    float before_bird = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, BIRD);
-    float before_bat  = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, BAT);
+    float before_bird = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, BIRD);
+    float before_bat  = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, BAT);
     assert(before_bird == SCORE_PRIOR);
     assert(before_bat  == SCORE_PRIOR);
 
     // Симулируем то, что делает vm_op_evaluate_goals() после успеха
-    int propagated = score_propagate_credit(hmem, COGNITIVE_DOMAIN_HYPOTHESIS,
+    int propagated = score_propagate_credit(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS,
                                              ctx.last_result_id, 1.0f, 0, 0.7f);
     assert(propagated == 4); // 2 атома на цепочке * 2 REF-аргумента
     ctx.last_result_id = 0;  // именно так поступает vm_op_evaluate_goals
 
-    float after_bat  = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, BAT);   // depth 0
-    float after_bird = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, BIRD);  // depth 1 (причина)
+    float after_bat  = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, BAT);   // depth 0
+    float after_bird = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, BIRD);  // depth 1 (причина)
 
     printf("BAT score=%.4f (depth 0), BIRD score=%.4f (depth 1)\n", after_bat, after_bird);
 

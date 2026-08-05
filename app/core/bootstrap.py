@@ -94,19 +94,27 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "exec_algorithm", "arg": [13, 0, 0, 0, 0, 0]},
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
     ], {"int_consts": [16, 0, 1, djb2_hash("CriticMain")]})
-    # 2. CorePlanner (СИНХРОННЫЙ ФИКС)
+    # 2. CorePlanner (Адаптированный под новую декларативную архитектуру)
     learn_pipeline("CorePlanner", [
-        {"operator_id": "load_const", "arg": [24, 0, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [25, 1, 0, 0, 0, 0]},
-        {"operator_id": "wm_top_goal", "arg": [20, 21, 0, 0, 0, 0]},
-        {"operator_id": "cond_branch_gt", "arg": [21, 25, 5, 0, 0, 0]},
+        # 0: грузим константу 0 в r10 (для проверки count > 0)
+        {"operator_id": "load_const", "arg": [10, 0, 0, 0, 0, 0]},
+        # 1: достаем приоритетную цель (r1 = goal_id, r2 = found)
+        {"operator_id": "wm_top_goal", "arg": [1, 2, 0, 0, 0, 0]},
+        # 2: если цель не найдена (r1 пуст) -> уходим в конец (прыжок на 8)
+        {"operator_id": "branch_if_empty", "arg": [1, 8, 0, 0, 0, 0]},
+        # 3: ищем алгоритм для цели r1, кладем в sp[0], количество в r3
+        {"operator_id": "select_algorithm", "arg": [1, 0, 3, 0, 0, 0]},
+        # 4: если r3 > r10 (count > 0) -> прыжок на 6 (чтение)
+        {"operator_id": "cond_branch_gt", "arg": [3, 10, 6, 0, 0, 0]},
+        # 5: иначе алгоритмов нет -> завершаем (HALT)
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "select_algorithm", "arg": [20, 22, 23, 0, 0, 0]},
-        {"operator_id": "cond_branch_gt", "arg": [23, 25, 8, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "exec_algorithm", "arg": [22, 0, 0, 0, 0, 0]}, # ФИКС: Выполняем синхронно!
+        # 6: читаем первый найденный алгоритм из sp[0] в r4
+        {"operator_id": "read_sp", "arg": [4, 0, 0, 0, 0, 0]},
+        # 7: асинхронно запускаем (goal_id=r1, algo_id=r4)
+        {"operator_id": "dispatch_async", "arg": [1, 4, 0, 0, 0, 0]},
+        # 8: конец
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
-    ], {"int_consts": [0, 1]})
+    ], {"int_consts": [0]})
 
     # 3. CriticMain
     learn_pipeline("CriticMain", [

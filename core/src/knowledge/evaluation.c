@@ -35,12 +35,12 @@ static const float kDomainKappa[6] = {
  * если найден, иначе NULL.
  * Вызывающая сторона НЕ владеет памятью.
  */
-static NeuroAtom *find_score_atom(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id) {
+static NeuroAtom *find_score_atom(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id) {
     NeuroAtom *atoms = NULL;
     size_t count = 0;
 
     // Ищем все атомы, где subject_id является участником (в любом слоте).
-    if (hyper_find_by_participant(hmem, subject_id, 0, &atoms, &count) != 0 || !atoms)
+    if (hyper_find_by_participant(txn, hmem, subject_id, 0, &atoms, &count) != 0 || !atoms)
         return NULL;
 
     NeuroAtom *found = NULL;
@@ -74,11 +74,11 @@ static NeuroAtom *find_score_atom(HyperMemory *hmem, CognitiveDomain domain, nod
  * При первом создании id должен быть уже присвоен (вызывающая сторона
  * генерирует его через hyper_memory_new_id()).
  */
-static int save_score(HyperMemory *hmem, NeuroAtom *score_atom) {
+static int save_score(MDB_txn *txn, HyperMemory *hmem, NeuroAtom *score_atom) {
     // hyper_assert делает mdb_put с ключом = id, перезаписывая значение.
     // Это не нарушает индексы, потому что process_id и args не меняются
     // между вызовами для одного и того же субъекта+домена.
-    int rc = hyper_assert(hmem, score_atom);
+    int rc = hyper_assert(txn, hmem, score_atom);
     if (rc != MDB_SUCCESS) {
         LOG_ERROR("save_score: hyper_assert failed: %s", mdb_strerror(rc));
         return -1;
@@ -88,10 +88,10 @@ static int save_score(HyperMemory *hmem, NeuroAtom *score_atom) {
 
 // ----- Публичный API -------------------------------------------------------
 
-node_id_t evaluation_record(HyperMemory *hmem, CognitiveDomain domain,
+node_id_t evaluation_record(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain,
                              node_id_t subject_id, float outcome,
                              node_id_t cause_id, node_id_t context_id) {
-    if (!hmem || !hmem->txn) return 0;
+    if (!hmem || !txn) return 0;
 
     // Генерируем уникальный id для нового атома наблюдения.
     node_id_t eval_id = hyper_memory_new_id(hmem);
@@ -110,7 +110,7 @@ node_id_t evaluation_record(HyperMemory *hmem, CognitiveDomain domain,
     eval_atom.context_or_time_link = context_id;
 
     // Пишем атом наблюдения (без проверки уникальности — каждое наблюдение уникально)
-    int rc = hyper_assert(hmem, &eval_atom);
+    int rc = hyper_assert(txn, hmem, &eval_atom);
     if (rc != MDB_SUCCESS) {
         LOG_ERROR("evaluation_record: hyper_assert failed: %s", mdb_strerror(rc));
         return 0;
@@ -120,7 +120,7 @@ node_id_t evaluation_record(HyperMemory *hmem, CognitiveDomain domain,
     if (cause_id != 0 && hmem->dbi_idx_causal) {
         MDB_val k = { sizeof(node_id_t), &eval_id };
         MDB_val v = { sizeof(node_id_t), &cause_id };
-        mdb_put(hmem->txn, hmem->dbi_idx_causal, &k, &v, MDB_APPENDDUP);
+        mdb_put(txn, hmem->dbi_idx_causal, &k, &v, MDB_APPENDDUP);
     }
 
     LOG_PLANNER("[EVAL] Recorded observation domain=%d subject=%lu outcome=%.3f (id=%lu)",
@@ -128,35 +128,35 @@ node_id_t evaluation_record(HyperMemory *hmem, CognitiveDomain domain,
     return eval_id;
 }
 
-float score_get(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id) {
-    if (!hmem || !hmem->txn) return SCORE_PRIOR;
+float score_get(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id) {
+    if (!hmem || !txn) return SCORE_PRIOR;
 
-    NeuroAtom *score = find_score_atom(hmem, domain, subject_id);
+    NeuroAtom *score = find_score_atom(txn, hmem, domain, subject_id);
     if (!score) return SCORE_PRIOR;
 
     return score->truth_mean;
 }
 
-int score_update(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
+int score_update(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
                   float outcome, node_id_t cause_id, node_id_t context_id) {
-    return score_update_weighted(hmem, domain, subject_id, outcome, 1.0f, cause_id, context_id);
+    return score_update_weighted(txn, hmem, domain, subject_id, outcome, 1.0f, cause_id, context_id);
 }
 
-int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
+int score_update_weighted(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
                            float outcome, float credit_weight,
                            node_id_t cause_id, node_id_t context_id) {
-    if (!hmem || !hmem->txn) return -1;
+    if (!hmem || !txn) return -1;
     if (credit_weight > 1.0f) credit_weight = 1.0f;
     if (credit_weight <= 0.0f) return 0;
     if (outcome < 0.0f) outcome = 0.0f;
     if (outcome > 1.0f) outcome = 1.0f;
 
     // 1. Неизменяемое наблюдение (история для offline score_recompute остаётся честной)
-    if (evaluation_record(hmem, domain, subject_id, outcome, cause_id, context_id) == 0)
+    if (evaluation_record(txn, hmem, domain, subject_id, outcome, cause_id, context_id) == 0)
         return -1;
 
     // 2. Найти/создать Score
-    NeuroAtom *existing = find_score_atom(hmem, domain, subject_id);
+    NeuroAtom *existing = find_score_atom(txn, hmem, domain, subject_id);
     NeuroAtom score_atom;
     bool is_new = (existing == NULL);
     if (is_new) {
@@ -194,7 +194,7 @@ int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t s
     score_atom.valence = 0.0f;
     score_atom.context_or_time_link = 0;
 
-    int rc = save_score(hmem, &score_atom);
+    int rc = save_score(txn, hmem, &score_atom);
     if (rc == 0) {
         LOG_PLANNER("[SCORE-BAYES] domain=%d subject=%lu o=%.3f w=%.3f "
                     "n=%.2f->%.2f kappa=%.1f mean=%.4f conf=%.4f",
@@ -204,14 +204,14 @@ int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t s
     return rc;
 }
 
-int score_recompute(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id) {
-    if (!hmem || !hmem->txn) return -1;
+int score_recompute(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id) {
+    if (!hmem || !txn) return -1;
 
     // 1. Собрать все Evaluation для данного subject_id
     NeuroAtom *atoms = NULL;
     size_t count = 0;
     // Ищем все атомы, где subject_id является участником (args[0])
-    if (hyper_find_by_participant(hmem, subject_id, 0, &atoms, &count) != 0 || !atoms) {
+    if (hyper_find_by_participant(txn, hmem, subject_id, 0, &atoms, &count) != 0 || !atoms) {
         // нет наблюдений — удаляем Score, если он был? В RFC сказано: "если наблюдений нет — свёртка не создаётся/не трогается"
         // Пока просто ничего не делаем.
         free(atoms);
@@ -245,7 +245,7 @@ int score_recompute(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject
     float new_conf = 1.0f - expf(-0.1f * (float)valid_count); // быстро растёт к 1.0
 
     // 3. Обновить или создать Score атом
-    NeuroAtom *existing = find_score_atom(hmem, domain, subject_id);
+    NeuroAtom *existing = find_score_atom(txn, hmem, domain, subject_id);
     NeuroAtom score_atom;
     bool is_new = (existing == NULL);
 
@@ -267,7 +267,7 @@ int score_recompute(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject
     score_atom.valence          = 0.0f;
     score_atom.context_or_time_link = 0;
 
-    int rc = save_score(hmem, &score_atom);
+    int rc = save_score(txn, hmem, &score_atom);
     if (rc == 0) {
         LOG_PLANNER("[SCORE] Recomputed domain=%d subject=%lu trust=%.3f conf=%.3f (from %d obs)",
                     domain, (unsigned long)subject_id, new_trust, new_conf, valid_count);
@@ -275,10 +275,10 @@ int score_recompute(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject
     return rc;
 }
 
-int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
+int score_propagate_credit(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain,
                             node_id_t result_atom_id, float outcome,
                             uint32_t max_depth, float discount) {
-    if (!hmem || !hmem->txn || !hmem->dbi_idx_causal) return -1;
+    if (!hmem || !txn || !hmem->dbi_idx_causal) return -1;
     if (result_atom_id == 0) return -1;
     if (max_depth == 0)  max_depth = 8;
     if (max_depth > 64)  max_depth = 64; // защита от аномально длинных/циклических цепочек
@@ -292,7 +292,7 @@ int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
         MDB_val key = { sizeof(ko_id_t), &current_id };
         MDB_val val;
 
-        if (mdb_get(hmem->txn, hmem->dbi_atoms, &key, &val) != MDB_SUCCESS ||
+        if (mdb_get(txn, hmem->dbi_atoms, &key, &val) != MDB_SUCCESS ||
             val.mv_size != sizeof(NeuroAtom)) {
             break; // атом уже архивирован decay-циклом — обрываем трассировку, не ошибка
         }
@@ -307,13 +307,13 @@ int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
             node_id_t subject = HYPER_GET_ID(atom.args[slot].raw);
             if (subject == 0) continue;
 
-            if (score_update_weighted(hmem, domain, subject, outcome, weight,
+            if (score_update_weighted(txn, hmem, domain, subject, outcome, weight,
                                        atom.id, atom.context_or_time_link) == 0)
                 propagated++;
         }
 
         MDB_val cause_val;
-        if (mdb_get(hmem->txn, hmem->dbi_idx_causal, &key, &cause_val) != MDB_SUCCESS ||
+        if (mdb_get(txn, hmem->dbi_idx_causal, &key, &cause_val) != MDB_SUCCESS ||
             cause_val.mv_size != sizeof(ko_id_t)) {
             break;
         }

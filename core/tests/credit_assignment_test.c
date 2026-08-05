@@ -18,8 +18,7 @@ int main(void) {
     MDB_txn *txn;
     assert(mdb_txn_begin(db.env, NULL, 0, &txn) == 0);
 
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     assert(hmem);
     hyper_memory_set_db_causal(hmem, db.graph.hyper.idx_causal);
@@ -35,7 +34,7 @@ int main(void) {
     a10.args[0].raw = HYPER_MAKE_REF(FIRE);
     a10.args[1].raw = HYPER_MAKE_REF(SMOKE);
     a10.truth_mean = 1.0f; a10.truth_confidence = 1.0f;
-    assert(hyper_assert_with_cause(hmem, &a10, 0) >= 0);
+    assert(hyper_assert_with_cause(txn, hmem, &a10, 0) >= 0);
 
     // depth1: SMOKE -CAUSES-> ALARM, cause = a10
     NeuroAtom a11 = {0};
@@ -43,7 +42,7 @@ int main(void) {
     a11.args[0].raw = HYPER_MAKE_REF(SMOKE);
     a11.args[1].raw = HYPER_MAKE_REF(ALARM);
     a11.truth_mean = 1.0f; a11.truth_confidence = 1.0f;
-    assert(hyper_assert_with_cause(hmem, &a11, a10.id) >= 0);
+    assert(hyper_assert_with_cause(txn, hmem, &a11, a10.id) >= 0);
 
     // depth0: DERIVE FIRE -CAUSES-> ALARM, cause = a11
     NeuroAtom a12 = {0};
@@ -51,20 +50,20 @@ int main(void) {
     a12.args[0].raw = HYPER_MAKE_REF(FIRE);
     a12.args[1].raw = HYPER_MAKE_REF(ALARM);
     a12.truth_mean = 1.0f; a12.truth_confidence = 0.4f;
-    assert(hyper_assert_with_cause(hmem, &a12, a11.id) >= 0);
+    assert(hyper_assert_with_cause(txn, hmem, &a12, a11.id) >= 0);
 
-    float before_fire  = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, FIRE);
-    float before_smoke  = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, SMOKE);
-    float before_alarm  = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, ALARM);
+    float before_fire  = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, FIRE);
+    float before_smoke  = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, SMOKE);
+    float before_alarm  = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, ALARM);
     assert(before_fire == SCORE_PRIOR && before_smoke == SCORE_PRIOR && before_alarm == SCORE_PRIOR);
 
-    int propagated = score_propagate_credit(hmem, COGNITIVE_DOMAIN_HYPOTHESIS,
+    int propagated = score_propagate_credit(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS,
                                              a12.id, 1.0f, 8, 0.5f);
     assert(propagated == 6); // 3 узла на цепочке * 2 REF-аргумента
 
-    float fire  = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, FIRE);
-    float smoke = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, SMOKE);
-    float alarm = score_get(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, ALARM);
+    float fire  = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, FIRE);
+    float smoke = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, SMOKE);
+    float alarm = score_get(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, ALARM);
 
     printf("FIRE=%.4f SMOKE=%.4f ALARM=%.4f\n", fire, smoke, alarm);
 
@@ -97,8 +96,8 @@ int main(void) {
     assert(alarm > smoke);
 
     // Пустая/битая цепочка не должна падать
-    assert(score_propagate_credit(hmem, COGNITIVE_DOMAIN_HYPOTHESIS, 0, 1.0f, 8, 0.5f) == -1);
-    assert(score_propagate_credit(NULL, COGNITIVE_DOMAIN_HYPOTHESIS, a12.id, 1.0f, 8, 0.5f) == -1);
+    assert(score_propagate_credit(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, 0, 1.0f, 8, 0.5f) == -1);
+    assert(score_propagate_credit(txn, NULL, COGNITIVE_DOMAIN_HYPOTHESIS, a12.id, 1.0f, 8, 0.5f) == -1);
 
     mdb_txn_commit(txn);
     hyper_memory_free(hmem);

@@ -27,8 +27,8 @@ typedef struct {
 /*
  * Один цикл гомеостаза. ДОЛЖЕН вызываться внутри write-транзакции LMDB,
  * принадлежащей потоку db_writer (см. TASK 3 / db_writer.h::DbWriteFn).
- * hmem->txn обязан указывать на эту транзакцию перед вызовом.
+ * txn обязан указывать на эту транзакцию перед вызовом.
  */
-int subconscious_decay_cycle(HyperMemory *hmem, const DecayPolicy *policy, DecayStats *out_stats);
+int subconscious_decay_cycle(MDB_txn *txn, HyperMemory *hmem, const DecayPolicy *policy, DecayStats *out_stats);
 
 #endif

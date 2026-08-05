@@ -10,13 +10,13 @@
 
 static const char *kEPISODE_RECORDED = "EPISODE_RECORDED";
 
-int episode_record(HyperMemory *hmem, const Episode *ep) {
-    if (!hmem || !hmem->txn || !ep || ep->id == 0) return -1;
+int episode_record(MDB_txn *txn, HyperMemory *hmem, const Episode *ep) {
+    if (!hmem || !txn || !ep || ep->id == 0) return -1;
 
     // 1. Полный блоб -> db.memory.episodes
     MDB_val key  = { sizeof(ko_id_t), (void *)&ep->id };
     MDB_val data = { sizeof(Episode), (void *)ep };
-    int rc = mdb_put(hmem->txn, db.memory.episodes, &key, &data, 0);
+    int rc = mdb_put(txn, db.memory.episodes, &key, &data, 0);
 
     if (rc != MDB_SUCCESS) {
         LOG_ERROR("episode_record: mdb_put(episodes) failed: %s", mdb_strerror(rc));
@@ -37,7 +37,7 @@ int episode_record(HyperMemory *hmem, const Episode *ep) {
     pointer.valence = 0.0f;
     pointer.context_or_time_link = ep->context_id;
 
-    rc = hyper_assert(hmem, &pointer);
+    rc = hyper_assert(txn, hmem, &pointer);
     if (rc != MDB_SUCCESS) {
         LOG_ERROR("episode_record: hyper_assert(pointer) failed: %s", mdb_strerror(rc));
         return -1;

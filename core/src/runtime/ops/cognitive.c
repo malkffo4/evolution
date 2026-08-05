@@ -244,74 +244,37 @@ int vm_op_evaluate_goals(VMContext *ctx, const Instruction *ins) {
     (void)ins;
     if (!ctx->memory.wm || !ctx->memory.txn || !ctx->hyper_mem) return VM_ERROR;
 
-    // 1. Пытаемся загрузить CorePlanner из LMDB
+    // Ядро больше ничего не "планирует". Оно просто тупо берет пайплайн CorePlanner из LMDB.
     uint64_t core_planner_id = djb2_hash("CorePlanner");
     Pipeline *planner_pipeline = NULL;
+
     if (algorithm_load(ctx->memory.txn, core_planner_id, &planner_pipeline) == 0 && planner_pipeline) {
-        // Проверяем, не является ли CorePlanner пустой заглушкой
-        bool has_logic = false;
-        for (uint32_t i = 0; i < planner_pipeline->code_len; i++) {
-            if (planner_pipeline->code[i].operator_id != OP_HALT) {
-                has_logic = true;
-                break;
-            }
-        }
-        if (has_logic) {
-            // Выполняем CorePlanner
-            if (ctx->frame + 1 >= VM_MAX_CALL_DEPTH) {
-                pipeline_free(planner_pipeline);
-                return VM_STACK_OVERFLOW;
-            }
-            uint32_t prev_frame = ctx->frame;
-            bool prev_halted = ctx->halted;
-            ctx->frame++;
-            VMFrame *f = &ctx->frames[ctx->frame];
-            f->pipeline = planner_pipeline;
-            f->code = planner_pipeline->code;
-            f->ip = 0;
-            ctx->halted = false;
-            int rc = vm_execute(ctx, planner_pipeline);
-            ctx->frame = prev_frame;
-            ctx->halted = prev_halted;
+        if (ctx->frame + 1 >= VM_MAX_CALL_DEPTH) {
             pipeline_free(planner_pipeline);
-            return rc;
+            return VM_STACK_OVERFLOW;
         }
+
+        uint32_t prev_frame = ctx->frame;
+        bool prev_halted = ctx->halted;
+
+        ctx->frame++;
+        VMFrame *f = &ctx->frames[ctx->frame];
+        f->pipeline = planner_pipeline;
+        f->code = planner_pipeline->code;
+        f->ip = 0;
+        ctx->halted = false;
+
+        int rc = vm_execute(ctx, planner_pipeline);
+
+        ctx->frame = prev_frame;
+        ctx->halted = prev_halted;
         pipeline_free(planner_pipeline);
+
+        return rc;
     }
 
-    // ИСПРАВЛЕНИЕ: Отключаем старый хардкодный С-планировщик!
-    // Он перехватывал цель, не находил старых Edges, ставил цель на 10 сек
-    // кулдаун и сбрасывал активацию до 0.5, убивая новый когнитивный цикл.
-    // planner_evaluate_goals(ctx->memory.wm, ctx->memory.txn);
-
-    // 3. Находим самую приоритетную цель
-    node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem,
-                                         g_homeostasis.activation_threshold);
-    if (goal_id == 0) return VM_NOT_FOUND;
-
-    // 4. Планировщик выбирает алгоритм
-    node_id_t algo_id = 0;
-    int rc = planner_select_algorithm(ctx->hyper_mem, goal_id, ctx, &algo_id);
-    if (rc != 0) {
-        const char *goal_name = get_string_from_pool(ctx->memory.txn, goal_id);
-        if (goal_name) enqueue_research_task(goal_id, goal_name);
-        set_goal_cooldown(goal_id);
-        return VM_OK;
-    }
-
-    // 5. Загружаем и выполняем алгоритм
-    Pipeline *algo = NULL;
-    rc = algorithm_load(ctx->memory.txn, algo_id, &algo);
-    if (rc != 0) {
-        LOG_WARN("Failed to load algorithm %lu for goal %lu", algo_id, goal_id);
-        return VM_OK;
-    }
-
-    set_goal_cooldown(goal_id);
-
-    // АСИНХРОННОЕ ИСПОЛНЕНИЕ: Отправляем только пайплайн и ID
-    vm_pool_submit(algo, goal_id, algo_id);
-    return VM_OK;
+    // Если CorePlanner не загружен в базу — мы просто молча ждем.
+    return VM_NOT_FOUND;
 }
 
 int vm_op_load_context(VMContext *ctx, const Instruction *ins) {
@@ -328,7 +291,7 @@ int vm_op_load_context(VMContext *ctx, const Instruction *ins) {
         NeuroAtom *fwd_atoms = NULL;
         size_t fwd_count = 0;
 
-        if (hyper_find_by_participant(ctx->hyper_mem, nid, 0, &fwd_atoms, &fwd_count) == 0) {
+        if (hyper_find_by_participant(ctx->memory.txn, ctx->hyper_mem, nid, 0, &fwd_atoms, &fwd_count) == 0) {
             for (size_t j = 0; j < fwd_count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; j++) {
                 if (fwd_atoms[j].process_id == djb2_hash("EDGE_FWD")) {
                     node_id_t rel = HYPER_GET_ID(fwd_atoms[j].args[1].raw);
@@ -336,7 +299,7 @@ int vm_op_load_context(VMContext *ctx, const Instruction *ins) {
                     NeuroAtom *rev_atoms = NULL;
                     size_t rev_count = 0;
 
-                    if (hyper_find_by_participant(ctx->hyper_mem, rel, 0, &rev_atoms, &rev_count) == 0) {
+                    if (hyper_find_by_participant(ctx->memory.txn, ctx->hyper_mem, rel, 0, &rev_atoms, &rev_count) == 0) {
                         for (size_t k = 0; k < rev_count && ctx->preloaded_edge_count < MAX_PRELOADED_EDGES; k++) {
                             if (rev_atoms[k].process_id == djb2_hash("EDGE_REV") &&
                                 HYPER_GET_ID(rev_atoms[k].args[0].raw) == rel) {

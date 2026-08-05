@@ -82,6 +82,8 @@ OBJ_MAIN_DEBUG   := $(patsubst src/%.c,$(OBJDIR_DEBUG)/%.o,$(SRC_MAIN))
 TEST_SRC := $(shell find tests -name '*_test.c')
 TEST_OBJ_DEBUG := $(patsubst tests/%.c,$(OBJDIR_DEBUG)/tests/%.o,$(TEST_SRC))
 TEST_BIN_DEBUG := $(patsubst tests/%_test.c,$(TESTDIR_DEBUG)/%_test,$(TEST_SRC))
+TEST_SUPPORT_SRC := $(filter-out %_test.c,$(shell find tests -name '*.c'))
+TEST_SUPPORT_OBJ := $(patsubst tests/%.c,$(OBJDIR_DEBUG)/tests/%.o,$(TEST_SUPPORT_SRC))
 
 # ==========================================================
 # Build Modes
@@ -132,7 +134,7 @@ $(OBJDIR_DEBUG)/tests/%.o: OBJDIR := $(OBJDIR_DEBUG)
 $(OBJDIR_DEBUG)/tests/%.o: CFLAGS := $(CFLAGS_DEBUG)
 $(OBJDIR_DEBUG)/tests/%.o: tests/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS_DEBUG) -c $< -o $@
 
 # --- Release objects ---
 $(OBJDIR_RELEASE)/%.o: OBJDIR := $(OBJDIR_RELEASE)
@@ -145,7 +147,10 @@ $(OBJDIR_RELEASE)/%.o: src/%.c
 # Test executables (используем debug-флаги и папки)
 # ==========================================================
 
-$(TESTDIR_DEBUG)/%_test: $(OBJDIR_DEBUG)/tests/%_test.o $(OBJ_LIB_DEBUG)
+$(TESTDIR_DEBUG)/%_test: \
+    $(OBJDIR_DEBUG)/tests/%_test.o \
+    $(TEST_SUPPORT_OBJ) \
+    $(OBJ_LIB_DEBUG)
 	@mkdir -p $(dir $@)
 	$(CC) $^ -o $@ $(LDFLAGS_DEBUG)
 

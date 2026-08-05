@@ -20,7 +20,7 @@
 #include "runtime/ops/opcode.h"
 #include "runtime/ops/vm_ops.h"
 #include "knowledge/algorithm_saver.h"
-
+#include "common.h"
 /*
  * Правило: IF ?x FLOWS_TO ?y AND ?x HAS_PROPERTY Unsanitized
  *          THEN ?y HAS_VULNERABILITY SQL_Injection
@@ -104,8 +104,7 @@ typedef struct {
 
 static int setup_txn_fn(MDB_txn *txn, void *arg) {
     CyberSetup *s = arg;
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     if (!hmem) return -1;
     hyper_memory_set_db_causal(hmem, db.graph.hyper.idx_causal);
@@ -118,7 +117,7 @@ static int setup_txn_fn(MDB_txn *txn, void *arg) {
     flows.args[1].raw = HYPER_MAKE_REF(s->db_query);
     flows.truth_mean = 1.0f; flows.truth_confidence = 1.0f;
     flows.sti = 0.6f; flows.lti = 0.3f;
-    if (hyper_assert_unique(hmem, &flows) < 0) { hyper_memory_free(hmem); return -1; }
+    if (hyper_assert_unique(txn, hmem, &flows) < 0) { hyper_memory_free(hmem); return -1; }
 
     // Факт 2: InputA -HAS_PROPERTY-> Unsanitized
     NeuroAtom prop = {0};
@@ -128,7 +127,7 @@ static int setup_txn_fn(MDB_txn *txn, void *arg) {
     prop.args[1].raw = HYPER_MAKE_REF(s->unsanitized);
     prop.truth_mean = 1.0f; prop.truth_confidence = 1.0f;
     prop.sti = 0.6f; prop.lti = 0.3f;
-    if (hyper_assert_unique(hmem, &prop) < 0) { hyper_memory_free(hmem); return -1; }
+    if (hyper_assert_unique(txn, hmem, &prop) < 0) { hyper_memory_free(hmem); return -1; }
 
     // Мета: HAS_ALGORITHM — отношение вида "цель -> алгоритм"
     NeuroAtom meta = {0};
@@ -137,7 +136,7 @@ static int setup_txn_fn(MDB_txn *txn, void *arg) {
     meta.args[0].raw = djb2_hash("HAS_ALGORITHM");
     meta.args[1].raw = djb2_hash("GoalAlgorithmRelation");
     meta.truth_mean = 1.0f; meta.truth_confidence = 1.0f;
-    if (hyper_assert_unique(hmem, &meta) < 0) { hyper_memory_free(hmem); return -1; }
+    if (hyper_assert_unique(txn, hmem, &meta) < 0) { hyper_memory_free(hmem); return -1; }
 
     // IS_A(goal, "Goal") — типизация Knowledge Object
     NeuroAtom goal_type = {0};
@@ -146,7 +145,7 @@ static int setup_txn_fn(MDB_txn *txn, void *arg) {
     goal_type.args[0].raw = HYPER_MAKE_REF(s->goal_id);
     goal_type.args[1].raw = HYPER_MAKE_REF(djb2_hash("Goal"));
     goal_type.truth_mean = 1.0f; goal_type.truth_confidence = 1.0f;
-    hyper_assert_unique(hmem, &goal_type);
+    hyper_assert_unique(txn, hmem, &goal_type);
 
     // HAS_ALGORITHM(goal, algo)
     NeuroAtom link = {0};
@@ -154,8 +153,10 @@ static int setup_txn_fn(MDB_txn *txn, void *arg) {
     link.process_id = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION);
     link.args[0].raw = HYPER_MAKE_REF(s->goal_id);
     link.args[1].raw = HYPER_MAKE_REF(s->algo_id);
-    link.truth_mean = 1.0f; link.truth_confidence = 1.0f;
-    if (hyper_assert_unique(hmem, &link) < 0) { hyper_memory_free(hmem); return -1; }
+    link.truth_mean = 1.0f;
+    link.truth_confidence = 1.0f;
+    link.sti = 0.5f;
+    if (hyper_assert_unique(txn, hmem, &link) < 0) { hyper_memory_free(hmem); return -1; }
 
     hyper_memory_free(hmem);
 
@@ -166,6 +167,8 @@ static int setup_txn_fn(MDB_txn *txn, void *arg) {
     if (!rule) return -1;
     int rc = algorithm_save(txn, s->algo_id, rule);
     pipeline_free(rule);
+
+    rc = planner_bootstrap(txn);
 
     return (rc == MDB_SUCCESS) ? 0 : -1;
 }
@@ -193,7 +196,7 @@ int main(void) {
 
     // --- Активируем цель в Working Memory (как это делает cmd_execute_op) ---
     WorkingMemory wm;
-    assert(wm_init(&wm, 16, 16) == 0);
+    assert(wm_init(&wm, 16) == 0);
     wm_activate(&wm, s.goal_id, 1.0f, 0.0f);
     for (uint32_t i = 0; i < wm.count; i++) {
         if (wm.nodes[i].node_id == s.goal_id) {
@@ -206,8 +209,7 @@ int main(void) {
     MDB_txn *plan_txn;
     assert(mdb_txn_begin(db.env, NULL, MDB_RDONLY, &plan_txn) == MDB_SUCCESS);
 
-    HyperMemory *plan_hmem = hyper_memory_new(plan_txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *plan_hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     assert(plan_hmem != NULL);
 
@@ -218,6 +220,9 @@ int main(void) {
 
     Instruction eval_ins = { .operator_id = OP_EVALUATE_GOALS };
     int rc = vm_op_evaluate_goals(&ctx, &eval_ins);
+    if (rc != VM_OK) {
+        fprintf(stderr, "FATAL: vm_op_evaluate_goals failed with code %d\n", rc);
+    }
     assert(rc == VM_OK); // немедленный возврат — задача уже в пуле воркеров
 
     vm_destroy(&ctx);
@@ -236,7 +241,6 @@ int main(void) {
         if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &poll_txn) != MDB_SUCCESS) continue;
 
         HyperMemory poll_hm = {0};
-        poll_hm.txn             = poll_txn;
         poll_hm.dbi_atoms       = db.graph.hyper.atoms;
         poll_hm.dbi_idx_process = db.graph.hyper.idx_process;
         poll_hm.dbi_idx_args    = db.graph.hyper.idx_args;
@@ -245,7 +249,7 @@ int main(void) {
         NeuroAtom *results = NULL;
         size_t count = 0;
 
-        if (hyper_find_by_participant(&poll_hm, s.db_query, 0, &results, &count) == 0) {
+        if (hyper_find_by_participant(poll_txn, &poll_hm, s.db_query, 0, &results, &count) == 0) {
             for (size_t i = 0; i < count; i++) {
                 if (results[i].process_id == s.has_vuln_proc &&
                     HYPER_GET_ID(results[i].args[0].raw) == s.db_query &&

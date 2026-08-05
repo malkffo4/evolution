@@ -69,8 +69,7 @@ int main(void) {
     operator_registry_init();
 
     // Инициализируем HyperMemory для find_similar (нужен доступ к dbi_idx_vectors)
-    ctx.hyper_mem = hyper_memory_new(txn,
-        db.graph.hyper.atoms,
+    ctx.hyper_mem = hyper_memory_new(db.graph.hyper.atoms,
         db.graph.hyper.idx_process,
         db.graph.hyper.idx_args,
         db.graph.hyper.idx_context);

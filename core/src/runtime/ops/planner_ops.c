@@ -10,7 +10,9 @@
 // по Score, постановка задачи в пул акторов — ровно то разделение, что
 // описано в docs/10_VM.md как Native Dispatch Table / Capability.
 #include <stddef.h>
+#include <stdlib.h>
 
+#include "math/hash.h"
 #include "core/globals.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
@@ -31,15 +33,25 @@ int vm_op_wm_top_goal(VMContext *ctx, const Instruction *ins) {
 
     if (r_goal >= VM_MAX_REGISTERS || r_found >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
-    if (!ctx->memory.wm || !ctx->hyper_mem)
-        return VM_ERROR;
 
-    node_id_t goal_id = wm_get_highest_goal(ctx->memory.wm, ctx->hyper_mem,
-                                             g_homeostasis.activation_threshold);
+    if (!ctx->memory.wm) return VM_ERROR;
 
-    if (goal_id != 0) {
+    node_id_t top_node = 0;
+    float max_activation = 0.0f;
+
+    // Тупой примитив: достаем самую горячую ноду из Рабочей памяти
+    wm_rdlock(ctx->memory.wm);
+    for (uint32_t i = 0; i < ctx->memory.wm->count; i++) {
+        if (ctx->memory.wm->nodes[i].activation > max_activation) {
+            max_activation = ctx->memory.wm->nodes[i].activation;
+            top_node = ctx->memory.wm->nodes[i].node_id;
+        }
+    }
+    wm_unlock(ctx->memory.wm);
+
+    if (top_node != 0) {
         ctx->reg[r_goal].type  = REG_NODE;
-        ctx->reg[r_goal].node  = goal_id;
+        ctx->reg[r_goal].node  = top_node;
         ctx->reg[r_found].type = REG_INT;
         ctx->reg[r_found].i    = 1;
     } else {
@@ -47,6 +59,7 @@ int vm_op_wm_top_goal(VMContext *ctx, const Instruction *ins) {
         ctx->reg[r_found].type = REG_INT;
         ctx->reg[r_found].i    = 0;
     }
+
     return VM_OK;
 }
 
@@ -58,38 +71,35 @@ int vm_op_wm_top_goal(VMContext *ctx, const Instruction *ins) {
 // способом, каким это раньше делал захардкоженный C-фолбэк.
 int vm_op_select_algorithm(VMContext *ctx, const Instruction *ins) {
     uint32_t r_goal  = ins->arg[0];
-    uint32_t r_algo  = ins->arg[1];
-    uint32_t r_found = ins->arg[2];
+    uint32_t sp_base = ins->arg[1]; // Адрес в scratchpad, куда сложить ID всех алгоритмов
+    uint32_t r_count = ins->arg[2]; // Регистр для записи их количества
 
-    if (r_goal >= VM_MAX_REGISTERS || r_algo >= VM_MAX_REGISTERS || r_found >= VM_MAX_REGISTERS)
+    if (r_goal >= VM_MAX_REGISTERS || r_count >= VM_MAX_REGISTERS || sp_base >= MAX_SCRATCHPAD)
         return VM_INVALID_REGISTER;
-    if (ctx->reg[r_goal].type != REG_NODE && ctx->reg[r_goal].type != REG_INT)
-        return VM_INVALID_TYPE;
-    if (!ctx->hyper_mem)
-        return VM_ERROR;
 
-    node_id_t goal_id = (ctx->reg[r_goal].type == REG_NODE)
-        ? ctx->reg[r_goal].node : (node_id_t)ctx->reg[r_goal].i;
+    node_id_t goal_id = (ctx->reg[r_goal].type == REG_NODE) ? ctx->reg[r_goal].node : (node_id_t)ctx->reg[r_goal].i;
 
-    node_id_t algo_id = 0;
-    int rc = planner_select_algorithm(ctx->hyper_mem, goal_id, ctx, &algo_id);
+    // Ищем в графе: (goal_id) -[HAS_ALGORITHM]-> (?)
+    ko_id_t has_algo_proc = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION);
+    NeuroAtom *results = NULL;
+    size_t count = 0;
+    uint32_t written = 0;
 
-    if (rc == 0) {
-        ctx->reg[r_algo].type  = REG_NODE;
-        ctx->reg[r_algo].node  = algo_id;
-        ctx->reg[r_found].type = REG_INT;
-        ctx->reg[r_found].i    = 1;
-        return VM_OK;
+    if (hyper_find_by_process(ctx->memory.txn, ctx->hyper_mem, has_algo_proc, goal_id, 0, &results, &count) == 0) {
+        for (size_t i = 0; i < count; i++) {
+            // Извлекаем target (сам алгоритм)
+            ko_id_t algo_id = HYPER_GET_ID(results[i].args[1].raw);
+            if (sp_base + written < MAX_SCRATCHPAD) {
+                ctx->scratchpad[sp_base + written].value = (int64_t)algo_id;
+                written++;
+            }
+        }
+        free(results);
     }
 
-    const char *goal_name = get_string_from_pool(ctx->memory.txn, goal_id);
-    if (goal_name)
-        enqueue_research_task(goal_id, goal_name);
-    set_goal_cooldown(goal_id);
+    ctx->reg[r_count].type = REG_INT;
+    ctx->reg[r_count].i = written;
 
-    ctx->reg[r_algo].type  = REG_EMPTY;
-    ctx->reg[r_found].type = REG_INT;
-    ctx->reg[r_found].i    = 0;
     return VM_OK;
 }
 

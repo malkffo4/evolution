@@ -27,14 +27,13 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     VmJob *job = arg;
 
     WorkingMemory local_wm;
-    if (wm_init(&local_wm, 256, 512) != 0) {
+    if (wm_init(&local_wm, 256) != 0) {
         LOG_ERROR("[VM_POOL] wm_init failed: algo=%lu goal=%lu",
                   (unsigned long)job->algo_id, (unsigned long)job->goal_id);
         return -1; // инфраструктурная ошибка — abort оправдан
     }
 
-    HyperMemory *worker_hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *worker_hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     if (!worker_hmem) {
         LOG_ERROR("[VM_POOL] hyper_memory_new failed: algo=%lu", (unsigned long)job->algo_id);
@@ -79,13 +78,13 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     // (algorithm_planner.c::pick_best) никогда не увидит, что confidence
     // упала, и будет бесконечно выбирать один и тот же плохой алгоритм.
     float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
-    if (score_update(ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, outcome, 0, 0) != 0) {
+    if (score_update(txn, ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, outcome, 0, 0) != 0) {
         LOG_ERROR("[VM_POOL] score_update failed: algo=%lu outcome=%.1f",
                   (unsigned long)job->algo_id, outcome);
     }
 
     if (ctx.last_result_id != 0) {
-        int propagated = score_propagate_credit(ctx.hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
+        int propagated = score_propagate_credit(txn, ctx.hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
                                                   ctx.last_result_id, outcome, 0, 0.7f);
         // Если гипотеза была построена по аналогии (ctx.userdata хранит признаки x[4],
         // проставленные в момент OP_DERIVE аналогии — см. AnalogyEvaluation.score),
@@ -109,7 +108,7 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     ep.start_cycles     = t_start;
     ep.duration_cycles  = (t_end > t_start) ? (t_end - t_start) : 0;
     ep.wall_time        = (uint64_t)time(NULL);
-    if (episode_record(ctx.hyper_mem, &ep) != 0) {
+    if (episode_record(txn, ctx.hyper_mem, &ep) != 0) {
         LOG_ERROR("[VM_POOL] episode_record failed: algo=%lu goal=%lu",
                   (unsigned long)job->algo_id, (unsigned long)job->goal_id);
     }
@@ -138,6 +137,9 @@ static void *vm_worker(void *arg) {
 }
 
 void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id) {
+    LOG_DEBUG("vm_pool_submit algo=%lu goal=%lu",
+                  (unsigned long)algo_id,
+                  (unsigned long)goal_id);
     if (!pipeline) {
         LOG_ERROR("vm_pool_submit: invalid arguments");
         return;
@@ -149,7 +151,7 @@ void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id) {
         pipeline_free(pipeline);
         return;
     }
-    
+
     job->pipeline       = pipeline;
     job->goal_id        = goal_id;
     job->algo_id        = algo_id;

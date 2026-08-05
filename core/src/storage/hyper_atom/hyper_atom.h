@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <lmdb.h>
 
+#include "math/vector_math.h"
+
 // 64-битный универсальный идентификатор
 typedef uint64_t ko_id_t;
 
@@ -37,8 +39,6 @@ typedef uint64_t ko_id_t;
 
 #define HYPER_VAL_SLOTS      2
 
-#define VECTOR_DIM 128
-
 typedef enum {
     PROC_KIND_RELATION      = 0,  // связь (IS_A, CAUSES, ...)
     PROC_KIND_ENTITY        = 1,  // любое понятие, включая мета-категории
@@ -63,10 +63,6 @@ typedef union {
     int64_t i_val;
     char    s_val[8];
 } HyperVal;
-
-typedef struct {
-    float data[VECTOR_DIM];
-} Vector128;
 
 /*
  * NeuroAtom — когнитивная триада: Truth (эпистемика) + Attention (внимание)
@@ -120,8 +116,6 @@ typedef struct {
 } HyperIdGenerator;
 
 typedef struct HyperMemory {
-    MDB_txn *txn;
-
     MDB_dbi dbi_atoms;
     MDB_dbi dbi_idx_process;
     MDB_dbi dbi_idx_args;
@@ -134,34 +128,25 @@ typedef struct HyperMemory {
 } HyperMemory;
 
 ko_id_t hyper_memory_new_id(HyperMemory *mem);
-
-HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx);
+// Убрали MDB_txn *txn из инициализации
+HyperMemory *hyper_memory_new(MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx);
 void hyper_memory_free(HyperMemory *mem);
-void hyper_memory_set_txn(HyperMemory *mem, MDB_txn *txn);
+
 void hyper_memory_set_db_archive(HyperMemory *mem, MDB_dbi archive);
 void hyper_memory_set_db_causal(HyperMemory *mem, MDB_dbi causal);
 void hyper_memory_set_db_vectors(HyperMemory *mem, MDB_dbi vectors);
 
-int hyper_assert(HyperMemory *mem, const NeuroAtom *atom);
-int hyper_assert_unique(HyperMemory *mem, const NeuroAtom *atom);
-int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id);
+// --- Транзакции теперь передаются явно ---
+int hyper_assert(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom);
+int hyper_assert_unique(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom);
+int hyper_assert_with_cause(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id);
 
-int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count);
-int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count);
+int hyper_find_by_process(MDB_txn *txn, HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count);
+int hyper_find_by_participant(MDB_txn *txn, HyperMemory *mem, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count);
+int hyper_find_top_by_score(MDB_txn *txn, HyperMemory *mem, ko_id_t context_id, float w_sti, float w_utility, int top_k, NeuroAtom **results, size_t *count);
+int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, size_t max_depth, size_t *count);
+int hyper_find_by_process_sti(MDB_txn *txn, HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, float sti_threshold, NeuroAtom **results, size_t *count);
 
-// Взвешенный по STI/Utility поиск — для агентного цикла (см. п.4)
-int hyper_find_top_by_score(HyperMemory *mem, ko_id_t context_id, float w_sti, float w_utility,
-                             int top_k, NeuroAtom **results, size_t *count);
-
-int hyper_trace_cause(HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, size_t max_depth, size_t *count);
-
-// Сохранить/загрузить эмбеддинг для атома
+// Эти функции уже принимали MDB_txn*, их не меняем:
 int hyper_vector_save(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, const Vector128 *vec);
 int hyper_vector_load(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, Vector128 *out);
-
-// Косинусное сходство
-float vector_cosine_similarity(const Vector128 *a, const Vector128 *b);
-
-int hyper_find_by_process_sti(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id,
-                               ko_id_t context_id, float sti_threshold,
-                               NeuroAtom **results, size_t *count);

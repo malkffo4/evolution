@@ -187,8 +187,7 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
     LOG_IPC("Hyper-retrieve for '%s' (hash: %lu)", query, participant_id);
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) == MDB_SUCCESS) {
-        HyperMemory *hmem = hyper_memory_new(txn,
-            db.graph.hyper.atoms, db.graph.hyper.idx_process,
+        HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
             db.graph.hyper.idx_args, db.graph.hyper.idx_context);
         if (!hmem) {
             const char* err = "{\"error\": \"hyper_memory_new error\"}";
@@ -197,7 +196,7 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
             return;
         }
 
-        char *result = hyper_retrieve_json(hmem, participant_id, 2, 30);
+        char *result = hyper_retrieve_json(txn, hmem, participant_id, 2, 30);
         mdb_txn_abort(txn);
         hyper_memory_free(hmem);
         if (result) {
@@ -405,13 +404,12 @@ void req_get_score(IPCPacket *req, IPCPacket *resp) {
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) == MDB_SUCCESS) {
         HyperMemory local_hm = {0};
-        local_hm.txn = txn;
         local_hm.dbi_atoms = db.graph.hyper.atoms;
         local_hm.dbi_idx_process = db.graph.hyper.idx_process;
         local_hm.dbi_idx_args = db.graph.hyper.idx_args;
         local_hm.dbi_idx_context = db.graph.hyper.idx_context;
 
-        float score = score_get(&local_hm, (CognitiveDomain)domain, subject_id);
+        float score = score_get(txn, &local_hm, (CognitiveDomain)domain, subject_id);
         mdb_txn_abort(txn);
 
         snprintf((char *)resp->payload, sizeof(resp->payload),
@@ -458,7 +456,6 @@ void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
     }
 
     HyperMemory local_hm = {0};
-    local_hm.txn = txn;
     local_hm.dbi_atoms = db.graph.hyper.atoms;
     local_hm.dbi_idx_process = db.graph.hyper.idx_process;
     local_hm.dbi_idx_args = db.graph.hyper.idx_args;
@@ -468,7 +465,7 @@ void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
     size_t count = 0;
     cJSON *arr = cJSON_CreateArray();
 
-    if (hyper_find_by_participant(&local_hm, subject_id, 0, &pointers, &count) == 0) {
+    if (hyper_find_by_participant(txn, &local_hm, subject_id, 0, &pointers, &count) == 0) {
         int emitted = 0;
         for (size_t i = 0; i < count && emitted < limit; i++) {
             if (pointers[i].process_id != episode_proc) continue;

@@ -18,8 +18,7 @@ int main(void) {
     MDB_txn *txn;
     assert(mdb_txn_begin(db.env, NULL, 0, &txn) == 0);
 
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     assert(hmem != NULL);
 
@@ -35,7 +34,7 @@ int main(void) {
     ep1.goal_id = GOAL; ep1.algorithm_id = ALGO;
     ep1.vm_status = VM_ERROR; ep1.outcome = 0.0f;
     ep1.start_cycles = 1000; ep1.duration_cycles = 50; ep1.wall_time = 111111;
-    assert(episode_record(hmem, &ep1) == 0);
+    assert(episode_record(txn, hmem, &ep1) == 0);
 
     Episode ep2 = {0};
     ep2.id = hyper_memory_new_id(hmem);
@@ -43,7 +42,7 @@ int main(void) {
     ep2.goal_id = GOAL; ep2.algorithm_id = ALGO; ep2.result_atom_id = 777;
     ep2.vm_status = VM_OK; ep2.outcome = 1.0f;
     ep2.start_cycles = 2000; ep2.duration_cycles = 30; ep2.wall_time = 222222;
-    assert(episode_record(hmem, &ep2) == 0);
+    assert(episode_record(txn, hmem, &ep2) == 0);
 
     Episode loaded1, loaded2;
     assert(episode_load(txn, ep1.id, &loaded1) == MDB_SUCCESS);
@@ -56,7 +55,7 @@ int main(void) {
 
     NeuroAtom *by_goal = NULL;
     size_t goal_count = 0;
-    assert(hyper_find_by_participant(hmem, GOAL, 0, &by_goal, &goal_count) == 0);
+    assert(hyper_find_by_participant(txn, hmem, GOAL, 0, &by_goal, &goal_count) == 0);
     int found1 = 0, found2 = 0;
     node_id_t episode_proc = proc_make(djb2_hash("EPISODE_RECORDED"), PROC_KIND_EVENT);
     for (size_t i = 0; i < goal_count; i++) {
@@ -69,7 +68,7 @@ int main(void) {
 
     NeuroAtom *by_algo = NULL;
     size_t algo_count = 0;
-    assert(hyper_find_by_participant(hmem, ALGO, 0, &by_algo, &algo_count) == 0);
+    assert(hyper_find_by_participant(txn, hmem, ALGO, 0, &by_algo, &algo_count) == 0);
     int found_by_algo = 0;
     for (size_t i = 0; i < algo_count; i++)
         if (by_algo[i].process_id == episode_proc && by_algo[i].id == ep2.id) found_by_algo = 1;

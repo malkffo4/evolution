@@ -17,7 +17,6 @@ typedef enum {
     TRACE_TIMEOUT = 1<<2,
     TRACE_FALLBACK = 1<<3,
     TRACE_EXCEPTION = 1<<4
-
 } VMTraceFlags;
 
 typedef struct VMTraceRegister {
@@ -28,19 +27,14 @@ typedef struct VMTraceRegister {
 typedef struct VMTrace {
     OperatorID operator;
     PipelineID pipeline;
-
     uint64_t cycles;
     uint64_t begin;
     uint64_t end;
-
     uint32_t depth;
     uint32_t ip;
-
     uint32_t flags;
-
     VMTraceRegister input[4];
     VMTraceRegister output[2];
-
     VMStatus result;
 } VMTrace;
 

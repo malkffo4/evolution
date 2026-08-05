@@ -165,6 +165,7 @@ void operator_registry_init(void) {
     // Управление потоком, необходимое для ограниченных циклов (MainLoop и
     // любые пайплайны, реализующие итеративный/дедуктивный обход).
     operator_register_native(OP_BRANCH, "branch", 0, vm_op_branch, NULL, 0, 0);
+    operator_register_native(OP_BRANCH_IF_EMPTY, "branch_if_empty", 0, vm_op_branch_if_empty, NULL, 0, 0);
     operator_register_native(OP_JGE, "cond_branch_gt", 0, vm_op_cond_branch, NULL, 0, 0);
 
     operator_register_native(OP_EVAL_GRAPH,          "eval_graph",           0, vm_op_eval_graph,          NULL,0,0);
@@ -176,6 +177,7 @@ void operator_registry_init(void) {
     operator_register_native(OP_WRITE_SP,            "write_sp",             0, vm_op_write_sp,            NULL,0,0);
     operator_register_native(OP_LOAD_FCONST,         "load_fconst",          0, vm_op_load_fconst,         NULL,0,0);
     operator_register_native(OP_JGE_GRAPH,           "jge_graph",            0, vm_op_jge_graph,           NULL,0,0);
+
     // 2. Операторы с возможностями
     // ObjectType in_node[] = { REG_NODE };
     // operator_register_native(OP_GET_OUT_EDGES, "get_out_edges", CAP_GET_OUT_EDGES, vm_op_get_out_edges, in_node, 1, REG_EDGESET);

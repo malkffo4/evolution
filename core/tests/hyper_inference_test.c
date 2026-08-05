@@ -39,7 +39,7 @@ int main() {
     mdb_txn_commit(txn);
 
     mdb_txn_begin(env, NULL, 0, &txn);
-    HyperMemory *hmem = hyper_memory_new(txn, dbi_atoms, dbi_idx_proc, dbi_idx_args, dbi_idx_ctx);
+    HyperMemory *hmem = hyper_memory_new(dbi_atoms, dbi_idx_proc, dbi_idx_args, dbi_idx_ctx);
     assert(hmem != NULL);
     hmem->dbi_idx_causal = dbi_idx_causal;
 

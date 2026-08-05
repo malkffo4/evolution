@@ -37,8 +37,7 @@ typedef struct { ko_id_t ids[64]; int count; } FlawJob;
 
 static int mark_flaw_txn_fn(MDB_txn *txn, void *arg) {
     FlawJob *job = arg;
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     if (!hmem) return -1;
 
@@ -58,7 +57,7 @@ static int mark_flaw_txn_fn(MDB_txn *txn, void *arg) {
         flaw.truth_confidence = 0.9f;
         flaw.sti = 0.05f;  // сама пометка не засоряет активное внимание
         flaw.lti = 0.30f;  // но переживёт несколько decay-тиков до ручного/Critic-review
-        hyper_assert_unique(hmem, &flaw);
+        hyper_assert_unique(txn, hmem, &flaw);
     }
     hyper_memory_free(hmem);
     return 0;
@@ -105,14 +104,6 @@ static int learn_txn_fn(MDB_txn *txn, void *arg) {
 
     if (job->is_pattern)
         return hyper_pattern_save(txn, db.graph.hyper.patterns, &job->pattern) == MDB_SUCCESS ? 0 : -1;
-
-    // LMDB освобождает структуру MDB_txn* при mdb_txn_commit().
-    // global_hyper_mem->txn после старта процесса указывает на уже закоммиченную
-    // (main.c) или чужую (предыдущий тик MainLoop) транзакцию. hyper_assert*()
-    // внутри perceive_hyper_json()/perceive_and_activate() пишут через
-    // hmem->txn — без этой строки почти каждый "learn" от agent.py писал бы
-    // через use-after-commit транзакцию (UB, тихая порча LMDB).
-    hyper_memory_set_txn(global_hyper_mem, txn);
 
     // Дешёвая инвалидация кэша find_goal_algorithm_relations() (см. 3.2):
     // мета-факт GoalAlgorithmRelation меняется исключительно через "learn".

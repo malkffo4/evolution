@@ -17,7 +17,6 @@
 #include "math/hash.h"
 #include "knowledge/algorithm_loader.h"
 #include "knowledge/algorithm_saver.h"
-#include "reasoning/algorithm_planner.h"
 
 int main(void) {
     system("rm -rf ./test_goal_db");
@@ -27,8 +26,7 @@ int main(void) {
     assert(mdb_txn_begin(db.env, NULL, 0, &txn) == 0);
 
     // ----- инициализируем HyperMemory -----
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms,
         db.graph.hyper.idx_process,
         db.graph.hyper.idx_args,
         db.graph.hyper.idx_context);
@@ -53,27 +51,38 @@ int main(void) {
     // ----- гипер-атом HAS_ALGORITHM -----
     NeuroAtom goal_algo_atom = {0};
     goal_algo_atom.id          = 1000 + algo_id;
-    goal_algo_atom.process_id  = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION); // FIX
+    goal_algo_atom.process_id  = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION);
     goal_algo_atom.args[0].raw = HYPER_MAKE_REF(goal_id);
     goal_algo_atom.args[1].raw = HYPER_MAKE_REF(algo_id);
     goal_algo_atom.truth_mean       = 1.0f;
     goal_algo_atom.truth_confidence = 1.0f;
-    int hrc = hyper_assert_unique(hmem, &goal_algo_atom);
+    int hrc = hyper_assert_unique(txn, hmem, &goal_algo_atom);
     assert(hrc == 0 || hrc == 1);
 
     // ----- VM и операторы -----
     VMContext ctx;
     WorkingMemory wm_stub = {0};
-    wm_init(&wm_stub, 100, 100);
+    wm_init(&wm_stub, 100); // 100 capacity, edge_cap игнорируется (легаси)
     assert(vm_init(&ctx, txn, &wm_stub) == VM_OK);
     ctx.hyper_mem = hmem;
     operator_registry_init();                // <-- ВАЖНО! Без этого операторы не зарегистрированы
 
-    // Проверяем планировщик
-    node_id_t selected_algo = 0;
-    int rc = planner_select_algorithm(hmem, goal_id, &ctx, &selected_algo);
-    assert(rc == 0);
+    // ----- Проверяем НОВЫЙ декларативный планировщик (через VM) -----
+    ctx.reg[10].type = REG_NODE;
+    ctx.reg[10].node = goal_id;
+
+    // OP_SELECT_ALGORITHM: arg[0]=src goal_id, arg[1]=scratchpad offset, arg[2]=dst count
+    Instruction select_algo_ins = { .operator_id = OP_SELECT_ALGORITHM, .arg = {10, 0, 11} };
+    int rc = vm_op_select_algorithm(&ctx, &select_algo_ins);
+
+    assert(rc == VM_OK);
+    assert(ctx.reg[11].type == REG_INT);
+    assert(ctx.reg[11].i > 0); // Убеждаемся, что найден хотя бы 1 алгоритм
+
+    // Алгоритм теперь лежит в scratchpad под индексом 0
+    node_id_t selected_algo = (node_id_t)ctx.scratchpad[0].value;
     assert(selected_algo == algo_id);
+    // ------------------------------------------------------------------
 
     // ----- Бинарные рёбра (EDGE_FWD / EDGE_REV) -----
     uint64_t A = djb2_hash("A");
@@ -87,7 +96,7 @@ int main(void) {
     fwd.args[1].raw = HYPER_MAKE_REF(REL);
     fwd.truth_mean = 1.0f;
     fwd.truth_confidence = 1.0f;
-    hyper_assert_unique(hmem, &fwd);
+    hyper_assert_unique(txn, hmem, &fwd);
 
     NeuroAtom rev = {0};
     rev.id = 2001;
@@ -96,7 +105,7 @@ int main(void) {
     rev.args[1].raw = HYPER_MAKE_REF(B);
     rev.truth_mean = 1.0f;
     rev.truth_confidence = 1.0f;
-    hyper_assert_unique(hmem, &rev);
+    hyper_assert_unique(txn, hmem, &rev);
 
     // Активируем узлы в WM, чтобы load_context увидел их
     wm_activate(&wm_stub, A, 1.0f, 0.0f);

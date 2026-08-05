@@ -109,7 +109,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 // edge_atom.id = ++next_edge_id;
 
                 // // Используем 0 как cause_id (внешнее восприятие)
-                // hyper_assert_with_cause(hmem, &edge_atom, 0);
+                // hyper_assert_with_cause(txn, hmem, &edge_atom, 0);
                 //
                 // Вместо одного атома с process_id = relation, создаём два
                 NeuroAtom fwd = {0};
@@ -119,7 +119,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 fwd.args[1].raw = HYPER_MAKE_REF(djb2_hash(relation->valuestring));
                 fwd.truth_mean = 1.0f;
                 fwd.truth_confidence = 0.5f;
-                hyper_assert_unique(hmem, &fwd);
+                hyper_assert_unique(txn, hmem, &fwd);
 
                 NeuroAtom rev = {0};
                 rev.id = next_edge_id++;
@@ -128,7 +128,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 rev.args[1].raw = HYPER_MAKE_REF(djb2_hash(target->valuestring));
                 rev.truth_mean = 1.0f;
                 rev.truth_confidence = 0.5f;
-                hyper_assert_unique(hmem, &rev);
+                hyper_assert_unique(txn, hmem, &rev);
             }
         }
     }
@@ -252,7 +252,7 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             atom.id = (0x2000000000000000ULL | (next_id++)) & HYPER_VALUE_MASK;
         }
 
-        int result = hyper_assert_unique(hmem, &atom);
+        int result = hyper_assert_unique(txn, hmem, &atom);
         if (result != 0 && result != 1) {
             LOG_ERROR("Failed to assert NeuroAtom");
             continue;
@@ -309,7 +309,7 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
                 isa_atom.args[1].raw = HYPER_MAKE_REF(djb2_hash(k));
                 isa_atom.truth_mean = 1.0f;
                 isa_atom.truth_confidence = 1.0f;
-                hyper_assert_unique(hmem, &isa_atom);
+                hyper_assert_unique(txn, hmem, &isa_atom);
             }
         }
         // Причинность — отдельный индекс, не в горячей структуре
@@ -321,7 +321,7 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             if (cause_id) {
                 MDB_val k = { sizeof(ko_id_t), &atom.id };
                 MDB_val v = { sizeof(ko_id_t), &cause_id };
-                mdb_put(hmem->txn, /* db.graph.hyper.idx_causal */ hmem->dbi_idx_context, &k, &v, MDB_APPENDDUP);
+                mdb_put(txn, /* db.graph.hyper.idx_causal */ hmem->dbi_idx_context, &k, &v, MDB_APPENDDUP);
                 // NB: в реальном коде используй отдельный dbi_idx_causal, а не idx_context
             }
         }

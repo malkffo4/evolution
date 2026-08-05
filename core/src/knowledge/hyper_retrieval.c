@@ -26,7 +26,7 @@ static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) 
     snprintf(out, out_size, "0x%llx", (unsigned long long)id);
 }
 
-char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_depth, int max_atoms) {
+char* hyper_retrieve_json(MDB_txn *txn, HyperMemory *hmem, node_id_t participant_id, int max_depth, int max_atoms) {
     cJSON *root = cJSON_CreateObject();
     cJSON *atoms_arr = cJSON_AddArrayToObject(root, "atoms");
 
@@ -52,7 +52,7 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
 
         NeuroAtom *results = NULL;
         size_t count = 0;
-        if (hyper_find_by_participant(hmem, current_participant, 0, &results, &count) == 0) {
+        if (hyper_find_by_participant(txn, hmem, current_participant, 0, &results, &count) == 0) {
             for (size_t i = 0; i < count && (int)(q_tail + 1) < max_atoms; i++) {
                 cJSON *atom_json = cJSON_CreateObject();
 
@@ -62,7 +62,7 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
                 cJSON_AddStringToObject(atom_json, "id", idbuf);
 
                 // process
-                const char *proc_label = get_string_from_pool(hmem->txn, results[i].process_id);
+                const char *proc_label = get_string_from_pool(txn, results[i].process_id);
                 cJSON_AddStringToObject(atom_json, "process", proc_label ? proc_label : "UNKNOWN");
 
                 // args (только 2 слота)
@@ -71,7 +71,7 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
                     if (results[i].args[a].raw != 0) {
                         char label[128];
                         if (HYPER_GET_TYPE(results[i].args[a].raw) == HYPER_TYPE_REF) {
-                            resolve_label(hmem->txn, HYPER_GET_ID(results[i].args[a].raw), label, sizeof(label));
+                            resolve_label(txn, HYPER_GET_ID(results[i].args[a].raw), label, sizeof(label));
                         } else {
                             snprintf(label, sizeof(label), "%lld", (long long)results[i].args[a].raw);
                         }

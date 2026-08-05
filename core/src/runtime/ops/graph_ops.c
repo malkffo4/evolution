@@ -275,7 +275,7 @@ int vm_op_assert_instruction(VMContext *ctx, const Instruction *ins) {
     instr.valence = 0.0f;
     instr.context_or_time_link = ctx->current_context;  // уважает текущий OP_SPAWN_CTX
 
-    if (hyper_assert_with_cause(ctx->hyper_mem, &instr, cause_id) < 0)
+    if (hyper_assert_with_cause(ctx->memory.txn, ctx->hyper_mem, &instr, cause_id) < 0)
         return VM_ERROR;
 
     ctx->reg[r_dst].type = REG_INT;
@@ -321,7 +321,7 @@ int vm_op_atom_reinforce(VMContext *ctx, const Instruction *ins) {
 
     // hyper_assert() (не _unique) — перезапись на месте по неизменному id,
     // индексы не трогаются (process_id/args не меняются).
-    if (hyper_assert(ctx->hyper_mem, &atom) != MDB_SUCCESS)
+    if (hyper_assert(ctx->memory.txn, ctx->hyper_mem, &atom) != MDB_SUCCESS)
         return VM_ERROR;
 
     return VM_OK;

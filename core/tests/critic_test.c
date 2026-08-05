@@ -26,7 +26,7 @@ int main(void) {
     assert(mdb_txn_begin(db.env, NULL, 0, &txn) == MDB_SUCCESS);
 
     WorkingMemory wm;
-    wm_init(&wm, 256, 512);
+    wm_init(&wm, 256);
     operator_registry_init();
 
     // Создаём заведомо падающий алгоритм (OP_ASSERT с невалидными регистрами)
