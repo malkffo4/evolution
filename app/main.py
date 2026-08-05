@@ -54,6 +54,11 @@ class NeuroCoreShell(cmd.Cmd):
         Initialize Meta-Core concepts and basic algorithms. Run once."""
         self.manager.execute_command("bootstrap")
 
+    def do_test(self, arg):
+        """test
+        Run all AGI Olympic tests."""
+        self.manager.run_tests()
+
     def do_ask(self, arg):
         """ask <query>
         Ask a question using the basic MVP Agent."""
@@ -116,6 +121,8 @@ Examples:
     subparsers.add_parser("bootstrap", help="Initialize Meta-Core concepts")
     subparsers.add_parser("shutdown", help="Gracefully stop the C-core")
 
+    parser_test = subparsers.add_parser("test", help="Run AGI Olympic tests")
+
     parser_retrieve = subparsers.add_parser("retrieve", help="Find facts in the graph")
     parser_retrieve.add_argument("query", nargs='+', help="Keyword to search for")
 
@@ -155,7 +162,9 @@ Examples:
             elif args.command == "chat": cmd_args = args.text
             elif args.command == "agent": cmd_args = args.text
             elif args.command == "ingest": cmd_args = [args.file]
-
+            elif args.command == "test":
+                            manager.run_tests()
+                            return
             manager.execute_command(args.command, *cmd_args)
 
     except Exception as e:
