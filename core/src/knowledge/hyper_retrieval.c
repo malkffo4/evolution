@@ -12,6 +12,7 @@
 
 static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) {
     Node n;
+    // Попытка 1: Узел существует
     if (get_node(txn, id, &n) == MDB_SUCCESS) {
         const char *label = get_string_from_pool(txn, n.name_hash);
         if (label) {
@@ -19,11 +20,13 @@ static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) 
             return;
         }
     }
+    // Попытка 2: Ищем хэш напрямую в пуле строк
     const char *pooled = get_string_from_pool(txn, id);
     if (pooled) {
         snprintf(out, out_size, "%s", pooled);
         return;
     }
+    // Попытка 3: Возвращаем число
     snprintf(out, out_size, "0x%llx", (unsigned long long)id);
 }
 

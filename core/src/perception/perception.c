@@ -40,7 +40,6 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
             cJSON *danger_json = cJSON_GetObjectItemCaseSensitive(node, "danger");
             cJSON *utility_json = cJSON_GetObjectItemCaseSensitive(node, "utility");
 
-            // ИСПРАВЛЕНИЕ: Правильный каст типов в тернарном операторе
             float danger = cJSON_IsNumber(danger_json) ? (float)danger_json->valuedouble : 0.1f;
             float utility = cJSON_IsNumber(utility_json) ? (float)utility_json->valuedouble : 0.1f;
 
@@ -86,7 +85,6 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 logic_edge.confidence = 0.5f;
                 logic_edge.context = 0;
                 upsert_edge(txn, &logic_edge);
-
                 add_string_to_pool(txn, "EDGE"); // чтобы process-label резолвился при retrieve
 
                 // NeuroAtom edge_atom = {
@@ -113,6 +111,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 //
                 // Вместо одного атома с process_id = relation, создаём два
                 NeuroAtom fwd = {0};
+                static uint64_t next_edge_id = 10000;
                 fwd.id = next_edge_id++;
                 fwd.process_id = djb2_hash("EDGE_FWD");
                 fwd.args[0].raw = HYPER_MAKE_REF(djb2_hash(source->valuestring));
@@ -137,21 +136,23 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
     return 0;
 }
 
-static ko_id_t resolve_arg(cJSON *arg_item) {
+// Передали MDB_txn *txn, чтобы resolve_arg мог регистрировать строки
+static ko_id_t resolve_arg(MDB_txn *txn, cJSON *arg_item) {
     if (cJSON_IsString(arg_item)) {
         const char *str = arg_item->valuestring;
-        // Проверяем, не число ли это в строке
         char *end;
         long long ival = strtoll(str, &end, 10);
         if (*end == '\0') return (ko_id_t)(ival) | HYPER_TYPE_INT;
+
         double dval = strtod(str, &end);
         if (*end == '\0') {
-            // float упаковываем: используем union
             union { double d; ko_id_t i; } u;
             u.d = dval;
             return u.i | HYPER_TYPE_FLOAT;
         }
-        // Иначе хэшируем как ссылку
+
+        // Регистрируем строку в пуле перед возвратом REF!
+        if (txn) add_string_to_pool(txn, str);
         return HYPER_MAKE_REF(djb2_hash(str));
     } else if (cJSON_IsNumber(arg_item)) {
         double num = arg_item->valuedouble;
@@ -165,7 +166,7 @@ static ko_id_t resolve_arg(cJSON *arg_item) {
     } else if (cJSON_IsBool(arg_item)) {
         return (ko_id_t)(uint64_t)(arg_item->valueint ? 1 : 0) | HYPER_TYPE_INT;
     }
-    return 0; // неизвестный тип
+    return 0;
 }
 
 int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
@@ -184,18 +185,19 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
         cJSON *process_json = cJSON_GetObjectItem(atom_item, "process");
         if (!cJSON_IsString(process_json)) continue;
 
-        // Определяем ProcKind по полю "kind"
-        ProcKind kind = PROC_KIND_ENTITY;   // по умолчанию — сущность
+        // ИСПРАВЛЕНИЕ: Обязательно регистрируем имя предиката в пуле!
+        if (txn) add_string_to_pool(txn, process_json->valuestring);
+
+        ProcKind kind = PROC_KIND_RELATION;
         cJSON *kind_json = cJSON_GetObjectItem(atom_item, "kind");
         if (cJSON_IsString(kind_json)) {
             const char *k = kind_json->valuestring;
             if      (!strcmp(k, "relation")) kind = PROC_KIND_RELATION;
             else if (!strcmp(k, "entity"))   kind = PROC_KIND_ENTITY;
-            else if (!strcmp(k, "concept"))  kind = PROC_KIND_ENTITY;  // синоним
+            else if (!strcmp(k, "concept"))  kind = PROC_KIND_ENTITY;
             else if (!strcmp(k, "rule"))     kind = PROC_KIND_RULE;
             else if (!strcmp(k, "goal"))     kind = PROC_KIND_GOAL;
             else if (!strcmp(k, "event"))    kind = PROC_KIND_EVENT;
-            // всё остальное (skill, prediction, hypothesis, ...) — ENTITY
         }
 
         NeuroAtom atom = {0};
@@ -204,12 +206,12 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
         cJSON *args_json = cJSON_GetObjectItem(atom_item, "args");
         if (cJSON_IsArray(args_json)) {
             int n = cJSON_GetArraySize(args_json);
-            for (int i = 0; i < n && i < HYPER_VAL_SLOTS; i++) {   // строго 2 слота
-                atom.args[i].raw = resolve_arg(cJSON_GetArrayItem(args_json, i));
+            for (int i = 0; i < n && i < HYPER_VAL_SLOTS; i++) {
+                // ИСПРАВЛЕНИЕ: Передаем txn в resolve_arg
+                atom.args[i].raw = resolve_arg(txn, cJSON_GetArrayItem(args_json, i));
             }
         }
 
-        // --- Epistemic Vector ---
         cJSON *truth_json = cJSON_GetObjectItem(atom_item, "truth");
         if (cJSON_IsObject(truth_json)) {
             cJSON *m = cJSON_GetObjectItem(truth_json, "mean");
@@ -217,12 +219,10 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             atom.truth_mean       = cJSON_IsNumber(m) ? clampf((float)m->valuedouble, 0.f, 1.f) : 1.0f;
             atom.truth_confidence = cJSON_IsNumber(c) ? clampf((float)c->valuedouble, 0.f, 1.f) : 0.5f;
         } else {
-            // fuzzy-дефолт: считаем истинным, но не сильно уверенным
             atom.truth_mean = 1.0f;
             atom.truth_confidence = 0.5f;
         }
 
-        // --- Attentional Vector ---
         cJSON *attn_json = cJSON_GetObjectItem(atom_item, "attention");
         if (cJSON_IsObject(attn_json)) {
             cJSON *sti = cJSON_GetObjectItem(attn_json, "sti");
@@ -230,44 +230,39 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             atom.sti = cJSON_IsNumber(sti) ? (float)sti->valuedouble : 0.5f;
             atom.lti = cJSON_IsNumber(lti) ? clampf((float)lti->valuedouble, 0.f, 1.f) : 0.1f;
         } else {
-            atom.sti = 0.5f;  // новый факт по умолчанию слегка "в фокусе"
+            atom.sti = 0.5f;
             atom.lti = 0.1f;
         }
 
-        // --- Teleological / Affective Vector ---
         cJSON *util_json = cJSON_GetObjectItem(atom_item, "utility");
         cJSON *val_json  = cJSON_GetObjectItem(atom_item, "valence");
         atom.utility = cJSON_IsNumber(util_json) ? clampf((float)util_json->valuedouble, 0.f, 1.f) : 0.0f;
         atom.valence = cJSON_IsNumber(val_json)  ? clampf((float)val_json->valuedouble, -1.f, 1.f) : 0.0f;
 
-        // --- context_or_time_link ---
         cJSON *ctx_json = cJSON_GetObjectItem(atom_item, "context");
         atom.context_or_time_link = ctx_json ? (ko_id_t)cJSON_GetNumberValue(ctx_json) : 0;
 
-        // ID
         cJSON *id_json = cJSON_GetObjectItem(atom_item, "id");
         if (cJSON_IsString(id_json)) {
             atom.id = djb2_hash(id_json->valuestring);
+            // ИСПРАВЛЕНИЕ: Регистрируем ID в пуле
+            if (txn) add_string_to_pool(txn, id_json->valuestring);
         } else {
             atom.id = (0x2000000000000000ULL | (next_id++)) & HYPER_VALUE_MASK;
         }
 
         int result = hyper_assert_unique(txn, hmem, &atom);
         if (result != 0 && result != 1) {
-            LOG_ERROR("Failed to assert NeuroAtom");
+            LOG_ERROR("Failed to assert NeuroAtom (ID: %llu)", (unsigned long long)atom.id);
             continue;
         }
-        // --- Открытая сумка свойств (Шаг 1: Deep Knowledge Ingestion) ---
-        // Произвольные метаданные не помещаются в жёсткие 64 байта
-        // NeuroAtom. Каждое поле properties{} -> отдельная запись в
-        // db.graph.properties, ключ = (atom.id, djb2_hash(имя_поля)).
+
         cJSON *props_json = cJSON_GetObjectItem(atom_item, "properties");
         if (cJSON_IsObject(props_json)) {
             cJSON *prop;
             cJSON_ArrayForEach(prop, props_json) {
                 const char *pkey = prop->string;
                 if (!pkey || !pkey[0]) continue;
-
                 if (cJSON_IsString(prop) && prop->valuestring) {
                     property_set(txn, atom.id, pkey, PROP_STRING,
                         prop->valuestring, (uint32_t)strlen(prop->valuestring) + 1);
@@ -284,9 +279,6 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
                         property_set(txn, atom.id, pkey, PROP_FLOAT, &v, sizeof(v));
                     }
                 } else if (cJSON_IsArray(prop) || cJSON_IsObject(prop)) {
-                    // Открытая онтология: вложенные структуры не пытаемся
-                    // автоматически разворачивать в отдельные NeuroAtom —
-                    // сохраняем как сырой JSON-текст, ничего не теряя.
                     char *sub = cJSON_PrintUnformatted(prop);
                     if (sub) {
                         property_set(txn, atom.id, pkey, PROP_STRING, sub, (uint32_t)strlen(sub) + 1);
@@ -295,13 +287,12 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
                 }
             }
         }
-        // Если kind не является базовым (т.е. это метатип вроде "skill"),
-        // добавляем атом IS_A, связывающий этот объект с соответствующим концептом
+
         if (cJSON_IsString(kind_json)) {
             const char *k = kind_json->valuestring;
             if (strcmp(k, "relation") && strcmp(k, "entity") && strcmp(k, "concept") &&
                 strcmp(k, "rule") && strcmp(k, "goal") && strcmp(k, "event")) {
-                // Это расширенный метатип – создаём атом IS_A(object, Concept(k))
+
                 NeuroAtom isa_atom = {0};
                 isa_atom.id = (0x3000000000000000ULL | (next_id++)) & HYPER_VALUE_MASK;
                 isa_atom.process_id = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);

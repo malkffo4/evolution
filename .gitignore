@@ -81,4 +81,5 @@ test_vm_env-lock
 *.zip
 .ingest_checkpoint.json
 .neurocore_history
+.working_llm_cache.json
 build.sh

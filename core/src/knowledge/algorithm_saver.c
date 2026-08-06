@@ -33,7 +33,10 @@ int algorithm_save(MDB_txn *txn, node_id_t algo_id, const Pipeline *pipeline) {
     }
 
     uint8_t *buffer = malloc(total_size);
-    if (!buffer) return -1;
+    if (!buffer) {
+        LOG_ERROR("Buffer oberflov");
+        return -1;
+    }
 
     uint8_t *ptr = buffer;
 

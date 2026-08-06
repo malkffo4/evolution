@@ -6,13 +6,13 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <errno.h>
 
 #include "runtime/logging/logging.h"
 
 Logger logger = {0};
 
-static FILE *open_log(const char *dir, const char *name)
-{
+static FILE *open_log(const char *dir, const char *name) {
     char path[512];
 
     snprintf(path, sizeof(path), "%s/%s", dir, name);
@@ -20,9 +20,9 @@ static FILE *open_log(const char *dir, const char *name)
     return fopen(path, "a");
 }
 
-int log_init(const char *directory)
-{
-    mkdir(directory, 0755);
+int log_init(const char *directory) {
+    if (mkdir(directory, 0755) != 0 && errno != EEXIST)
+        return -1;
 
     logger.system      = open_log(directory, "system.log");
     logger.reasoner    = open_log(directory, "reasoner.log");
@@ -53,8 +53,7 @@ int log_init(const char *directory)
     return 0;
 }
 
-void log_shutdown(void)
-{
+void log_shutdown(void) {
     if (logger.system) fclose(logger.system);
     if (logger.reasoner) fclose(logger.reasoner);
     if (logger.memory) fclose(logger.memory);
@@ -69,8 +68,7 @@ void log_shutdown(void)
     logger = (Logger){0};
 }
 
-static const char *short_file(const char *path)
-{
+static const char *short_file(const char *path) {
     const char *p = strrchr(path, '/');
 
 #ifdef _WIN32

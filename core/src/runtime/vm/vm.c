@@ -10,6 +10,7 @@
 #include "runtime/ops/opcode.h"
 #include "runtime/planner.h"
 #include "runtime/operator/operator.h"
+#include "runtime/logging/logging.h"
 
 /* регистры не инициализируем – будут заполнены операциями */
 int vm_init(VMContext *ctx, MDB_txn *txn, WorkingMemory *wm) {
@@ -92,7 +93,9 @@ int vm_execute(VMContext *ctx, const Pipeline *pipeline) {
             break;
 
         const Instruction *ins = &frame->code[frame->ip++];
-
+        if (ins->operator_id == 0) {
+            LOG_ERROR("VM: unknown opcode 0 at ip=%u", ctx->frames[ctx->frame].ip);
+        }
         const Operator *op;
         op = operator_find(ins->operator_id);
 
