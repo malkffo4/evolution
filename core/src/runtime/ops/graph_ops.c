@@ -39,14 +39,9 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
     if (!ctx->hyper_mem || !ctx->memory.txn)
         return VM_ERROR;
 
-    node_id_t current = (ctx->reg[r_start].type == REG_NODE)
-        ? ctx->reg[r_start].node
-        : (node_id_t)ctx->reg[r_start].i;
+    node_id_t current = (ctx->reg[r_start].type == REG_NODE) ? ctx->reg[r_start].node : (node_id_t)ctx->reg[r_start].i;
 
-    uint32_t max_steps =
-        (ctx->reg[r_max].type == REG_INT && ctx->reg[r_max].i > 0)
-            ? (uint32_t)ctx->reg[r_max].i
-            : VM_EVAL_GRAPH_DEFAULT_STEPS;
+    uint32_t max_steps = (ctx->reg[r_max].type == REG_INT && ctx->reg[r_max].i > 0)  ? (uint32_t)ctx->reg[r_max].i : VM_EVAL_GRAPH_DEFAULT_STEPS;
 
     int status = VM_OK;
     uint32_t steps = 0;
@@ -59,10 +54,7 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
         MDB_val data;
 
         // O(log N): точечное чтение по первичному ключу dbi_atoms.
-        if (mdb_get(ctx->memory.txn,
-                    ctx->hyper_mem->dbi_atoms,
-                    &key,
-                    &data) != MDB_SUCCESS ||
+        if (mdb_get(ctx->memory.txn, ctx->hyper_mem->dbi_atoms, &key, &data) != MDB_SUCCESS ||
             data.mv_size != sizeof(NeuroAtom)) {
             status = VM_NOT_FOUND;
             break;
@@ -72,8 +64,7 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
         memcpy(&instr_atom, data.mv_data, sizeof(NeuroAtom));
 
         if (proc_kind(instr_atom.process_id) != PROC_KIND_INSTRUCTION) {
-            LOG_WARN("OP_EVAL_GRAPH: atom %lu is not PROC_KIND_INSTRUCTION",
-                     (unsigned long)current);
+            LOG_WARN("OP_EVAL_GRAPH: atom %lu is not PROC_KIND_INSTRUCTION", (unsigned long)current);
             status = VM_INVALID_TYPE;
             break;
         }
@@ -82,25 +73,20 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
             (OperatorID)(instr_atom.process_id & PROC_ID_MASK);
 
         uint32_t unpacked[6];
-        graph_unpack_args(
-            HYPER_GET_ID(instr_atom.args[0].raw),
-            unpacked);
+        graph_unpack_args(HYPER_GET_ID(instr_atom.args[0].raw), unpacked);
 
         if (op_id == OP_GLOAD_CONST) {
             uint32_t dst = unpacked[0];
-
             if (dst >= VM_MAX_REGISTERS) {
                 status = VM_INVALID_REGISTER;
                 break;
             }
-
             ctx->reg[dst].type = REG_INT;
-            ctx->reg[dst].i =
-                (int64_t)HYPER_GET_ID(instr_atom.args[1].raw);
-
+            // БЫЛО: ctx->reg[dst].i = (int64_t)HYPER_GET_ID(instr_atom.args[1].raw);
+            // СТАЛО: сохраняем маску типа!
+            ctx->reg[dst].i = (int64_t)instr_atom.args[1].raw;
         } else {
             const Operator *op = operator_find(op_id);
-
             if (!op) {
                 status = VM_UNKNOWN_OPCODE;
                 break;
@@ -111,11 +97,8 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
             memcpy(decoded.arg, unpacked, sizeof(unpacked));
 
             int rc = operator_execute(ctx, op, &decoded);
-
             if (rc != VM_OK) {
-                bool soft =
-                    (rc == VM_NOT_FOUND) &&
-                    (instr_atom.valence < 0.0f);
+                bool soft = (rc == VM_NOT_FOUND) && (instr_atom.valence < 0.0f);
 
                 if (!soft) {
                     status = rc;
@@ -135,9 +118,7 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
             // текущего в idx_causal_rev.
             MDB_cursor *cur;
 
-            if (mdb_cursor_open(ctx->memory.txn,
-                                db.graph.hyper.idx_causal_rev,
-                                &cur) == MDB_SUCCESS) {
+            if (mdb_cursor_open(ctx->memory.txn, db.graph.hyper.idx_causal_rev, &cur) == MDB_SUCCESS) {
                 MDB_val k = { sizeof(node_id_t), &current };
                 MDB_val v;
 
@@ -169,9 +150,7 @@ int vm_op_jge_graph(VMContext *ctx, const Instruction *ins) {
     uint32_t reg_b      = ins->arg[1];
     uint32_t target_reg = ins->arg[2];
 
-    if (reg_a >= VM_MAX_REGISTERS ||
-        reg_b >= VM_MAX_REGISTERS ||
-        target_reg >= VM_MAX_REGISTERS)
+    if (reg_a >= VM_MAX_REGISTERS || reg_b >= VM_MAX_REGISTERS || target_reg >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
     Register *ra = &ctx->reg[reg_a];
@@ -257,9 +236,9 @@ int vm_op_assert_instruction(VMContext *ctx, const Instruction *ins) {
 
     if (has_wide) {
         if (ctx->reg[r_wide].type == REG_NODE)
-            instr.args[1].raw = (ko_id_t)ctx->reg[r_wide].node;
+            instr.args[1].raw = HYPER_MAKE_REF((ko_id_t)ctx->reg[r_wide].node);
         else if (ctx->reg[r_wide].type == REG_INT)
-            instr.args[1].raw = (ko_id_t)ctx->reg[r_wide].i;
+            instr.args[1].raw = HYPER_MAKE_REF((ko_id_t)ctx->reg[r_wide].i);
         else
             return VM_INVALID_TYPE;
     }

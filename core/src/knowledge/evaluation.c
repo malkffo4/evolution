@@ -17,7 +17,7 @@ static const char *kOBSERVED_OUTCOME = "OBSERVED_OUTCOME";
 static const char *kHAS_SCORE        = "HAS_SCORE";
 
 static const float kDomainKappa[6] = {
-    [0]                          = 10.0f, // fallback / неизвестный домен
+    [0]                           = 10.0f, // fallback / неизвестный домен
     [COGNITIVE_DOMAIN_ALGORITHM]  = 8.0f,  // дёшево перепроверить
     [COGNITIVE_DOMAIN_SKILL]      = 12.0f,
     [COGNITIVE_DOMAIN_RULE]       = 20.0f, // ошибка в правиле дорога
@@ -98,7 +98,7 @@ node_id_t evaluation_record(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain dom
     NeuroAtom eval_atom;
     memset(&eval_atom, 0, sizeof(eval_atom));
     eval_atom.id               = eval_id;
-    eval_atom.process_id        = proc_make(djb2_hash(kOBSERVED_OUTCOME), PROC_KIND_EVENT);
+    eval_atom.process_id       = proc_make(djb2_hash(kOBSERVED_OUTCOME), PROC_KIND_EVENT);
     eval_atom.args[0].raw      = HYPER_MAKE_REF(subject_id);
     eval_atom.args[1].raw      = (ko_id_t)(int64_t)domain | HYPER_TYPE_INT;
     eval_atom.truth_mean       = outcome;
@@ -123,8 +123,8 @@ node_id_t evaluation_record(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain dom
         mdb_put(txn, hmem->dbi_idx_causal, &k, &v, MDB_APPENDDUP);
     }
 
-    LOG_PLANNER("[EVAL] Recorded observation domain=%d subject=%lu outcome=%.3f (id=%lu)",
-                domain, (unsigned long)subject_id, outcome, (unsigned long)eval_id);
+    // LOG_PLANNER("[EVAL] Recorded observation domain=%d subject=%lu outcome=%.3f (id=%lu)",
+    //             domain, (unsigned long)subject_id, outcome, (unsigned long)eval_id);
     return eval_id;
 }
 
@@ -194,14 +194,7 @@ int score_update_weighted(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domai
     score_atom.valence = 0.0f;
     score_atom.context_or_time_link = 0;
 
-    int rc = save_score(txn, hmem, &score_atom);
-    if (rc == 0) {
-        LOG_PLANNER("[SCORE-BAYES] domain=%d subject=%lu o=%.3f w=%.3f "
-                    "n=%.2f->%.2f kappa=%.1f mean=%.4f conf=%.4f",
-                    domain, (unsigned long)subject_id, outcome, credit_weight,
-                    n, n_new, kappa, score_atom.truth_mean, score_atom.truth_confidence);
-    }
-    return rc;
+    return save_score(txn, hmem, &score_atom);
 }
 
 int score_recompute(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id) {

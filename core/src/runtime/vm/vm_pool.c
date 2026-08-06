@@ -1,5 +1,6 @@
 // runtime/vm/vm_pool.c
 #include <stdlib.h>
+#include <semaphore.h>
 #include <pthread.h>
 #include <string.h>
 #include <time.h>
@@ -16,12 +17,19 @@
 #include "knowledge/episode.h"
 #include "reasoning/strategy_store.h"
 
+static sem_t g_pool_slots;
+static pthread_once_t g_pool_once = PTHREAD_ONCE_INIT;
+
 typedef struct {
     Pipeline    *pipeline;
     node_id_t    goal_id;
     node_id_t    algo_id;
     VMStatus     result;
 } VmJob;
+
+static void vm_pool_lazy_init_once(void) {
+    sem_init(&g_pool_slots, 0, VM_POOL_MAX_WORKERS);
+}
 
 static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     VmJob *job = arg;
@@ -42,7 +50,9 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     }
 
     // Случайный session_id — защита от коллизий ID между параллельными воркерами.
-    worker_hmem->idgen->session_id = (uint16_t)(vm_rdtsc() & 0xFFFF);
+    // БЫЛО: worker_hmem->idgen->session_id = (uint16_t)(vm_rdtsc() & 0xFFFF);
+    // СТАЛО: Детерминированный ID на основе XOR цели и алгоритма
+    worker_hmem->idgen->session_id = (uint16_t)((job->goal_id ^ job->algo_id) & 0xFFFF);
     hyper_memory_set_db_causal(worker_hmem, db.graph.hyper.idx_causal);
     hyper_memory_set_db_archive(worker_hmem, db.graph.hyper.archive);
     hyper_memory_set_db_vectors(worker_hmem, db.graph.hyper.idx_vectors);
@@ -127,21 +137,32 @@ static void *vm_worker(void *arg) {
 
     int rc = db_write_sync(vm_worker_txn_fn, job);
     if (rc != 0) {
-        LOG_DEBUG("vm_pool: worker finished non-OK (vm_status=%d, txn_rc=%d)",
-                  job->result, rc);
+        LOG_DEBUG("vm_pool: worker finished non-OK (vm_status=%d, txn_rc=%d)", job->result, rc);
     }
 
     pipeline_free(job->pipeline);
     free(job);
+    sem_post(&g_pool_slots);   // release the slot LAST, after all cleanup
     return NULL;
 }
 
 void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id) {
-    LOG_DEBUG("vm_pool_submit algo=%lu goal=%lu",
-                  (unsigned long)algo_id,
-                  (unsigned long)goal_id);
+    pthread_once(&g_pool_once, vm_pool_lazy_init_once);
+
     if (!pipeline) {
         LOG_ERROR("vm_pool_submit: invalid arguments");
+        return;
+    }
+
+    if (sem_trywait(&g_pool_slots) != 0) {
+        // Backpressure: pool saturated. Drop this submission — the goal is
+        // still in WorkingMemory and NOT on cooldown yet (cooldown is only
+        // set by the caller after this returns), so it will be reconsidered
+        // next tick without any special-case retry logic.
+        LOG_WARN("vm_pool: saturated (%d/%d workers busy) — deferring goal=%lu algo=%lu",
+                 VM_POOL_MAX_WORKERS, VM_POOL_MAX_WORKERS,
+                 (unsigned long)goal_id, (unsigned long)algo_id);
+        pipeline_free(pipeline);
         return;
     }
 
@@ -149,19 +170,20 @@ void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id) {
     if (!job) {
         LOG_ERROR("vm_pool: OOM allocating job");
         pipeline_free(pipeline);
+        sem_post(&g_pool_slots);
         return;
     }
-
-    job->pipeline       = pipeline;
-    job->goal_id        = goal_id;
-    job->algo_id        = algo_id;
-    job->result         = VM_ERROR;
+    job->pipeline = pipeline;
+    job->goal_id  = goal_id;
+    job->algo_id  = algo_id;
+    job->result   = VM_ERROR;
 
     pthread_t t;
     if (pthread_create(&t, NULL, vm_worker, job) != 0) {
         LOG_ERROR("vm_pool: pthread_create failed");
         pipeline_free(job->pipeline);
         free(job);
+        sem_post(&g_pool_slots);
     }
 }
 

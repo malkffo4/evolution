@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "opcode.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 #include "storage/hyper_atom/hyper_atom.h"
@@ -51,6 +52,11 @@ static ko_id_t get_parent_context(MDB_txn *txn, HyperMemory *mem, ko_id_t ctx_id
 
 // OP_QUERY: arg[0]=process_id_reg, arg[1]=participant_reg, arg[2]=context_reg -> sp[arg[3]], count->reg[arg[4]]
 int vm_op_query(VMContext *ctx, const Instruction *ins) {
+    if (ins->arg[0] >= VM_MAX_REGISTERS || ins->arg[1] >= VM_MAX_REGISTERS ||
+        ins->arg[2] >= VM_MAX_REGISTERS || ins->arg[3] >= MAX_SCRATCHPAD ||
+        ins->arg[4] >= VM_MAX_REGISTERS || (ins->arg[5] != 0 && ins->arg[5] >= VM_MAX_REGISTERS)) {
+        return VM_INVALID_REGISTER;
+    }
     ko_id_t proc_id     = (ko_id_t)ctx->reg[ins->arg[0]].i;
     ko_id_t participant = (ko_id_t)ctx->reg[ins->arg[1]].i;
     ko_id_t context      = (ko_id_t)ctx->reg[ins->arg[2]].i;
@@ -82,6 +88,11 @@ int vm_op_query(VMContext *ctx, const Instruction *ins) {
 // Новый факт наследует дефолтные значения когнитивной триады (см. п.2 TASK 1):
 // truth высок (это прямое утверждение), attention начальная, utility/valence нейтральны.
 int vm_op_assert(VMContext *ctx, const Instruction *ins) {
+    if (ins->arg[0] >= VM_MAX_REGISTERS || ins->arg[1] >= VM_MAX_REGISTERS ||
+        ins->arg[2] >= VM_MAX_REGISTERS || ins->arg[3] >= VM_MAX_REGISTERS ||
+        (ins->operator_id == OP_DERIVE && ins->arg[4] >= VM_MAX_REGISTERS)) {
+        return VM_INVALID_REGISTER;
+    }
     NeuroAtom atom = {0};
     atom.id = hyper_memory_new_id(ctx->hyper_mem);
     atom.process_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
@@ -111,6 +122,11 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
 // OP_DERIVE: как ASSERT, но cause_id берётся из регистра (arg[3]) — логический вывод.
 // arg[0]=process, arg[1..2]=args, arg[3]=cause_id_reg, arg[4]=dst_id_reg
 int vm_op_derive(VMContext *ctx, const Instruction *ins) {
+    if (ins->arg[0] >= VM_MAX_REGISTERS || ins->arg[1] >= VM_MAX_REGISTERS ||
+        ins->arg[2] >= VM_MAX_REGISTERS || ins->arg[3] >= VM_MAX_REGISTERS ||
+        (ins->operator_id == OP_DERIVE && ins->arg[4] >= VM_MAX_REGISTERS)) {
+        return VM_INVALID_REGISTER;
+    }
     NeuroAtom atom = {0};
     atom.id = hyper_memory_new_id(ctx->hyper_mem);
     atom.process_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
@@ -143,6 +159,9 @@ int vm_op_derive(VMContext *ctx, const Instruction *ins) {
 // OP_TRACE: обходит idx_causal вместо поля atom->cause_id
 // arg[0]=start_id_reg, arg[1]=max_depth(imm), arg[2]=sp_offset, arg[3]=count_reg
 int vm_op_trace(VMContext *ctx, const Instruction *ins) {
+    if (ins->arg[0] >= VM_MAX_REGISTERS || ins->arg[2] >= MAX_SCRATCHPAD || ins->arg[3] >= VM_MAX_REGISTERS) {
+        return VM_INVALID_REGISTER;
+    }
     ko_id_t current_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
     uint32_t max_depth = ins->arg[1];
     uint32_t sp_offset = ins->arg[2];
@@ -175,6 +194,9 @@ int vm_op_trace(VMContext *ctx, const Instruction *ins) {
 
 // OP_SPAWN_CTX — без изменений структурно, args[2] не используются здесь напрямую
 int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
+    if (ins->arg[0] >= VM_MAX_REGISTERS) {
+        return VM_INVALID_REGISTER;
+    }
     ko_id_t child_id = hyper_memory_new_id(ctx->hyper_mem);
 
     NeuroAtom rel = {0};
@@ -258,7 +280,7 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     NeuroAtom *atoms = NULL;
     size_t count = 0;
 
-    if (hyper_find_by_process(ctx->memory.txn, ctx->hyper_mem, 0, 0, ctx->current_context, &atoms, &count) != 0)
+    if (hyper_find_by_context(ctx->memory.txn, ctx->hyper_mem, ctx->current_context, &atoms, &count) != 0)
         return VM_ERROR;
 
     ko_id_t parent = get_parent_context(ctx->memory.txn, ctx->hyper_mem, ctx->current_context);

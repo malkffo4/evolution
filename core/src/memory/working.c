@@ -64,6 +64,7 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
         return;
     }
 
+    // 1. Ищем, есть ли уже этот узел в памяти (если да - просто повышаем активацию)
     for (uint32_t i = 0; i < wm->count; i++) {
         if (wm->nodes[i].node_id == node_id) {
             wm->nodes[i].activation += activation;
@@ -73,21 +74,48 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
         }
     }
 
-    if (wm->count < wm->capacity) {
-        wm->nodes[wm->count].node_id = node_id;
-        wm->nodes[wm->count].activation = activation;
-        wm->nodes[wm->count].focus_level = 0;
-        wm->nodes[wm->count].state.novelty = base_emotion > 0 ? base_emotion : 0.5f;
-        wm->nodes[wm->count].properties = NULL;
-        wm->nodes[wm->count].attention_weight = base_emotion;
-        wm->count++;
+    // Вытеснение LRU (Least Recently Used / Coldest) ---
+    if (wm->count >= wm->capacity) {
+        uint32_t min_idx = 0;
+        float min_act = wm->nodes[0].activation;
 
-        // Транслируем событие о том, что узел попал в фокус мозга
-        char event_buf[128];
-        snprintf(event_buf, sizeof(event_buf), "{\"node_id\": %llu, \"activation\": %.2f}",
-                 (unsigned long long)node_id, activation);
-        ipc_emit_event("NodeActivated", event_buf);
+        // Ищем самый "холодный" узел
+        for (uint32_t i = 1; i < wm->count; i++) {
+            if (wm->nodes[i].activation < min_act) {
+                min_act = wm->nodes[i].activation;
+                min_idx = i;
+            }
+        }
+
+        // Очищаем динамические свойства старого (вытесняемого) узла, чтобы не было утечки памяти
+        DynamicProperty *curr = wm->nodes[min_idx].properties;
+        while (curr) {
+            DynamicProperty *next = curr->next;
+            free(curr);
+            curr = next;
+        }
+
+        // Заменяем вытесняемый узел последним элементом в массиве и уменьшаем счетчик
+        wm->nodes[min_idx] = wm->nodes[wm->count - 1];
+        wm->count--;
     }
+    // ------------------------------------------------------------------
+
+    // 2. Добавляем новый узел (теперь место в wm->nodes гарантированно есть)
+    wm->nodes[wm->count].node_id = node_id;
+    wm->nodes[wm->count].activation = activation;
+    wm->nodes[wm->count].focus_level = 0;
+    wm->nodes[wm->count].state.novelty = base_emotion > 0 ? base_emotion : 0.5f;
+    wm->nodes[wm->count].properties = NULL;
+    wm->nodes[wm->count].attention_weight = base_emotion;
+    wm->count++;
+
+    // Транслируем событие о том, что узел попал в фокус мозга
+    char event_buf[128];
+    snprintf(event_buf, sizeof(event_buf), "{\"node_id\": %llu, \"activation\": %.2f}",
+             (unsigned long long)node_id, activation);
+    ipc_emit_event("NodeActivated", event_buf);
+
     pthread_rwlock_unlock(&wm->lock);
 }
 

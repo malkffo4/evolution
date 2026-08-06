@@ -144,6 +144,7 @@ int hyper_find_by_participant(MDB_txn *txn, HyperMemory *mem, ko_id_t participan
 int hyper_find_top_by_score(MDB_txn *txn, HyperMemory *mem, ko_id_t context_id, float w_sti, float w_utility, int top_k, NeuroAtom **results, size_t *count);
 int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, size_t max_depth, size_t *count);
 int hyper_find_by_process_sti(MDB_txn *txn, HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, float sti_threshold, NeuroAtom **results, size_t *count);
+int hyper_find_by_context(MDB_txn *txn, HyperMemory *mem, ko_id_t context_id, NeuroAtom **results, size_t *count);
 
 // Эти функции уже принимали MDB_txn*, их не меняем:
 int hyper_vector_save(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, const Vector128 *vec);

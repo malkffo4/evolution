@@ -90,9 +90,28 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
             cJSON *ins = cJSON_GetArrayItem(code_arr, (int)i);
             const char *op_name = cJSON_GetStringValue(cJSON_GetObjectItem(ins, "operator_id"));
             p->code[i].operator_id = operator_find_by_name(op_name);
-            cJSON *arg_arr = cJSON_GetObjectItem(ins, "arg");
-            for (int a = 0; a < 6; a++) {
-                p->code[i].arg[a] = (uint32_t)cJSON_GetNumberValue(cJSON_GetArrayItem(arg_arr, a));
+
+            // Безопасный парсинг аргументов, не падающий при коротких массивах или числах
+            cJSON *arg_item = cJSON_GetObjectItem(ins, "arg");
+            if (arg_item) {
+                if (cJSON_IsArray(arg_item)) {
+                    int arg_sz = cJSON_GetArraySize(arg_item);
+                    for (int a = 0; a < 6; a++) {
+                        if (a < arg_sz) {
+                            cJSON *item = cJSON_GetArrayItem(arg_item, a);
+                            p->code[i].arg[a] = cJSON_IsNumber(item) ? (uint32_t)item->valuedouble : 0;
+                        } else {
+                            p->code[i].arg[a] = 0;
+                        }
+                    }
+                } else if (cJSON_IsNumber(arg_item)) {
+                    p->code[i].arg[0] = (uint32_t)arg_item->valuedouble;
+                    for (int a = 1; a < 6; a++) p->code[i].arg[a] = 0;
+                } else {
+                    for (int a = 0; a < 6; a++) p->code[i].arg[a] = 0;
+                }
+            } else {
+                for (int a = 0; a < 6; a++) p->code[i].arg[a] = 0;
             }
         }
     }

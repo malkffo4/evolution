@@ -127,7 +127,7 @@ def inject_core_algorithms(ipc: IPCClient):
     learn_pipeline("InductiveExtractor", [
         # --- БЛОК 1: Загрузка констант ---
         {"operator_id": "load_const", "arg": [50, 0, 0, 0, 0, 0]}, # 0: r50 = 0
-        {"operator_id": "load_const", "arg": [46, 1, 0, 0, 0, 0]}, # 1: r46 = 3 (мин. совпадений)
+        {"operator_id": "load_const", "arg": [46, 1, 0, 0, 0, 0]}, # 1: r46 = 2 (МИН. СОВПАДЕНИЙ = 2)
         {"operator_id": "load_const", "arg": [58, 2, 0, 0, 0, 0]}, # 2: r58 = 16 (лимит шагов)
 
         # --- БЛОК 2: Активация ---
@@ -150,7 +150,7 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},         # 14
         {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},         # 15
         {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},         # 16
-        {"operator_id": "assert_instruction", "arg": [OP_GLOAD_CONST, 0, 52, 60, 47, 1]}, # 17
+        {"operator_id": "assert_instruction", "arg": [OP_GLOAD_CONST, 0, 52, 60, 48, 1]}, # 17 ЗДЕСЬ ИСПОЛЬЗУЕМ 48 (Причину)
         {"operator_id": "move", "arg": [52, 60, 0, 0, 0, 0]},           # 18: advance cause
         {"operator_id": "move", "arg": [12, 60, 0, 0, 0, 0]},           # 19: КОРЕНЬ ПРОГРАММЫ (r60) -> r12
 
@@ -165,7 +165,7 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "move", "arg": [52, 61, 0, 0, 0, 0]},           # 27: advance cause
 
         # δ: ASSERT (создаем абстрактное правило)
-        {"operator_id": "write_sp", "arg": [0, 48, 0, 0, 0, 0]},        # 28: process_id = r48
+        {"operator_id": "write_sp", "arg": [0, 47, 0, 0, 0, 0]},        # 28: process_id = r47 (Тип связи)
         {"operator_id": "write_sp", "arg": [1, 60, 0, 0, 0, 0]},        # 29: arg0 = r60 (Pattern)
         {"operator_id": "write_sp", "arg": [2, 61, 0, 0, 0, 0]},        # 30: arg1 = r61 (Goal)
         {"operator_id": "write_sp", "arg": [3, 62, 0, 0, 0, 0]},        # 31: dst = r62
@@ -188,7 +188,7 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "atom_reinforce", "arg": [62, 17, 0, 0, 0, 0]}, # 42
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}              # 43
     ], {
-        "int_consts": [0, 3, 16],
+        "int_consts": [0, 2, 16], # 1 = min_count
         "float_consts": [0.80, -0.30]
     })
 

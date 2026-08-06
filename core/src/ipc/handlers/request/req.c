@@ -474,10 +474,15 @@ void req_get_episodes(IPCPacket *req, IPCPacket *resp) {
             if (episode_load(txn, pointers[i].id, &ep) != MDB_SUCCESS) continue;
 
             cJSON *e = cJSON_CreateObject();
-            cJSON_AddNumberToObject(e, "episode_id", (double)ep.id);
-            cJSON_AddNumberToObject(e, "goal_id", (double)ep.goal_id);
-            cJSON_AddNumberToObject(e, "algorithm_id", (double)ep.algorithm_id);
-            cJSON_AddNumberToObject(e, "result_atom_id", (double)ep.result_atom_id);
+            char idbuf[32];
+            snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)ep.id);
+            cJSON_AddStringToObject(e, "episode_id", idbuf);
+            snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)ep.goal_id);
+            cJSON_AddStringToObject(e, "goal_id", idbuf);
+            snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)ep.algorithm_id);
+            cJSON_AddStringToObject(e, "algorithm_id", idbuf);
+            snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)ep.result_atom_id);
+            cJSON_AddStringToObject(e, "result_atom_id", idbuf);
             cJSON_AddNumberToObject(e, "vm_status", ep.vm_status);
             cJSON_AddNumberToObject(e, "outcome", (double)ep.outcome);
             cJSON_AddNumberToObject(e, "duration_cycles", (double)ep.duration_cycles);

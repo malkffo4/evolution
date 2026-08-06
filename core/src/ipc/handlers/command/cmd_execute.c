@@ -100,6 +100,10 @@ static int activate_goal_txn_fn(MDB_txn *txn, void *arg) {
     // (см. runtime/ops/cognitive.c::vm_op_evaluate_goals).
     add_string_to_pool(txn, job->goal_name);
 
+    // Сбрасываем кулдаун при явном вызове activate_goal ---
+    int64_t zero_cooldown = 0;
+    property_set(txn, goal_id, "cooldown_until", PROP_INT, &zero_cooldown, sizeof(zero_cooldown));
+
     HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms,
         db.graph.hyper.idx_process,
         db.graph.hyper.idx_args,

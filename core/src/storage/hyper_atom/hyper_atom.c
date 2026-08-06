@@ -236,6 +236,38 @@ int hyper_find_by_participant(MDB_txn *txn, HyperMemory *mem,
     return 0;
 }
 
+int hyper_find_by_context(MDB_txn *txn, HyperMemory *mem, ko_id_t context_id,
+                           NeuroAtom **results, size_t *count) {
+    MDB_cursor *cursor;
+    MDB_val key = { sizeof(ko_id_t), &context_id };
+    MDB_val val_id;
+
+    if (mdb_cursor_open(txn, mem->dbi_idx_context, &cursor) != MDB_SUCCESS) return -1;
+
+    *count = 0;
+    size_t capacity = 16;
+    *results = malloc(sizeof(NeuroAtom) * capacity);
+    if (!*results) { mdb_cursor_close(cursor); return -1; }
+
+    int rc = mdb_cursor_get(cursor, &key, &val_id, MDB_SET);
+    while (rc == MDB_SUCCESS) {
+        MDB_val val_atom;
+        if (mdb_get(txn, mem->dbi_atoms, &val_id, &val_atom) == MDB_SUCCESS) {
+            if (*count >= capacity) {
+                capacity *= 2;
+                NeuroAtom *grown = realloc(*results, sizeof(NeuroAtom) * capacity);
+                if (!grown) { mdb_cursor_close(cursor); return -1; }
+                *results = grown;
+            }
+            memcpy(&(*results)[*count], val_atom.mv_data, sizeof(NeuroAtom));
+            (*count)++;
+        }
+        rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+    }
+    mdb_cursor_close(cursor);
+    return 0;
+}
+
 // Трассировка причинности
 int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem,
                 ko_id_t start_id, NeuroAtom **chain,
