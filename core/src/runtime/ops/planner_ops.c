@@ -87,6 +87,7 @@ int vm_op_wm_top_goal(VMContext *ctx, const Instruction *ins) {
 // любопытство: enqueue_research_task()+set_goal_cooldown(), тем же
 // способом, каким это раньше делал захардкоженный C-фолбэк.
 int vm_op_select_algorithm(VMContext *ctx, const Instruction *ins) {
+    if (!ctx->hyper_mem) return VM_ERROR;
     uint32_t r_goal  = ins->arg[0];
     uint32_t sp_base = ins->arg[1];
     uint32_t r_count = ins->arg[2];

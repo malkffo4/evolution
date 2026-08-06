@@ -1,4 +1,4 @@
-// runtime/vm/vm_pool.c
+// core/src/runtime/vm/vm_pool.c
 #include <stdlib.h>
 #include <semaphore.h>
 #include <pthread.h>
@@ -7,12 +7,14 @@
 
 #include "vm_context.h"
 #include "vm_pool.h"
+#include "vm_param.h"
 #include "vm.h"
 #include "core/globals.h"
 #include "storage/db/db.h"
 #include "storage/db/db_writer.h"
 #include "runtime/logging/logging.h"
 #include "runtime/time/time.h"
+#include "runtime/register/register.h"
 #include "knowledge/evaluation.h"
 #include "knowledge/episode.h"
 #include "reasoning/strategy_store.h"
@@ -50,8 +52,7 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     }
 
     // Случайный session_id — защита от коллизий ID между параллельными воркерами.
-    // БЫЛО: worker_hmem->idgen->session_id = (uint16_t)(vm_rdtsc() & 0xFFFF);
-    // СТАЛО: Детерминированный ID на основе XOR цели и алгоритма
+    // Детерминированный ID на основе XOR цели и алгоритма
     worker_hmem->idgen->session_id = (uint16_t)((job->goal_id ^ job->algo_id) & 0xFFFF);
     hyper_memory_set_db_causal(worker_hmem, db.graph.hyper.idx_causal);
     hyper_memory_set_db_archive(worker_hmem, db.graph.hyper.archive);
@@ -66,6 +67,27 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
         return -1;
     }
     ctx.hyper_mem = worker_hmem;
+
+    // === ФИКС "Self-Identity Deadlock" ===
+    // Проблема: алгоритмы вроде InductiveExtractor вызывают OP_WM_TOP_GOAL
+    // внутри себя, чтобы узнать "для какой цели меня запустили". Но:
+    //   1) local_wm выше — свежая и ПУСТАЯ (нужно для потокобезопасности,
+    //      см. docs/10_VM.md, изоляция Virtual Mind-воркеров);
+    //   2) даже если бы она не была пуста, OP_DISPATCH_ASYNC уже выставил
+    //      cooldown_until на goal_id В ТОЙ ЖЕ транзакции CorePlanner'а,
+    //      которая породила этот воркер — и OP_WM_TOP_GOAL отфильтровывает
+    //      цели на cooldown. Алгоритм был бы заблокирован от нахождения
+    //      именно той цели, ради которой его диспетчеризовали.
+    // Решение: goal_id передаётся explicit'но через зарезервированный
+    // регистр R63 (VM_REG_GOAL_ID) — настоящий syscall ABI вызова
+    // алгоритма, а не хрупкий обход через побочное состояние WM.
+    vm_register_set_node(&ctx, &ctx.reg[VM_REG_GOAL_ID], job->goal_id);
+
+    // Дополнительно (defense in depth, не обязательно для R63-конвенции,
+    // но держит оба механизма согласованными): зеркалим минимальное
+    // состояние WM, чтобы OP_WM_ACTIVATE и подобные внутри алгоритма тоже
+    // видели непустую рабочую память.
+    wm_activate(&local_wm, job->goal_id, 1.0f, 0.0f);
 
     uint64_t t_start = vm_rdtsc();
     int rc = vm_execute(&ctx, job->pipeline);

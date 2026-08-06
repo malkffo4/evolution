@@ -1,9 +1,10 @@
-// runtime/ops/control_ops.c
+// core/src/runtime/ops/control_ops.c
 #include <stdbool.h>
 
 #include "runtime/vm/vm_status.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_types.h"
+#include "runtime/vm/vm_param.h"
 #include "runtime/operator/operator.h"
 #include "runtime/logging/logging.h"
 #include "knowledge/algorithm_loader.h"
@@ -17,6 +18,15 @@ int vm_op_branch(VMContext *ctx, const Instruction *ins) {
 int vm_op_branch_if_empty(VMContext *ctx, const Instruction *ins) {
     uint32_t reg = ins->arg[0];
     uint32_t target = ins->arg[1];
+
+    /* КРИТИЧЕСКИЙ ФИКС: единственный оператор во всей VM, где отсутствовала
+     * проверка границ регистра. Без неё произвольный/повреждённый байткод
+     * (fuzz, поврежденная запись в LMDB, баг генератора) мог вызвать
+     * неопределённое поведение при доступе к ctx->reg[reg] со значением
+     * reg вплоть до UINT32_MAX. См. core/tests/vm_negative_test.c. */
+    if (reg >= VM_MAX_REGISTERS)
+        return VM_INVALID_REGISTER;
+
     VMFrame *frame = &ctx->frames[ctx->frame];
 
     if (ctx->reg[reg].type == REG_EMPTY)
