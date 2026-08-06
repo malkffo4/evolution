@@ -1,10 +1,12 @@
 # app/core/bootstrap.py
+import re
 import json
 import sys
 import struct
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 from core.ipc import IPCClient
 from knowledge.patterns import install_patterns
 from core.sdk import djb2_hash
@@ -33,19 +35,25 @@ def get_opcodes_map():
         with open(opcode_path, "r", encoding="utf-8") as f:
             content = f.read()
 
+        # Полностью вырезаем все C-комментарии (и строчные, и блочные) до парсинга строк
+        content = re.sub(r'//.*', '', content)
+        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
         in_enum = False
         counter = 0
         for line in content.split("\n"):
             line = line.strip()
-            if not line or line.startswith("//"): continue
+            if not line: continue
             if "typedef enum" in line or "enum {" in line:
                 in_enum = True
                 continue
             if in_enum and "}" in line:
                 break
             if in_enum:
+                # Берем только часть до запятой или знака '}'
                 part = line.split(",")[0].strip()
                 if not part: continue
+
                 if "=" in part:
                     name, val = part.split("=")
                     name = name.strip()
