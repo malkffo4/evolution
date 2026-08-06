@@ -1,4 +1,4 @@
-// knowledge/hyper_retrieval.c
+// core/src/knowledge/hyper_retrieval.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,7 +75,13 @@ char* hyper_retrieve_json(MDB_txn *txn, HyperMemory *hmem, node_id_t participant
                 cJSON_AddStringToObject(atom_json, "id", idbuf);
 
                 // process
-                const char *proc_label = get_string_from_pool(txn, results[i].process_id);
+                // ФИКС: process_id атома содержит в старшем байте ProcKind
+                // (см. proc_make() в hyper_atom.h), а в строковый пул строка
+                // регистрируется под "сырым" djb2_hash(name) БЕЗ этих битов
+                // (perceive_hyper_json::add_string_to_pool). Без маскирования
+                // здесь почти каждый lookup промахивался ("String not found"
+                // в логах для любого process_id с ненулевым kind).
+                const char *proc_label = get_string_from_pool(txn, results[i].process_id & PROC_ID_MASK);
                 cJSON_AddStringToObject(atom_json, "process", proc_label ? proc_label : "UNKNOWN");
 
                 // args (только 2 слота)

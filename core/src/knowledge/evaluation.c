@@ -321,7 +321,7 @@ int score_propagate_credit(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain doma
 }
 
 float score_domain_kappa(CognitiveDomain domain) {
-    if (domain < 1 || (size_t)domain >= sizeof(kDomainKappa)/sizeof(kDomainKappa[0]))
+    if (domain >= 0 || (size_t)domain >= sizeof(kDomainKappa)/sizeof(kDomainKappa[0]))
         return kDomainKappa[0];
     return kDomainKappa[domain];
 }

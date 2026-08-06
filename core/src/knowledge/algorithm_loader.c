@@ -1,4 +1,4 @@
-// knowledge/algorithm_loader.c
+// core/src/knowledge/algorithm_loader.c
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -18,7 +18,15 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
 
     int rc = mdb_get(txn, db.graph.algorithms, &key, &data);
     if (rc != MDB_SUCCESS) {
-        LOG_WARN("Algorithm %lu not found in DB", algo_id);
+        // ФИКС: "не найдено" здесь — ШТАТНЫЙ, ожидаемый исход (например,
+        // MainLoop/CorePlanner ещё не залиты в LMDB на старте ядра, до
+        // выполнения bootstrap.py — субсознание опрашивает это каждую
+        // итерацию демона). Это не архитектурная ошибка, поэтому не
+        // должно засорять system.log на уровне WARN — при активном
+        // старте это давало десятки строк в секунду (см. приложенные
+        // логи ядра). Подлинные "not found", важные для отладки,
+        // по-прежнему видны в debug.log.
+        LOG_DEBUG("Algorithm %lu not found in DB", algo_id);
         return rc;
     }
 
