@@ -19,7 +19,7 @@ typedef struct { ko_id_t old_id; ko_id_t new_id; } IdMap;
 /* static float get_atom_confidence(HyperMemory *mem, ko_id_t atom_id) {
     MDB_val key = { sizeof(ko_id_t), &atom_id };
     MDB_val data;
-    if (mdb_get(mem->txn, mem->dbi_atoms, &key, &data) == MDB_SUCCESS &&
+    if (mdb_get(txn, mem->dbi_atoms, &key, &data) == MDB_SUCCESS &&
         data.mv_size == sizeof(NeuroAtom)) {
         NeuroAtom *a = (NeuroAtom *)data.mv_data;
         return a->truth_confidence;
@@ -27,14 +27,14 @@ typedef struct { ko_id_t old_id; ko_id_t new_id; } IdMap;
     return 0.5f; // дефолт для несуществующего/повреждённого атома
 } */
 
-static ko_id_t get_parent_context(HyperMemory *mem, ko_id_t ctx_id) {
+static ko_id_t get_parent_context(MDB_txn *txn, HyperMemory *mem, ko_id_t ctx_id) {
     if (ctx_id == 0) return 0;
 
     NeuroAtom *results = NULL;
     size_t count = 0;
     ko_id_t parent_id = 0;
 
-    if (hyper_find_by_participant(mem, ctx_id, 0, &results, &count) == 0) {
+    if (hyper_find_by_participant(txn, mem, ctx_id, 0, &results, &count) == 0) {
         for (size_t i = 0; i < count; i++) {
             if (proc_kind(results[i].process_id) != PROC_KIND_RELATION) continue;
             if ((results[i].process_id & PROC_ID_MASK) != ID_IS_CHILD_OF) continue;
@@ -64,9 +64,9 @@ int vm_op_query(VMContext *ctx, const Instruction *ins) {
     size_t count = 0;
 
     if (sti_threshold > 0.0f) {
-        hyper_find_by_process_sti(ctx->hyper_mem, proc_id, participant, context, sti_threshold, &results, &count);
+        hyper_find_by_process_sti(ctx->memory.txn, ctx->hyper_mem, proc_id, participant, context, sti_threshold, &results, &count);
     } else {
-        hyper_find_by_process(ctx->hyper_mem, proc_id, participant, context, &results, &count);
+        hyper_find_by_process(ctx->memory.txn, ctx->hyper_mem, proc_id, participant, context, &results, &count);
     }
 
     for (size_t i = 0; i < count && (sp_offset + i) < MAX_SCRATCHPAD; i++)
@@ -98,7 +98,7 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
     atom.context_or_time_link = ctx->current_context;
 
     // Причина ASSERT'а (не DERIVE) — текущий эпизод, через idx_causal
-    if (hyper_assert_with_cause(ctx->hyper_mem, &atom, ctx->current_episode_id) < 0)
+    if (hyper_assert_with_cause(ctx->memory.txn, ctx->hyper_mem, &atom, ctx->current_episode_id) < 0)
         return VM_ERROR;
 
     ctx->reg[ins->arg[3]].type = REG_INT;
@@ -128,7 +128,7 @@ int vm_op_derive(VMContext *ctx, const Instruction *ins) {
 
     ko_id_t cause_id = (ko_id_t)ctx->reg[ins->arg[3]].i;
 
-    if (hyper_assert_with_cause(ctx->hyper_mem, &atom, cause_id) < 0)
+    if (hyper_assert_with_cause(ctx->memory.txn, ctx->hyper_mem, &atom, cause_id) < 0)
         return VM_ERROR;
 
     ctx->reg[ins->arg[4]].type = REG_INT;
@@ -184,7 +184,7 @@ int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
     rel.sti = 0.3f;
     rel.context_or_time_link = 0;
 
-    hyper_assert_with_cause(ctx->hyper_mem, &rel, ctx->current_episode_id);
+    hyper_assert_with_cause(ctx->memory.txn, ctx->hyper_mem, &rel, ctx->current_episode_id);
 
     ctx->current_context = child_id;
     ctx->reg[ins->arg[0]].type = REG_INT;
@@ -192,66 +192,55 @@ int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
     return VM_OK;
 }
 
-// Вспомогательная функция: O(log N) ремап двунаправленного причинного индекса
-static void remap_causal_index(HyperMemory *hmem, const IdMap *id_map, size_t map_size) {
+// Вспомогательная функция: ремап причинного индекса
+static void remap_causal_index(MDB_txn *txn, HyperMemory *hmem, const IdMap *id_map, size_t map_size) {
     if (!hmem->dbi_idx_causal) return;
-    MDB_dbi rev_db = db.graph.hyper.idx_causal_rev; // Доступно из db.h
-    if (!rev_db) return;
+
+    MDB_cursor *cur;
+    if (mdb_cursor_open(txn, hmem->dbi_idx_causal, &cur) != MDB_SUCCESS)
+        return;
+
     for (size_t m = 0; m < map_size; m++) {
         ko_id_t old_id = id_map[m].old_id;
         ko_id_t new_id = id_map[m].new_id;
         MDB_val old_key = { sizeof(ko_id_t), &old_id };
         MDB_val new_key = { sizeof(ko_id_t), &new_id };
 
-        // 1. old_id acts as CHILD. Find its causes in idx_causal.
-        MDB_cursor *cur;
-        if (mdb_cursor_open(hmem->txn, hmem->dbi_idx_causal, &cur) == MDB_SUCCESS) {
-            MDB_val v;
-            if (mdb_cursor_get(cur, &old_key, &v, MDB_SET) == MDB_SUCCESS) {
-                ko_id_t causes[128];
-                size_t num_causes = 0;
-                do {
-                    if (num_causes < 128) causes[num_causes++] = *(ko_id_t*)v.mv_data;
-                } while (mdb_cursor_get(cur, &old_key, &v, MDB_NEXT_DUP) == MDB_SUCCESS);
-
-                // Remove all from idx_causal
-                mdb_del(hmem->txn, hmem->dbi_idx_causal, &old_key, NULL);
-
-                for (size_t i = 0; i < num_causes; i++) {
-                    MDB_val cause_val = { sizeof(ko_id_t), &causes[i] };
-                    // Insert into idx_causal: new_id -> cause
-                    mdb_put(hmem->txn, hmem->dbi_idx_causal, &new_key, &cause_val, 0);
-
-                    // Update rev_db: delete cause -> old_id, insert cause -> new_id
-                    mdb_del(hmem->txn, rev_db, &cause_val, &old_key);
-                    mdb_put(hmem->txn, rev_db, &cause_val, &new_key, 0);
-                }
-            }
-            mdb_cursor_close(cur);
+        // --- old_id как child (причина для других) ---
+        MDB_val key = { sizeof(ko_id_t), &old_id };
+        MDB_val val;
+        if (mdb_cursor_get(cur, &key, &val, MDB_SET) == MDB_SUCCESS) {
+            do {
+                MDB_val cause_val = val;  // копируем значение (cause_id)
+                // Вставляем запись с new_id
+                key.mv_data = &new_id;
+                mdb_put(txn, hmem->dbi_idx_causal, &key, &cause_val, MDB_APPENDDUP);
+                // Удаляем старую запись (курсор всё ещё на old_id)
+                mdb_cursor_del(cur, 0);
+            } while (mdb_cursor_get(cur, &key, &val, MDB_NEXT_DUP) == MDB_SUCCESS);
         }
 
-        // 2. old_id acts as CAUSE. Find its children in idx_causal_rev.
-        if (mdb_cursor_open(hmem->txn, rev_db, &cur) == MDB_SUCCESS) {
-            MDB_val v;
-            if (mdb_cursor_get(cur, &old_key, &v, MDB_SET) == MDB_SUCCESS) {
-                ko_id_t children[128];
-                size_t num_children = 0;
-                do {
-                    if (num_children < 128) children[num_children++] = *(ko_id_t*)v.mv_data;
-                } while (mdb_cursor_get(cur, &old_key, &v, MDB_NEXT_DUP) == MDB_SUCCESS);
-
-                // Remove all from idx_causal_rev
-                mdb_del(hmem->txn, rev_db, &old_key, NULL);
-
-                for (size_t i = 0; i < num_children; i++) {
-                    MDB_val child_val = { sizeof(ko_id_t), &children[i] };
-
-                    // Update idx_causal: child -> new_id
-                    mdb_del(hmem->txn, hmem->dbi_idx_causal, &child_val, &old_key);
-                    mdb_put(hmem->txn, hmem->dbi_idx_causal, &child_val, &new_key, 0);
-
-                    // Insert into rev_db: new_id -> child
-                    mdb_put(hmem->txn, rev_db, &new_key, &child_val, 0);
+        // --- old_id как parent (следствие для других) ---
+        // Ищем все записи, где в значении (mv_data) указан old_id.
+        // Поскольку DUPSORT, мы не можем искать по значению напрямую.
+        // Приходится сканировать весь индекс, но только один раз за merge – приемлемо.
+        MDB_val scan_key, scan_val;
+        if (mdb_cursor_get(cur, &scan_key, &scan_val, MDB_FIRST) == MDB_SUCCESS) {
+            do {
+                if (scan_val.mv_size == sizeof(ko_id_t)) {
+                    ko_id_t cause = *(ko_id_t*)scan_val.mv_data;
+                    if (cause == old_id) {
+                        ko_id_t child = *(ko_id_t*)scan_key.mv_data;
+                        // Удаляем старую пару (child, old_id)
+                        mdb_cursor_del(cur, 0);
+                        // Добавляем новую пару (child, new_id)
+                        MDB_val new_key = { sizeof(ko_id_t), &child };
+                        MDB_val new_val = { sizeof(ko_id_t), &new_id };
+                        mdb_put(txn, hmem->dbi_idx_causal, &new_key, &new_val, MDB_APPENDDUP);
+                        // Перезапускаем курсор на FIRST, т.к. мы изменили данные
+                        mdb_cursor_get(cur, &scan_key, &scan_val, MDB_FIRST);
+                        continue;
+                    }
                 }
             }
             mdb_cursor_close(cur);
@@ -288,9 +277,11 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
         mdb_cursor_close(cursor);
     }
 
-    if (!atoms && count > 0) return VM_ERROR;
+    if (hyper_find_by_process(ctx->memory.txn, ctx->hyper_mem, 0, 0, ctx->current_context, &atoms, &count) != 0)
+        return VM_ERROR;
 
-    ko_id_t parent = get_parent_context(ctx->hyper_mem, ctx->current_context);
+    ko_id_t parent = get_parent_context(ctx->memory.txn, ctx->hyper_mem, ctx->current_context);
+
     IdMap *id_map = count > 0 ? malloc(sizeof(IdMap) * count) : NULL;
 
     if (!id_map && count > 0) {
@@ -316,8 +307,7 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
 
     // **РЕМАП ПРИЧИННОСТИ И ИНДЕКСОВ**
     if (map_size > 0) {
-        // 1. Ремаппинг в глобальном индексе причинности
-        remap_causal_index(ctx->hyper_mem, id_map, map_size);
+        remap_causal_index(ctx->memory.txn, ctx->hyper_mem, id_map, map_size);
 
         // 2. Ремаппинг ссылок внутри самих атомов
         for (size_t i = 0; i < count; i++) {
@@ -337,7 +327,7 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
             }
 
             // Фиксируем обновленный атом в базе
-            hyper_assert_unique(ctx->hyper_mem, &atoms[i]);
+            hyper_assert_unique(ctx->memory.txn, ctx->hyper_mem, &atoms[i]);
         }
     }
 

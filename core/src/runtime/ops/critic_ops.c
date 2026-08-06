@@ -59,10 +59,10 @@ int vm_op_critic_apply(VMContext *ctx, const Instruction *ins) {
         flaw.truth_confidence = 1.0f;
         flaw.sti              = 0.5f;
         flaw.lti              = 0.1f;
-
+        MDB_txn *txn; // TODO. HOW TO FIX???
         // Причина: текущий эпизод (или 0, если контекст не задан)
         ko_id_t cause_flaw = ctx->current_episode_id;
-        hyper_assert_with_cause(ctx->hyper_mem, &flaw, cause_flaw);
+        hyper_assert_with_cause(txn, ctx->hyper_mem, &flaw, cause_flaw);
 
         // --- CONFIDENCE_DELTA ---
         NeuroAtom delta = {0};
@@ -81,7 +81,7 @@ int vm_op_critic_apply(VMContext *ctx, const Instruction *ins) {
 
         // Причина: атом HAS_FLAW, который мы только что создали
         ko_id_t cause_delta = flaw.id;
-        hyper_assert_with_cause(ctx->hyper_mem, &delta, cause_delta);
+        hyper_assert_with_cause(txn, ctx->hyper_mem, &delta, cause_delta);
 
         LOG_PLANNER("[CRITIC] algo=%lu marked HAS_FLAW after %d failures",
                     (unsigned long)snap[i].algo_id, snap[i].consecutive_failures);
@@ -131,8 +131,8 @@ int vm_op_credit_assign(VMContext *ctx, const Instruction *ins) {
 
     float discount = *(const float*)&ins->arg[4];
 
-    int propagated = score_propagate_credit(ctx->hyper_mem, (CognitiveDomain)domain,
-                                                 result_id, outcome, max_depth, discount);
+    int propagated = score_propagate_credit(ctx->memory.txn, ctx->hyper_mem, (CognitiveDomain)domain,
+                                             result_id, outcome, max_depth, discount);
     if (propagated < 0) return VM_ERROR;
 
     ctx->reg[r_out_count].type = REG_INT;

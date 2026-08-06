@@ -2,12 +2,12 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "runtime/logging/logging.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "storage/hyper_atom/hyper_pattern.h"
 #include "storage/db/db.h"
-#include "runtime/logging/logging.h"
 
 #define MATCH_BUDGET 4096
 
@@ -60,7 +60,7 @@ static void emit_match(MatchSink *sink, const Bindings *b) {
 
 // NOTE: NeuroAtom имеет ровно 2 аргумента (args[0], args[1]).
 // PatternCondition тоже теперь строго бинарен (PATTERN_ARG_SLOTS == 2).
-static int match_recursive(HyperMemory *hmem, const HyperPattern *pat, uint32_t cond_idx,
+static int match_recursive(MDB_txn *txn, HyperMemory *hmem, const HyperPattern *pat, uint32_t cond_idx,
                             ko_id_t context_filter, Bindings *b, MatchSink *sink, uint32_t *budget) {
     if (sink->found >= sink->max_results) return VM_OK;
 
@@ -87,7 +87,7 @@ static int match_recursive(HyperMemory *hmem, const HyperPattern *pat, uint32_t 
 
     NeuroAtom *candidates = NULL;
     size_t count = 0;
-    if (hyper_find_by_process(hmem, cond->process_id, known_participant, context_filter,
+    if (hyper_find_by_process(txn, hmem, cond->process_id, known_participant, context_filter,
                                &candidates, &count) != 0)
         return VM_OK;
 
@@ -107,7 +107,7 @@ static int match_recursive(HyperMemory *hmem, const HyperPattern *pat, uint32_t 
         }
 
         if (ok) {
-            rc = match_recursive(hmem, pat, cond_idx + 1, context_filter, b, sink, budget);
+            rc = match_recursive(txn, hmem, pat, cond_idx + 1, context_filter, b, sink, budget);
             if (rc != VM_OK) break;
         }
 
@@ -150,7 +150,7 @@ int vm_op_match_pattern(VMContext *ctx, const Instruction *ins) {
                         .max_results = max_results, .found = 0 };
     uint32_t budget = MATCH_BUDGET;
 
-    int rc = match_recursive(ctx->hyper_mem, &pattern, 0, context_filter, &b, &sink, &budget);
+    int rc = match_recursive(ctx->memory.txn, ctx->hyper_mem, &pattern, 0, context_filter, &b, &sink, &budget);
 
     ctx->reg[r_count].type = REG_INT;    ctx->reg[r_count].i = (int64_t)sink.found;
     ctx->reg[r_varcount].type = REG_INT; ctx->reg[r_varcount].i = (int64_t)pattern.var_count;

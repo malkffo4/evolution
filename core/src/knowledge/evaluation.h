@@ -76,30 +76,30 @@ typedef enum {
 // cause_id  — эпизод/факт, породивший это наблюдение (0, если нет).
 // context_id — контекст (см. OP_SPAWN_CTX): 0 для базовой реальности.
 // Возвращает id созданного атома или 0 при ошибке.
-node_id_t evaluation_record(HyperMemory *hmem, CognitiveDomain domain,
+node_id_t evaluation_record(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain,
                              node_id_t subject_id, float outcome,
                              node_id_t cause_id, node_id_t context_id);
 
 // Читает текущую свёртку. Нет записи -> нейтральный приор SCORE_PRIOR,
 // ничего не создавая.
-float score_get(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id);
+float score_get(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id);
 
 // Записывает наблюдение И инкрементально обновляет свёртку одним вызовом.
 // Это то, что вызывает Adaptive Planner после каждого исполнения.
-int score_update(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
+int score_update(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
                   float outcome, node_id_t cause_id, node_id_t context_id);
 
 // Пересчитывает свёртку заново из ВСЕХ Evaluation-атомов субъекта —
 // "пересмотр убеждений", а не инкремент. Возвращает 0 при успехе
 // (в т.ч. если наблюдений нет — тогда свёртка не создаётся/не трогается).
-int score_recompute(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id);
+int score_recompute(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id);
 
 // Обновляет Score с явным весом доверия к причинности (credit strength).
 // credit_weight=1.0 эквивалентен обычному score_update().
 // credit_weight <= 0 — no-op (возвращает 0, ничего не пишет).
 // Используется score_propagate_credit() для затухающего распределения
 // ответственности по цепочке idx_causal (temporal discount).
-int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
+int score_update_weighted(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t subject_id,
                            float outcome, float credit_weight,
                            node_id_t cause_id, node_id_t context_id);
 
@@ -112,7 +112,7 @@ int score_update_weighted(HyperMemory *hmem, CognitiveDomain domain, node_id_t s
 // discount вне (0,1] -> дефолт 0.7.
 // ДОЛЖНА вызываться внутри write-транзакции db_writer (как и score_update).
 // Возвращает количество применённых обновлений (>=0) или -1 при ошибке.
-int score_propagate_credit(HyperMemory *hmem, CognitiveDomain domain,
+int score_propagate_credit(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain,
                             node_id_t result_atom_id, float outcome,
                             uint32_t max_depth, float discount);
 

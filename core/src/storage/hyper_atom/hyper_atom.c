@@ -3,9 +3,10 @@
 #include <lmdb.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
+
 #include <stdatomic.h>
 
+#include "math/vector_math.h"
 #include "storage/vector_store/vector_store.h"
 #include "storage/db/db.h"
 #include "hyper_atom.h"
@@ -16,29 +17,22 @@ ko_id_t hyper_memory_new_id(HyperMemory *mem) {
     return ((uint64_t)mem->idgen->node_id << 48) | ((uint64_t)mem->idgen->session_id << 32) | seq;
 }
 
-/* Инициализация — должна вызываться после открытия DBI в db.c */
-HyperMemory *hyper_memory_new(MDB_txn *txn, MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx) {
+HyperMemory *hyper_memory_new(MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx) {
     HyperMemory *mem = calloc(1, sizeof(HyperMemory));
     if (!mem) return NULL;
-
     mem->idgen = calloc(1, sizeof(HyperIdGenerator));
     if (!mem->idgen) {
         free(mem);
         return NULL;
     }
-    // Настройки по умолчанию: можно позже передавать через аргументы
     mem->idgen->node_id = 0;
     mem->idgen->session_id = 0;
     atomic_store(&mem->idgen->counter, 1);
 
-    mem->txn = txn; // TODO - Возможный SEGFAULT. Это очень опасно.
-                    // Лучше вообще не хранить MDB_txn * внутри структуры.
-                    // Передавать транзакцию параметром.
     mem->dbi_atoms = atoms;
     mem->dbi_idx_process = idx_proc;
     mem->dbi_idx_args = idx_args;
     mem->dbi_idx_context = idx_ctx;
-    // dbi_idx_causal, dbi_archive, dbi_idx_vectors останутся 0
     return mem;
 }
 
@@ -50,9 +44,6 @@ void hyper_memory_free(HyperMemory *mem) {
     }
 }
 
-void hyper_memory_set_txn(HyperMemory *mem, MDB_txn *txn) {
-    if (mem) mem->txn = txn;
-}
 void hyper_memory_set_db_archive(HyperMemory *mem, MDB_dbi archive) {
     if (mem) mem->dbi_archive = archive;
 }
@@ -63,18 +54,22 @@ void hyper_memory_set_db_vectors(HyperMemory *mem, MDB_dbi vectors) {
     if (mem) mem->dbi_idx_vectors = vectors;
 }
 
+int hyper_find_by_process(MDB_txn *txn, HyperMemory *mem,
+                          ko_id_t process_id, ko_id_t participant_id,
+                          ko_id_t context_id, NeuroAtom **results, size_t *count) {
+    // Делегируем вызов функции с STI-фильтром, установив порог в 0.0f (искать всё)
+    return hyper_find_by_process_sti(txn, mem, process_id, participant_id, context_id, 0.0f, results, count);
+}
+
 // Проверка на существование атома с таким же process_id и аргументами
 // (без учёта id, context_id и time_tick — только семантическая проверка)
-static bool hyper_atom_exists(HyperMemory *mem, const NeuroAtom *atom) {
+static bool hyper_atom_exists(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom) {
     NeuroAtom *existing = NULL;
     size_t count = 0;
-
-    // Ищем по process_id
-    if (hyper_find_by_process(mem, atom->process_id, 0, atom->context_or_time_link, &existing, &count) != 0)
+    if (hyper_find_by_process(txn, mem, atom->process_id, 0, atom->context_or_time_link, &existing, &count) != 0)
         return false;
 
     for (size_t i = 0; i < count; i++) {
-        // Сравниваем аргументы
         bool match = true;
         for (int a = 0; a < HYPER_VAL_SLOTS; a++) {
             if (existing[i].args[a].raw != atom->args[a].raw) {
@@ -84,57 +79,66 @@ static bool hyper_atom_exists(HyperMemory *mem, const NeuroAtom *atom) {
         }
         if (match) {
             free(existing);
-            return true;  // найден дубликат
+            return true;
         }
     }
-
     free(existing);
     return false;
 }
 
-// Модифицируем hyper_assert с флагом проверки дубликатов
-int hyper_assert_unique(HyperMemory *mem, const NeuroAtom *atom) {
-    if (!mem || !atom) return -1;
-
-    // Проверяем, нет ли уже такого атома
-    if (hyper_atom_exists(mem, atom)) {
-        return 1;  // уже существует, не записываем
-    }
-
-    return hyper_assert(mem, atom);
+int hyper_assert_unique(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom) {
+    if (!txn || !mem || !atom) return -1;
+    if (hyper_atom_exists(txn, mem, atom)) return 1;
+    return hyper_assert(txn, mem, atom);
 }
 
-int hyper_assert(HyperMemory *mem, const NeuroAtom *atom) {
-    if (!mem || !atom) return -1;
-
+int hyper_assert(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom) {
+    if (!txn || !mem || !atom) return -1;
     MDB_val key_id = {sizeof(ko_id_t), (void *)&atom->id};
     MDB_val val_atom = {sizeof(NeuroAtom), (void *)atom};
 
-    int rc = mdb_put(mem->txn, mem->dbi_atoms, &key_id, &val_atom, 0);
+    int rc = mdb_put(txn, mem->dbi_atoms, &key_id, &val_atom, 0);
     if (rc != MDB_SUCCESS) return rc;
 
     MDB_val key_proc = {sizeof(ko_id_t), (void *)&atom->process_id};
-    mdb_put(mem->txn, mem->dbi_idx_process, &key_proc, &key_id, 0);
+    mdb_put(txn, mem->dbi_idx_process, &key_proc, &key_id, 0);
 
-    for (int i = 0; i < HYPER_VAL_SLOTS; i++) {  // теперь только 2 слота args
+    for (int i = 0; i < HYPER_VAL_SLOTS; i++) {
         if (HYPER_GET_TYPE(atom->args[i].raw) == HYPER_TYPE_REF && atom->args[i].raw != 0) {
             ko_id_t clean_ref = HYPER_GET_ID(atom->args[i].raw);
             MDB_val key_arg = {sizeof(ko_id_t), (void *)&clean_ref};
-            mdb_put(mem->txn, mem->dbi_idx_args, &key_arg, &key_id, 0);
+            mdb_put(txn, mem->dbi_idx_args, &key_arg, &key_id, 0);
         }
     }
 
     MDB_val key_ctx = {sizeof(ko_id_t), (void *)&atom->context_or_time_link};
-    mdb_put(mem->txn, mem->dbi_idx_context, &key_ctx, &key_id, 0);
-
+    mdb_put(txn, mem->dbi_idx_context, &key_ctx, &key_id, 0);
     return 0;
 }
 
-int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count) {
+int hyper_assert_with_cause(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id) {
+    int rc = hyper_assert_unique(txn, mem, atom);
+    if (rc != 0 && rc != 1) return rc;
+
+    if (cause_id != 0 && mem->dbi_idx_causal) {
+        MDB_val k_child = { sizeof(ko_id_t), (void *)&atom->id };
+        MDB_val v_cause = { sizeof(ko_id_t), (void *)&cause_id };
+        mdb_put(txn, mem->dbi_idx_causal, &k_child, &v_cause, MDB_APPENDDUP);
+
+        // ВАЖНО: Мы больше не можем обращаться к db.graph.hyper... напрямую,
+        // если хотим полной изоляции, но пока оставим этот кусок (или прокинем dbi_idx_causal_rev в HyperMemory).
+    }
+    return rc;
+}
+
+int hyper_find_by_process_sti(MDB_txn *txn, HyperMemory *mem,
+                        ko_id_t process_id, ko_id_t participant_id,
+                        ko_id_t context_id, float sti_threshold,
+                        NeuroAtom **results, size_t *count) {
     MDB_cursor *cursor;
     MDB_val key = {sizeof(ko_id_t), &process_id};
     MDB_val val_id;
-    if (mdb_cursor_open(mem->txn, mem->dbi_idx_process, &cursor) != MDB_SUCCESS) return -1;
+    if (mdb_cursor_open(txn, mem->dbi_idx_process, &cursor) != MDB_SUCCESS) return -1;
 
     *count = 0;
     size_t capacity = 16;
@@ -146,13 +150,20 @@ int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t particip
     int rc = mdb_cursor_get(cursor, &key, &val_id, MDB_SET);
     while (rc == MDB_SUCCESS) {
         MDB_val val_atom;
-        if (mdb_get(mem->txn, mem->dbi_atoms, &val_id, &val_atom) == MDB_SUCCESS) {
+        if (mdb_get(txn, mem->dbi_atoms, &val_id, &val_atom) == MDB_SUCCESS) {
             NeuroAtom *atom = (NeuroAtom *)val_atom.mv_data;
             // Фильтр по контексту
             if (context_id != 0 && atom->context_or_time_link != context_id) {
                 rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
                 continue;
             }
+
+            // Фильтр по порогу STI (кратковременная память)
+            if (atom->sti < sti_threshold) {
+                rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
+                continue;
+            }
+
             // Если задан participant_id, проверяем любой из трёх аргументов
             if (participant_id != 0) {
                 bool found = false;
@@ -188,12 +199,14 @@ int hyper_find_by_process(HyperMemory *mem, ko_id_t process_id, ko_id_t particip
     return 0;
 }
 
-int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t context_id, NeuroAtom **results, size_t *count) {
+int hyper_find_by_participant(MDB_txn *txn, HyperMemory *mem,
+                        ko_id_t participant_id, ko_id_t context_id,
+                        NeuroAtom **results, size_t *count) {
     MDB_cursor *cursor;
     MDB_val key = { sizeof(ko_id_t), &participant_id };
     MDB_val val_id;
 
-    if (mdb_cursor_open(mem->txn, mem->dbi_idx_args, &cursor) != MDB_SUCCESS) return -1;
+    if (mdb_cursor_open(txn, mem->dbi_idx_args, &cursor) != MDB_SUCCESS) return -1;
 
     *count = 0;
     size_t capacity = 16;
@@ -205,7 +218,7 @@ int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t 
     int rc = mdb_cursor_get(cursor, &key, &val_id, MDB_SET);
     while (rc == MDB_SUCCESS) {
         MDB_val val_atom;
-        if (mdb_get(mem->txn, mem->dbi_atoms, &val_id, &val_atom) == MDB_SUCCESS) {
+        if (mdb_get(txn, mem->dbi_atoms, &val_id, &val_atom) == MDB_SUCCESS) {
             NeuroAtom *atom = (NeuroAtom*)val_atom.mv_data;
             if (context_id == 0 || atom->context_or_time_link == context_id) {
                 if (*count >= capacity) {
@@ -230,7 +243,9 @@ int hyper_find_by_participant(HyperMemory *mem, ko_id_t participant_id, ko_id_t 
 }
 
 // Трассировка причинности
-int hyper_trace_cause(HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, size_t max_depth, size_t *count) {
+int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem,
+                ko_id_t start_id, NeuroAtom **chain,
+                size_t max_depth, size_t *count) {
     if (!mem || !chain || !count) return -1;
 
     *chain = malloc(sizeof(NeuroAtom) * max_depth);
@@ -242,7 +257,7 @@ int hyper_trace_cause(HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, siz
         // Загружаем текущий атом
         MDB_val key = {sizeof(ko_id_t), &current_id};
         MDB_val val;
-        if (mdb_get(mem->txn, mem->dbi_atoms, &key, &val) != MDB_SUCCESS)
+        if (mdb_get(txn, mem->dbi_atoms, &key, &val) != MDB_SUCCESS)
             break;
 
         NeuroAtom *atom = (NeuroAtom *)val.mv_data;
@@ -251,34 +266,13 @@ int hyper_trace_cause(HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, siz
 
         // Переходим к причине (cause_id) текущего атома через индекс
         MDB_val cause_val;
-        if (mdb_get(mem->txn, mem->dbi_idx_causal, &key, &cause_val) != MDB_SUCCESS)
+        if (mdb_get(txn, mem->dbi_idx_causal, &key, &cause_val) != MDB_SUCCESS)
             break;   // нет причины, завершаем
 
         current_id = *(ko_id_t *)cause_val.mv_data;  // следующий атом в цепочке
     }
 
     return 0;
-}
-
-int hyper_assert_with_cause(HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id) {
-    int rc = hyper_assert_unique(mem, atom);
-    if (rc != 0 && rc != 1) return rc;   // ошибка (не считаем "уже существует" ошибкой)
-
-    if (cause_id != 0 && mem->dbi_idx_causal) {
-        MDB_val k_child = { sizeof(ko_id_t), (void *)&atom->id };
-        MDB_val v_cause = { sizeof(ko_id_t), (void *)&cause_id };
-
-        // Прямая связь (child -> cause)
-        rc = mdb_put(mem->txn, mem->dbi_idx_causal, &k_child, &v_cause, 0);
-        if (rc != MDB_SUCCESS)
-            return rc;
-
-        // Обратная связь (cause -> child) для сверхбыстрого ремаппинга в OP_MERGE_CTX
-        if (db.graph.hyper.idx_causal_rev) {
-            rc = mdb_put(mem->txn, db.graph.hyper.idx_causal_rev, &v_cause, &k_child, 0);
-        }
-    }
-    return rc;
 }
 
 int hyper_vector_save(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, const Vector128 *vec) {
@@ -295,90 +289,5 @@ int hyper_vector_load(MDB_txn *txn, MDB_dbi dbi, ko_id_t atom_id, Vector128 *out
     if (rc != MDB_SUCCESS) return rc;
     if (data.mv_size != sizeof(Vector128)) return -1;
     memcpy(out, data.mv_data, sizeof(Vector128));
-    return 0;
-}
-
-float vector_cosine_similarity(const Vector128 *a, const Vector128 *b) {
-    float dot = 0.0f, norm_a = 0.0f, norm_b = 0.0f;
-    for (int i = 0; i < VECTOR_DIM; i++) {
-        dot   += a->data[i] * b->data[i];
-        norm_a += a->data[i] * a->data[i];
-        norm_b += b->data[i] * b->data[i];
-    }
-    if (norm_a < 1e-8f || norm_b < 1e-8f) return 0.0f;
-    return dot / (sqrtf(norm_a) * sqrtf(norm_b));
-}
-
-int hyper_find_by_process_sti(HyperMemory *mem, ko_id_t process_id,
-                               ko_id_t participant_id, ko_id_t context_id,
-                               float sti_threshold,
-                               NeuroAtom **results, size_t *count) {
-    MDB_cursor *cursor;
-    MDB_val key = { sizeof(ko_id_t), &process_id };
-    MDB_val val_id;
-    if (mdb_cursor_open(mem->txn, mem->dbi_idx_process, &cursor) != MDB_SUCCESS)
-        return -1;
-
-    *count = 0;
-    size_t capacity = 16;
-    *results = malloc(sizeof(NeuroAtom) * capacity);
-    if (!*results) {
-        mdb_cursor_close(cursor);
-        return -1;
-    }
-
-    int rc = mdb_cursor_get(cursor, &key, &val_id, MDB_SET);
-    while (rc == MDB_SUCCESS) {
-        MDB_val val_atom;
-        if (mdb_get(mem->txn, mem->dbi_atoms, &val_id, &val_atom) == MDB_SUCCESS) {
-            NeuroAtom *atom = (NeuroAtom *)val_atom.mv_data;
-
-            // ── STI‑фильтр (самый дешёвый – отсекаем холодные атомы сразу) ──
-            if (sti_threshold > 0.0f && atom->sti < sti_threshold) {
-                rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
-                continue;
-            }
-
-            // ── Фильтр по контексту ──
-            if (context_id != 0 && atom->context_or_time_link != context_id) {
-                rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
-                continue;
-            }
-
-            // ── Фильтр по участнику (проверяем оба слота args) ──
-            if (participant_id != 0) {
-                bool found = false;
-                for (int i = 0; i < HYPER_VAL_SLOTS; i++) {
-                    if (HYPER_GET_TYPE(atom->args[i].raw) == HYPER_TYPE_REF &&
-                        HYPER_GET_ID(atom->args[i].raw) == participant_id) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
-                    continue;
-                }
-            }
-
-            // ── Добавляем в результат ──
-            if (*count >= capacity) {
-                capacity *= 2;
-                NeuroAtom *tmp = realloc(*results, sizeof(NeuroAtom) * capacity);
-                if (!tmp) {
-                    free(*results);
-                    *results = NULL;
-                    mdb_cursor_close(cursor);
-                    return -1;
-                }
-                *results = tmp;
-            }
-            memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
-            (*count)++;
-        }
-        rc = mdb_cursor_get(cursor, &key, &val_id, MDB_NEXT_DUP);
-    }
-
-    mdb_cursor_close(cursor);
     return 0;
 }

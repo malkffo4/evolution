@@ -117,7 +117,7 @@ static int init_everything(void) {
     LOG_INFO("Evolution Core %s starting...", VERSION);
 
     // Инициализация рабочей памяти (Working Memory)
-    if (wm_init(&global_wm, 256, 512) != 0) {
+    if (wm_init(&global_wm, 256) != 0) {
         LOG_ERROR("Failed to initialize Working Memory");
         return EXIT_FAILURE;
     }
@@ -138,8 +138,7 @@ static int init_everything(void) {
     // Инициализируем HyperMemory
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, 0, &txn) == MDB_SUCCESS) {
-        global_hyper_mem = hyper_memory_new(txn,
-            db.graph.hyper.atoms,
+        global_hyper_mem = hyper_memory_new(db.graph.hyper.atoms,
             db.graph.hyper.idx_process,
             db.graph.hyper.idx_args,
             db.graph.hyper.idx_context);

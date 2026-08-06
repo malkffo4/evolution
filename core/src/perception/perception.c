@@ -87,6 +87,29 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 upsert_edge(txn, &logic_edge);
                 add_string_to_pool(txn, "EDGE"); // чтобы process-label резолвился при retrieve
 
+                // NeuroAtom edge_atom = {
+                //     .id = 0, // будет присвоен в hyper_assert_with_cause
+                //     .process_id =
+                //         proc_make(logic_edge.key.relation, PROC_KIND_RELATION),
+                //     .args = {{.raw = HYPER_MAKE_REF(logic_edge.key.source)},
+                //              {.raw = HYPER_MAKE_REF(logic_edge.key.target)}},
+                //     .context_or_time_link = 0,
+
+                //     // Дефолтные значения векторов для новых связей из Perception
+                //     .truth_mean = 1.0f,
+                //     .truth_confidence = 0.5f,
+                //     .sti = 0.8f, // Горячий факт
+                //     .lti = 0.1f,
+                //     .utility = 0.0f,
+                //     .valence = 0.0f};
+
+                static uint64_t next_edge_id = 10000;
+                // edge_atom.id = ++next_edge_id;
+
+                // // Используем 0 как cause_id (внешнее восприятие)
+                // hyper_assert_with_cause(txn, hmem, &edge_atom, 0);
+                //
+                // Вместо одного атома с process_id = relation, создаём два
                 NeuroAtom fwd = {0};
                 static uint64_t next_edge_id = 10000;
                 fwd.id = next_edge_id++;
@@ -95,7 +118,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 fwd.args[1].raw = HYPER_MAKE_REF(djb2_hash(relation->valuestring));
                 fwd.truth_mean = 1.0f;
                 fwd.truth_confidence = 0.5f;
-                hyper_assert_unique(hmem, &fwd);
+                hyper_assert_unique(txn, hmem, &fwd);
 
                 NeuroAtom rev = {0};
                 rev.id = next_edge_id++;
@@ -104,7 +127,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 rev.args[1].raw = HYPER_MAKE_REF(djb2_hash(target->valuestring));
                 rev.truth_mean = 1.0f;
                 rev.truth_confidence = 0.5f;
-                hyper_assert_unique(hmem, &rev);
+                hyper_assert_unique(txn, hmem, &rev);
             }
         }
     }
@@ -228,23 +251,7 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             atom.id = (0x2000000000000000ULL | (next_id++)) & HYPER_VALUE_MASK;
         }
 
-        ko_id_t cause_id = 0;
-        cJSON *cause_json = cJSON_GetObjectItem(atom_item, "cause");
-        if (cause_json) {
-            if (cJSON_IsString(cause_json)) {
-                cause_id = djb2_hash(cause_json->valuestring);
-                // ИСПРАВЛЕНИЕ: Регистрируем Cause ID в пуле
-                if (txn) add_string_to_pool(txn, cause_json->valuestring);
-            } else {
-                cause_id = (ko_id_t)cJSON_GetNumberValue(cause_json);
-            }
-        }
-
-        if (cause_id != 0) {
-            atom.context_or_time_link = cause_id; // используем cause как контекст
-        }
-
-        int result = hyper_assert_with_cause(hmem, &atom, cause_id);
+        int result = hyper_assert_unique(txn, hmem, &atom);
         if (result != 0 && result != 1) {
             LOG_ERROR("Failed to assert NeuroAtom (ID: %llu)", (unsigned long long)atom.id);
             continue;
@@ -293,7 +300,20 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
                 isa_atom.args[1].raw = HYPER_MAKE_REF(djb2_hash(k));
                 isa_atom.truth_mean = 1.0f;
                 isa_atom.truth_confidence = 1.0f;
-                hyper_assert_unique(hmem, &isa_atom);
+                hyper_assert_unique(txn, hmem, &isa_atom);
+            }
+        }
+        // Причинность — отдельный индекс, не в горячей структуре
+        cJSON *cause_json = cJSON_GetObjectItem(atom_item, "cause");
+        if (cause_json) {
+            ko_id_t cause_id = cJSON_IsString(cause_json)
+                ? djb2_hash(cause_json->valuestring)
+                : (ko_id_t)cJSON_GetNumberValue(cause_json);
+            if (cause_id) {
+                MDB_val k = { sizeof(ko_id_t), &atom.id };
+                MDB_val v = { sizeof(ko_id_t), &cause_id };
+                mdb_put(txn, hmem->dbi_idx_causal, &k, &v, MDB_APPENDDUP);
+                // NB: в реальном коде используй отдельный dbi_idx_causal, а не idx_context
             }
         }
 

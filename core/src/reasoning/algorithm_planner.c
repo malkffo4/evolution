@@ -27,7 +27,7 @@ void invalidate_goal_algorithm_relation_cache(void) {
 
 // Ищет все идентификаторы процессов, которые связывают Goal и Algorithm.
 // Возвращает количество найденных отношений.
-size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size_t max_rels) {
+size_t find_goal_algorithm_relations(MDB_txn *txn, HyperMemory *hmem, node_id_t *rel_ids, size_t max_rels) {
     if (g_goal_algo_rel_cache_valid) {
         size_t n = g_goal_algo_rel_cache_count < max_rels ? g_goal_algo_rel_cache_count : max_rels;
         memcpy(rel_ids, g_goal_algo_rel_cache, n * sizeof(node_id_t));
@@ -42,7 +42,7 @@ size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size
     // Единственный полный скан idx_process("IS_A") за весь процесс жизни
     // (до первого успеха). Раньше это происходило на КАЖДОМ тике MainLoop
     // × КАЖДОМ кандидате WM — O(1) амортизированно после первого вызова.
-    if (hyper_find_by_process(hmem, is_a, 0, 0, &isa_atoms, &isa_count) != 0 || !isa_atoms)
+    if (hyper_find_by_process(txn, hmem, is_a, 0, 0, &isa_atoms, &isa_count) != 0 || !isa_atoms)
         return 0;
 
     size_t found = 0;
@@ -66,7 +66,7 @@ size_t find_goal_algorithm_relations(HyperMemory *hmem, node_id_t *rel_ids, size
 /* ---------------------------------------------------------------- */
 /* Вспомогательная функция: поиск всех алгоритмов, связанных с целью */
 /* ---------------------------------------------------------------- */
-static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_id_t *out, int max_out) {
+static int find_algorithms_for_goal(MDB_txn *txn, HyperMemory *hmem, node_id_t goal_id, node_id_t *out, int max_out) {
     if (!hmem || !out) return 0;
 
     node_id_t rel_has_algo = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION);
@@ -74,7 +74,7 @@ static int find_algorithms_for_goal(HyperMemory *hmem, node_id_t goal_id, node_i
     size_t count = 0;
 
     // Ищем все атомы, где process_id == HAS_ALGORITHM и один из аргументов == goal_id
-    int rc = hyper_find_by_process(hmem, rel_has_algo, 0, 0, &atoms, &count);
+    int rc = hyper_find_by_process(txn, hmem, rel_has_algo, 0, 0, &atoms, &count);
     if (rc != 0 || !atoms || count == 0) return 0;
 
     int found = 0;
@@ -178,43 +178,8 @@ static node_id_t pick_best(VMContext *ctx, node_id_t *candidates, int count) {
     return best_algo;
 }
 
-/* ---------------------------------------------------------------- */
-/* Главная функция планировщика                                      */
-/* ---------------------------------------------------------------- */
-int planner_select_algorithm(HyperMemory *hmem, node_id_t goal_id, VMContext *ctx, node_id_t *out_algo_id) {
-    if (!hmem || !out_algo_id) return -1;
-
-    node_id_t candidates[MAX_CANDIDATES_ALGO];
-    int cand_count = 0;
-
-    // 1. Прямой поиск в гипер-атомах
-    cand_count = find_algorithms_for_goal(hmem, goal_id, candidates, MAX_CANDIDATES_ALGO);
-
-    // 2. Если не нашли — ищем похожие цели (только если есть эмбеддинг)
-    if (cand_count == 0) {
-        float query_emb[VECTOR_DIM];
-        if (load_embedding(ctx->memory.txn, goal_id, query_emb) == 0) { // транзакция не нужна, берём из кеша или глобальной БД
-            uint64_t similar_goals[8];
-            int sim_count = find_similar_nodes(ctx->memory.txn, query_emb, 8, similar_goals); // здесь txn=NULL, если load_embedding работает без txn
-            if (sim_count > 0) {
-                for (int i = 0; i < sim_count && cand_count < MAX_CANDIDATES_ALGO; i++) {
-                    cand_count += find_algorithms_for_goal(hmem, similar_goals[i],
-                                                          &candidates[cand_count],
-                                                          MAX_CANDIDATES_ALGO - cand_count);
-                }
-            }
-        }
-    }
-
-    if (cand_count == 0) return -2; // алгоритм не найден
-
-    *out_algo_id = pick_best(ctx, candidates, cand_count);
-    return 0;
-}
-
 int planner_select_all_algorithms(HyperMemory *hmem, node_id_t goal_id, VMContext *ctx,
                                   node_id_t *candidates, int *cand_count) {
-    (void)ctx;
-    *cand_count = find_algorithms_for_goal(hmem, goal_id, candidates, MAX_CANDIDATES_ALGO);
+    *cand_count = find_algorithms_for_goal(ctx->memory.txn, hmem, goal_id, candidates, MAX_CANDIDATES_ALGO);
     return (*cand_count > 0) ? 0 : -2;
 }

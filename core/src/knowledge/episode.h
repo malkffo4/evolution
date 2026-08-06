@@ -27,7 +27,7 @@
  * Благодаря этому "все эпизоды по цели" и "все эпизоды по алгоритму"
  * находятся штатным hyper_find_by_participant() без новых индексов.
  *
- * Потокобезопасность: episode_record() пишет в hmem->txn — обязана
+ * Потокобезопасность: episode_record() пишет в txn — обязана
  * вызываться только внутри write-транзакции db_writer потока.
  *
  * Replay: Episode неизменяем после записи (см. docs/EVENT_MODEL.md:
@@ -57,7 +57,7 @@ typedef struct {
  * Ownership: копирует немедленно, не забирает владение *ep.
  * Возвращает 0 при успехе, -1 при ошибке (залогировано через LOG_ERROR).
  */
-int episode_record(HyperMemory *hmem, const Episode *ep);
+int episode_record(MDB_txn *txn, HyperMemory *hmem, const Episode *ep);
 
 /*
  * Загружает Episode по id. Возвращает MDB_SUCCESS/MDB_NOTFOUND/код ошибки LMDB.

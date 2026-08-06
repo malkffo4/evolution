@@ -6,7 +6,6 @@
 
 #include "types/id.h"
 #include "memory/cognitive.h"
-#include "storage/graph/graph.h"
 #include "storage/hyper_atom/hyper_atom.h"
 
 // Динамическое свойство узла (ключ-значение)
@@ -31,8 +30,6 @@ typedef struct {
 } WorkingNode;
 
 typedef struct {
-    NodeList  active_nodes;
-    EdgeList  active_edges;
     WorkingNode *nodes;
     uint32_t count;
     uint32_t capacity;
@@ -41,14 +38,12 @@ typedef struct {
 } WorkingMemory;
 
 // Интерфейсы модулей
-int wm_init(WorkingMemory *wm, uint32_t node_cap, uint32_t edge_cap);
+int wm_init(WorkingMemory *wm, uint32_t node_cap);
 void wm_clear(WorkingMemory *wm);
 void wm_activate(WorkingMemory *wm, uint64_t node_id, float energy, float exploit_potential);
 void wm_decay(WorkingMemory *wm);
 
 void engine_spread_activation(WorkingMemory *wm, void *lmdb_txn);
-
-node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem, float activation_threshold);
 
 void wm_set_property(WorkingMemory *wm, uint64_t node_id, const char *key, const char *value);
 const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key);

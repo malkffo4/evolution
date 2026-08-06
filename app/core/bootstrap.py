@@ -94,19 +94,15 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "exec_algorithm", "arg": [13, 0, 0, 0, 0, 0]},
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
     ], {"int_consts": [16, 0, 1, djb2_hash("CriticMain")]})
-    # 2. CorePlanner (СИНХРОННЫЙ ФИКС)
+    # 2. CorePlanner (Новая декларативная архитектура)
     learn_pipeline("CorePlanner", [
-        {"operator_id": "load_const", "arg": [24, 0, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [25, 1, 0, 0, 0, 0]},
-        {"operator_id": "wm_top_goal", "arg": [20, 21, 0, 0, 0, 0]},
-        {"operator_id": "cond_branch_gt", "arg": [21, 25, 5, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "select_algorithm", "arg": [20, 22, 23, 0, 0, 0]},
-        {"operator_id": "cond_branch_gt", "arg": [23, 25, 8, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "exec_algorithm", "arg": [22, 0, 0, 0, 0, 0]}, # ФИКС: Выполняем синхронно!
+        {"operator_id": "wm_top_goal", "arg": [1, 2, 0, 0, 0, 0]},
+        {"operator_id": "branch_if_empty", "arg": [1, 5, 0, 0, 0, 0]},
+        {"operator_id": "select_algorithm", "arg": [1, 0, 3, 0, 0, 0]},
+        {"operator_id": "read_sp", "arg": [4, 0, 0, 0, 0, 0]},
+        {"operator_id": "dispatch_async", "arg": [1, 4, 0, 0, 0, 0]},
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
-    ], {"int_consts": [0, 1]})
+    ])
 
     # 3. CriticMain
     learn_pipeline("CriticMain", [
@@ -127,61 +123,74 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
     ], {"int_consts": [0, 1], "float_consts": [0.40, -0.30]})
 
-    # 5. InductiveExtractor (БЕЗ БАГОВАННОГО OP_QUERY И С ДИНАМИЧЕСКИМИ ОПКОДАМИ)
+    # 5. InductiveExtractor
     learn_pipeline("InductiveExtractor", [
-        {"operator_id": "load_const", "arg": [50, 0, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [46, 1, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [58, 2, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [59, 3, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [54, 4, 0, 0, 0, 0]},
+        # --- БЛОК 1: Загрузка констант ---
+        {"operator_id": "load_const", "arg": [50, 0, 0, 0, 0, 0]}, # 0: r50 = 0
+        {"operator_id": "load_const", "arg": [46, 1, 0, 0, 0, 0]}, # 1: r46 = 3 (мин. совпадений)
+        {"operator_id": "load_const", "arg": [58, 2, 0, 0, 0, 0]}, # 2: r58 = 16 (лимит шагов)
 
-        {"operator_id": "wm_top_goal", "arg": [44, 45, 0, 0, 0, 0]},
-        {"operator_id": "cond_branch_gt", "arg": [45, 54, 8, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
+        # --- БЛОК 2: Активация ---
+        {"operator_id": "wm_top_goal", "arg": [44, 45, 0, 0, 0, 0]}, # 3
+        {"operator_id": "cond_branch_gt", "arg": [45, 50, 6, 0, 0, 0]}, # 4
+        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},             # 5
 
-        {"operator_id": "mine_causal_pattern", "arg": [44, 46, 47, 48, 13, 49]},
-        {"operator_id": "cond_branch_gt", "arg": [49, 54, 11, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
+        {"operator_id": "mine_causal_pattern", "arg": [44, 46, 47, 48, 50, 49]}, # 6
+        {"operator_id": "cond_branch_gt", "arg": [49, 50, 9, 0, 0, 0]}, # 7
+        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},             # 8
 
-        {"operator_id": "spawn_ctx", "arg": [51, 0, 0, 0, 0, 0]},
-        {"operator_id": "move", "arg": [52, 50, 0, 0, 0, 0]},
+        # --- БЛОК 3: Синтез правила (Code-as-Data) ---
+        {"operator_id": "spawn_ctx", "arg": [51, 0, 0, 0, 0, 0]},       # 9
+        {"operator_id": "move", "arg": [52, 50, 0, 0, 0, 0]},           # 10: cause = 0
 
-        # α: GLOAD_CONST
-        {"operator_id": "write_sp", "arg": [0, 60, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [1, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [2, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},
-        {"operator_id": "assert_instruction", "arg": [OP_GLOAD_CONST, 0, 52, 53, 47, 1]},
-        {"operator_id": "move", "arg": [12, 53, 0, 0, 0, 0]},
-        {"operator_id": "move", "arg": [52, 53, 0, 0, 0, 0]},
+        # α: GLOAD_CONST (загружаем обнаруженный паттерн в r60)
+        {"operator_id": "write_sp", "arg": [0, 60, 0, 0, 0, 0]},        # 11: dst = r60
+        {"operator_id": "write_sp", "arg": [1, 0, 0, 0, 0, 0]},         # 12
+        {"operator_id": "write_sp", "arg": [2, 0, 0, 0, 0, 0]},         # 13
+        {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},         # 14
+        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},         # 15
+        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},         # 16
+        {"operator_id": "assert_instruction", "arg": [OP_GLOAD_CONST, 0, 52, 60, 47, 1]}, # 17
+        {"operator_id": "move", "arg": [52, 60, 0, 0, 0, 0]},           # 18: advance cause
+        {"operator_id": "move", "arg": [12, 60, 0, 0, 0, 0]},           # 19: КОРЕНЬ ПРОГРАММЫ (r60) -> r12
 
-        # β: GLOAD_CONST
-        {"operator_id": "write_sp", "arg": [0, 61, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [1, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [2, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},
-        {"operator_id": "assert_instruction", "arg": [OP_GLOAD_CONST, 0, 52, 53, 44, 1]},
-        {"operator_id": "move", "arg": [52, 53, 0, 0, 0, 0]},
+        # β: GLOAD_CONST (загружаем текущую цель в r61)
+        {"operator_id": "write_sp", "arg": [0, 61, 0, 0, 0, 0]},        # 20: dst = r61
+        {"operator_id": "write_sp", "arg": [1, 0, 0, 0, 0, 0]},         # 21
+        {"operator_id": "write_sp", "arg": [2, 0, 0, 0, 0, 0]},         # 22
+        {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},         # 23
+        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},         # 24
+        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},         # 25
+        {"operator_id": "assert_instruction", "arg": [OP_GLOAD_CONST, 0, 52, 61, 44, 1]}, # 26
+        {"operator_id": "move", "arg": [52, 61, 0, 0, 0, 0]},           # 27: advance cause
 
-        # δ: ASSERT
-        {"operator_id": "write_sp", "arg": [0, 60, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [1, 61, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [2, 61, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [3, 63, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},
-        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},
-        {"operator_id": "assert_instruction", "arg": [OP_ASSERT, 0, 52, 53, 50, 0]},
-        {"operator_id": "move", "arg": [52, 53, 0, 0, 0, 0]},
+        # δ: ASSERT (создаем абстрактное правило)
+        {"operator_id": "write_sp", "arg": [0, 48, 0, 0, 0, 0]},        # 28: process_id = r48
+        {"operator_id": "write_sp", "arg": [1, 60, 0, 0, 0, 0]},        # 29: arg0 = r60 (Pattern)
+        {"operator_id": "write_sp", "arg": [2, 61, 0, 0, 0, 0]},        # 30: arg1 = r61 (Goal)
+        {"operator_id": "write_sp", "arg": [3, 62, 0, 0, 0, 0]},        # 31: dst = r62
+        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},         # 32
+        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},         # 33
+        {"operator_id": "assert_instruction", "arg": [OP_ASSERT, 0, 52, 62, 0, 0]}, # 34
 
-        {"operator_id": "eval_graph", "arg": [12, 58, 14, 0, 0, 0]},
-        {"operator_id": "exec_algorithm", "arg": [59, 0, 0, 0, 0, 0]},
-        {"operator_id": "merge_ctx", "arg": [float_to_uint32(0.45), 0, 0, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
-    ], {"int_consts": [0, 3, 16, djb2_hash("MetaCriticGraph"), 1]})
+        # --- БЛОК 4: Оценка и материализация ---
+        {"operator_id": "eval_graph", "arg": [12, 58, 14, 0, 0, 0]},    # 35: start at r12
+        {"operator_id": "cond_branch_gt", "arg": [14, 50, 41, 0, 0, 0]}, # 36: if error jump to PENALTY (41)
+
+        # REWARD
+        {"operator_id": "load_fconst", "arg": [17, 0, 0, 0, 0, 0]},     # 37: r17 = 0.80
+        {"operator_id": "atom_reinforce", "arg": [62, 17, 0, 0, 0, 0]}, # 38
+        {"operator_id": "merge_ctx", "arg": [float_to_uint32(0.10), 0, 0, 0, 0, 0]}, # 39
+        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},             # 40
+
+        # PENALTY
+        {"operator_id": "load_fconst", "arg": [17, 1, 0, 0, 0, 0]},     # 41: r17 = -0.30
+        {"operator_id": "atom_reinforce", "arg": [62, 17, 0, 0, 0, 0]}, # 42
+        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}              # 43
+    ], {
+        "int_consts": [0, 3, 16],
+        "float_consts": [0.80, -0.30]
+    })
 
     # 6. AnalogyPlanner
     learn_pipeline("AnalogyPlanner", [

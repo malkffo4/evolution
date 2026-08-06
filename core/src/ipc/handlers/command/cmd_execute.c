@@ -39,10 +39,9 @@ static int exec_algorithm_txn_fn(MDB_txn *txn, void *arg) {
     ExecJob *job = arg;
 
     WorkingMemory local_wm;
-    if (wm_init(&local_wm, 32, 32) != 0) return -1;
+    if (wm_init(&local_wm, 32) != 0) return -1;
 
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     if (!hmem) { wm_clear(&local_wm); return -1; }
     hyper_memory_set_db_causal(hmem, db.graph.hyper.idx_causal);
@@ -101,8 +100,7 @@ static int activate_goal_txn_fn(MDB_txn *txn, void *arg) {
     // (см. runtime/ops/cognitive.c::vm_op_evaluate_goals).
     add_string_to_pool(txn, job->goal_name);
 
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms,
         db.graph.hyper.idx_process,
         db.graph.hyper.idx_args,
         db.graph.hyper.idx_context);
@@ -120,7 +118,7 @@ static int activate_goal_txn_fn(MDB_txn *txn, void *arg) {
     type_atom.truth_confidence = 1.0f;
     type_atom.sti = 0.5f;
     type_atom.lti = 0.2f;
-    int rc = hyper_assert_unique(hmem, &type_atom);
+    int rc = hyper_assert_unique(txn, hmem, &type_atom);
     hyper_memory_free(hmem);
     if (rc < 0) return -1;
 

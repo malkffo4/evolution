@@ -8,15 +8,13 @@
 #include "working.h"
 #include "storage/db/db.h"
 #include "math/hash.h"
-#include "storage/node/node.h"
-#include "storage/edge/edge.h"
 #include "types/id.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "reasoning/algorithm_planner.h"
 #include "reasoning/planner.h"
 #include "ipc/ipc.h"
 
-int wm_init(WorkingMemory *wm, uint32_t node_cap, uint32_t edge_cap) {
+int wm_init(WorkingMemory *wm, uint32_t node_cap) {
     if (!wm) return 1;
 
     // Инициализация RW-Lock
@@ -24,28 +22,9 @@ int wm_init(WorkingMemory *wm, uint32_t node_cap, uint32_t edge_cap) {
         return 1;
     }
 
-    wm->active_nodes.items = malloc(node_cap * sizeof(node_id_t));
-    if (!wm->active_nodes.items) {
-        pthread_rwlock_destroy(&wm->lock);
-        return 1;
-    }
-    wm->active_nodes.count = 0;
-    wm->active_nodes.capacity = node_cap;
-
-    wm->active_edges.items = malloc(edge_cap * sizeof(Edge));
-    if (!wm->active_edges.items) {
-        free(wm->active_nodes.items);
-        pthread_rwlock_destroy(&wm->lock);
-        return 1;
-    }
-    wm->active_edges.count = 0;
-    wm->active_edges.capacity = edge_cap;
-
-    wm->capacity = 100; // Лимит, используемый в wm_activate
+    wm->capacity = node_cap > 0 ? node_cap : 100;
     wm->nodes = calloc(wm->capacity, sizeof(WorkingNode));
     if (!wm->nodes) {
-        free(wm->active_edges.items);
-        free(wm->active_nodes.items);
         pthread_rwlock_destroy(&wm->lock);
         return 1;
     }
@@ -59,14 +38,6 @@ void wm_clear(WorkingMemory *wm) {
     if (!wm) return;
     pthread_rwlock_wrlock(&wm->lock);
 
-    if (wm->active_nodes.items) {
-        free(wm->active_nodes.items);
-        wm->active_nodes.items = NULL;
-    }
-    if (wm->active_edges.items) {
-        free(wm->active_edges.items);
-        wm->active_edges.items = NULL;
-    }
     if (wm->nodes) {
         for (uint32_t i = 0; i < wm->count; i++) {
             DynamicProperty *curr = wm->nodes[i].properties;
@@ -79,8 +50,6 @@ void wm_clear(WorkingMemory *wm) {
         free(wm->nodes);
         wm->nodes = NULL;
     }
-    wm->active_nodes.count = 0;
-    wm->active_edges.count = 0;
     wm->count = 0;
 
     pthread_rwlock_unlock(&wm->lock);
@@ -248,58 +217,6 @@ const char* wm_get_property(WorkingMemory *wm, uint64_t node_id, const char *key
     }
     pthread_rwlock_unlock(&wm->lock);
     return result;
-}
-
-node_id_t wm_get_highest_goal(WorkingMemory *wm, HyperMemory *hmem, float activation_threshold) {
-    if (!wm) return 0;
-    pthread_rwlock_rdlock(&wm->lock);
-
-    if (!wm->nodes) {
-        pthread_rwlock_unlock(&wm->lock);
-        return 0;
-    }
-
-    node_id_t best_id = 0;
-    float best_score = -1.0f;
-
-    for (uint32_t i = 0; i < wm->count; i++) {
-        WorkingNode *n = &wm->nodes[i];
-
-        if (n->activation < activation_threshold ||
-            n->state.usefulness < activation_threshold * 1.15f)
-            continue;
-
-        // Игнорируем cooldown, если мы находимся в изолированном воркере.
-        // Cooldown нужен только глобальному сознанию (global_wm), чтобы не циклиться на одной задаче.
-        if (wm == &global_wm && is_goal_on_cooldown(n->node_id)) continue;
-
-        node_id_t rel_ids[16];
-        size_t rel_count = find_goal_algorithm_relations(hmem, rel_ids, 16);
-        bool is_goal = false;
-
-        for (size_t r = 0; r < rel_count; r++) {
-            NeuroAtom *atoms = NULL;
-            size_t count = 0;
-            if (hyper_find_by_process(hmem, rel_ids[r], n->node_id, 0, &atoms, &count) == 0 && count > 0) {
-                free(atoms);
-                is_goal = true;
-                break;
-            }
-            if (atoms) free(atoms);
-        }
-
-        if (!is_goal) {
-            continue;
-        }
-
-        float score = n->activation * n->state.usefulness;
-        if (score > best_score) {
-            best_score = score;
-            best_id = n->node_id;
-        }
-    }
-    pthread_rwlock_unlock(&wm->lock);
-    return best_id;
 }
 
 void wm_rdlock(WorkingMemory *wm) {

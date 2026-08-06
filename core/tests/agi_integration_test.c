@@ -31,34 +31,36 @@ int main(void) {
     MDB_dbi archive     = db.graph.hyper.archive;
     MDB_dbi idx_vectors = db.graph.hyper.idx_vectors;
 
-    HyperMemory *hmem = hyper_memory_new(txn, atoms, idx_proc, idx_args, idx_ctx);
+    HyperMemory *hmem = hyper_memory_new(atoms, idx_proc, idx_args, idx_ctx);
     assert(hmem != NULL);
     hyper_memory_set_db_causal(hmem, idx_causal);
     hyper_memory_set_db_archive(hmem, archive);
     hyper_memory_set_db_vectors(hmem, idx_vectors);
 
+    ko_id_t proc_is_a = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);
+
     // Создаём два атома: горячий и заведомо холодный
     NeuroAtom atom_cat = {0};
     atom_cat.id = djb2_hash("cat");
-    atom_cat.process_id = djb2_hash("IS_A");
+    atom_cat.process_id = proc_is_a;
     atom_cat.args[0].raw = HYPER_MAKE_REF(atom_cat.id);
     atom_cat.args[1].raw = HYPER_MAKE_REF(djb2_hash("animal"));
     atom_cat.sti = 0.9f;
     atom_cat.utility = 0.5f;
     atom_cat.lti = 0.8f;
     atom_cat.truth_confidence = 0.9f;
-    hyper_assert_unique(hmem, &atom_cat);
+    hyper_assert_unique(txn, hmem, &atom_cat);
 
     NeuroAtom atom_dog = {0};
     atom_dog.id = djb2_hash("dog");
-    atom_dog.process_id = djb2_hash("IS_A");
+    atom_dog.process_id = proc_is_a;
     atom_dog.args[0].raw = HYPER_MAKE_REF(atom_dog.id);
     atom_dog.args[1].raw = HYPER_MAKE_REF(djb2_hash("animal"));
     atom_dog.sti = 0.02f;          // ниже порога архивации (0.05)
     atom_dog.utility = 0.02f;      // ниже порога (0.10)
     atom_dog.lti = 0.02f;          // ниже порога (0.05)
     atom_dog.truth_confidence = 0.1f;
-    hyper_assert_unique(hmem, &atom_dog);
+    hyper_assert_unique(txn, hmem, &atom_dog);
 
     // Сохраняем эмбеддинги
     Vector128 vec_cat = { .data = {1.0f, 0.0f, 0.5f} };
@@ -69,7 +71,6 @@ int main(void) {
 
     // Тест векторного поиска (read-only транзакция)
     assert(mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) == 0);
-    hyper_memory_set_txn(hmem, txn); // <-- критическое добавление
     VMContext ctx;
     assert(vm_init(&ctx, txn, NULL) == VM_OK);
     operator_registry_init();
@@ -85,7 +86,7 @@ int main(void) {
     // STI-фильтрация
     NeuroAtom *results = NULL;
     size_t count = 0;
-    rc = hyper_find_by_process_sti(hmem, djb2_hash("IS_A"), 0, 0, 0.5f, &results, &count);
+    rc = hyper_find_by_process_sti(txn, hmem, proc_is_a, 0, 0, 0.5f, &results, &count);
     assert(rc == 0);
     assert(count == 1);
     assert(results[0].id == atom_cat.id);
@@ -94,23 +95,21 @@ int main(void) {
 
     // Деструктивный Decay-тест с архивацией холодного атома
     assert(mdb_txn_begin(db.env, NULL, 0, &txn) == 0);
-    hyper_memory_set_txn(hmem, txn);   // <--- критически важно
 
-    // Диагностика: убедимся, что hmem и hmem->txn не NULL
+    // Диагностика: убедимся, что hmem и txn не NULL
     if (!hmem) {
         fprintf(stderr, "FATAL: hmem is NULL before decay\n");
         exit(1);
     }
-    if (!hmem->txn) {
-        fprintf(stderr, "FATAL: hmem->txn is NULL before decay\n");
+    if (!txn) {
+        fprintf(stderr, "FATAL: txn is NULL before decay\n");
         exit(1);
     }
 
     DecayStats stats;
-    rc = subconscious_decay_cycle(hmem, &DECAY_POLICY_DEFAULT, &stats);
+    rc = subconscious_decay_cycle(txn, hmem, &DECAY_POLICY_DEFAULT, &stats);
     if (rc != 0) {
         fprintf(stderr, "decay_cycle failed: rc=%d, lmdb_err=%s\n", rc, mdb_strerror(rc));
-        // не падаем сразу, даём больше информации
         exit(1);
     }
     assert(stats.scanned > 0);

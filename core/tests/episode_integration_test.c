@@ -21,6 +21,7 @@
 #include "knowledge/algorithm_saver.h"
 #include "knowledge/episode.h"
 #include "knowledge/evaluation.h"
+#include "common.h"
 
 int main(void) {
     system("rm -rf ./test_episode_int_db");
@@ -34,8 +35,7 @@ int main(void) {
     MDB_txn *txn;
     assert(mdb_txn_begin(db.env, NULL, 0, &txn) == 0);
 
-    HyperMemory *hmem = hyper_memory_new(txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
     assert(hmem != NULL);
 
@@ -48,13 +48,15 @@ int main(void) {
     Pipeline pipeline = { .code = code, .code_len = 4, .capacity = 4 };
     assert(algorithm_save(txn, algo_id, &pipeline) == MDB_SUCCESS);
 
+    assert(planner_bootstrap(txn) == MDB_SUCCESS);
+
     NeuroAtom meta = {0};
     meta.id = 6000;
     meta.process_id = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);
     meta.args[0].raw = djb2_hash("HAS_ALGORITHM");
     meta.args[1].raw = djb2_hash("GoalAlgorithmRelation");
     meta.truth_mean = 1.0f; meta.truth_confidence = 1.0f;
-    assert(hyper_assert_unique(hmem, &meta) >= 0);
+    assert(hyper_assert_unique(txn, hmem, &meta) >= 0);
 
     NeuroAtom link = {0};
     link.id = 5000;
@@ -62,7 +64,7 @@ int main(void) {
     link.args[0].raw = HYPER_MAKE_REF(goal_id);
     link.args[1].raw = HYPER_MAKE_REF(algo_id);
     link.truth_mean = 1.0f; link.truth_confidence = 1.0f;
-    assert(hyper_assert_unique(hmem, &link) >= 0);
+    assert(hyper_assert_unique(txn, hmem, &link) >= 0);
 
     hyper_memory_free(hmem);
     assert(mdb_txn_commit(txn) == 0); // ОБЯЗАТЕЛЬНО коммитим, чтобы освободить лок писателя!
@@ -72,14 +74,13 @@ int main(void) {
     MDB_txn *read_txn;
     assert(mdb_txn_begin(db.env, NULL, MDB_RDONLY, &read_txn) == 0);
 
-    HyperMemory *read_hmem = hyper_memory_new(read_txn,
-        db.graph.hyper.atoms, db.graph.hyper.idx_process,
+    HyperMemory *read_hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
         db.graph.hyper.idx_args, db.graph.hyper.idx_context);
 
     VMContext ctx;
     memset(&ctx, 0, sizeof(ctx));
     WorkingMemory wm;
-    assert(wm_init(&wm, 16, 16) == 0);
+    assert(wm_init(&wm, 16) == 0);
     assert(vm_init(&ctx, read_txn, &wm) == VM_OK);
 
     operator_registry_init();
@@ -114,16 +115,15 @@ int main(void) {
         MDB_txn *poll_txn;
         if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &poll_txn) != 0) continue;
 
-        HyperMemory *poll_hmem = hyper_memory_new(poll_txn,
-            db.graph.hyper.atoms, db.graph.hyper.idx_process,
+        HyperMemory *poll_hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
             db.graph.hyper.idx_args, db.graph.hyper.idx_context);
 
-        score = score_get(poll_hmem, COGNITIVE_DOMAIN_ALGORITHM, algo_id);
+        score = score_get(poll_txn, poll_hmem, COGNITIVE_DOMAIN_ALGORITHM, algo_id);
 
         if (score > SCORE_PRIOR) {
             NeuroAtom *episodes = NULL;
             size_t count = 0;
-            if (hyper_find_by_participant(poll_hmem, goal_id, 0, &episodes, &count) == 0) {
+            if (hyper_find_by_participant(poll_txn, poll_hmem, goal_id, 0, &episodes, &count) == 0) {
                 for (size_t i = 0; i < count; i++) {
                     if (episodes[i].process_id == episode_proc) {
                         found_episode_id = episodes[i].id;

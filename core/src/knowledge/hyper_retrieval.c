@@ -2,9 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cjson/cJSON.h>
 
 #include "hyper_retrieval.h"
-#include <cjson/cJSON.h>
+#include "math/hash.h"
 #include "runtime/logging/logging.h"
 #include "storage/node/node.h"
 #include "storage/string_pool/string_pool.h"
@@ -29,15 +30,17 @@ static void resolve_label(MDB_txn *txn, ko_id_t id, char *out, size_t out_size) 
     snprintf(out, out_size, "0x%llx", (unsigned long long)id);
 }
 
-char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_depth, int max_atoms) {
+char* hyper_retrieve_json(MDB_txn *txn, HyperMemory *hmem, node_id_t participant_id, int max_depth, int max_atoms) {
     cJSON *root = cJSON_CreateObject();
     cJSON *atoms_arr = cJSON_AddArrayToObject(root, "atoms");
 
     node_id_t *queue = malloc((size_t)max_atoms * sizeof(node_id_t));
     node_id_t *visited = malloc((size_t)max_atoms * sizeof(node_id_t));
     if (!queue || !visited) {
-        free(queue);
-        free(visited);
+        if (queue)
+            free(queue);
+        if (visited)
+            free(visited);
         cJSON_Delete(root);
         return NULL;
     }
@@ -55,8 +58,18 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
 
         NeuroAtom *results = NULL;
         size_t count = 0;
-        if (hyper_find_by_participant(hmem, current_participant, 0, &results, &count) == 0) {
-            for (size_t i = 0; i < count && (int)(q_tail + 1) < max_atoms; i++) {
+        if (hyper_find_by_participant(txn, hmem, current_participant, 0, &results, &count) == 0) {
+            for (size_t i = 0; i < count; i++) {
+                // Жестко ограничиваем размер самого JSON-массива
+                if (cJSON_GetArraySize(atoms_arr) >= max_atoms) {
+                    break;
+                }
+                // Игнорируем системный спам эпизодов в семантической выдаче!
+                // Для эпизодов у нас есть отдельная функция req_get_episodes.
+                if (results[i].process_id == proc_make(djb2_hash("EPISODE_RECORDED"), PROC_KIND_EVENT)) {
+                    continue;
+                }
+
                 cJSON *atom_json = cJSON_CreateObject();
 
                 // id
@@ -64,13 +77,8 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
                 snprintf(idbuf, sizeof(idbuf), "%llu", (unsigned long long)results[i].id);
                 cJSON_AddStringToObject(atom_json, "id", idbuf);
 
-                // Маскируем PROC_KIND перед обращением к строковому пулу,
-                // так как в пуле хранится чистый djb2_hash строки.
-                const char *proc_label = get_string_from_pool(hmem->txn, results[i].process_id & PROC_ID_MASK);
-                if (!proc_label) {
-                    // Страховочный фолбэк на случай старых/кастомных ID
-                    proc_label = get_string_from_pool(hmem->txn, results[i].process_id);
-                }
+                // process
+                const char *proc_label = get_string_from_pool(txn, results[i].process_id);
                 cJSON_AddStringToObject(atom_json, "process", proc_label ? proc_label : "UNKNOWN");
 
                 // args (только 2 слота)
@@ -79,7 +87,7 @@ char* hyper_retrieve_json(HyperMemory *hmem, node_id_t participant_id, int max_d
                     if (results[i].args[a].raw != 0) {
                         char label[128];
                         if (HYPER_GET_TYPE(results[i].args[a].raw) == HYPER_TYPE_REF) {
-                            resolve_label(hmem->txn, HYPER_GET_ID(results[i].args[a].raw), label, sizeof(label));
+                            resolve_label(txn, HYPER_GET_ID(results[i].args[a].raw), label, sizeof(label));
                         } else {
                             snprintf(label, sizeof(label), "%lld", (long long)results[i].args[a].raw);
                         }

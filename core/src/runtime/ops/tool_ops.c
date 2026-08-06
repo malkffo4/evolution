@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "runtime/logging/logging.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 #include "runtime/register/register.h"
@@ -16,7 +17,6 @@
 #include "storage/property/property.h"
 #include "knowledge/knowledge_cache.h"
 #include "execution/executor.h"
-#include "runtime/logging/logging.h"
 
 // OP_LOAD_STR: arg[0]=dst регистр, arg[1]=индекс в ConstantPool.str_consts[].
 // OP_LOAD_CONST читает ТОЛЬКО int_consts (см. memory_ops.c) — для строк
