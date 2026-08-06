@@ -12,6 +12,7 @@
 #include "hyper_atom.h"
 
 ko_id_t hyper_memory_new_id(HyperMemory *mem) {
+    if (!mem || !mem->idgen) return 0;
     uint64_t seq = atomic_fetch_add(&mem->idgen->counter,1);
 
     return ((uint64_t)mem->idgen->node_id << 48) | ((uint64_t)mem->idgen->session_id << 32) | seq;
@@ -56,6 +57,7 @@ void hyper_memory_set_db_vectors(HyperMemory *mem, MDB_dbi vectors) {
 int hyper_find_by_process(MDB_txn *txn, HyperMemory *mem,
                           ko_id_t process_id, ko_id_t participant_id,
                           ko_id_t context_id, NeuroAtom **results, size_t *count) {
+    if (!mem || !txn) return -1;
     // Делегируем вызов функции с STI-фильтром, установив порог в 0.0f (искать всё)
     return hyper_find_by_process_sti(txn, mem, process_id, participant_id, context_id, 0.0f, results, count);
 }
@@ -63,6 +65,7 @@ int hyper_find_by_process(MDB_txn *txn, HyperMemory *mem,
 // Проверка на существование атома с таким же process_id и аргументами
 // (без учёта id, context_id и time_tick — только семантическая проверка)
 static bool hyper_atom_exists(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom) {
+    if (!mem || !txn) return false;
     NeuroAtom *existing = NULL;
     size_t count = 0;
     if (hyper_find_by_process(txn, mem, atom->process_id, 0, atom->context_or_time_link, &existing, &count) != 0)
@@ -116,6 +119,7 @@ int hyper_assert(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom) {
 }
 
 int hyper_assert_with_cause(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id) {
+    if (!txn || !mem || !atom) return -1;
     int rc = hyper_assert_unique(txn, mem, atom);
     if (rc != 0 && rc != 1) return rc;
 
@@ -139,6 +143,7 @@ int hyper_find_by_process_sti(MDB_txn *txn, HyperMemory *mem,
                         ko_id_t process_id, ko_id_t participant_id,
                         ko_id_t context_id, float sti_threshold,
                         NeuroAtom **results, size_t *count) {
+    if (!mem || !txn) return -1;
     MDB_cursor *cursor;
     MDB_val key = {sizeof(ko_id_t), &process_id};
     MDB_val val_id;
@@ -204,6 +209,7 @@ int hyper_find_by_process_sti(MDB_txn *txn, HyperMemory *mem,
 int hyper_find_by_participant(MDB_txn *txn, HyperMemory *mem,
                         ko_id_t participant_id, ko_id_t context_id,
                         NeuroAtom **results, size_t *count) {
+    if (!mem || !txn) return -1;
     MDB_cursor *cursor;
     MDB_val key = { sizeof(ko_id_t), &participant_id };
     MDB_val val_id;
@@ -225,11 +231,9 @@ int hyper_find_by_participant(MDB_txn *txn, HyperMemory *mem,
             if (context_id == 0 || atom->context_or_time_link == context_id) {
                 if (*count >= capacity) {
                     capacity *= 2;
-                    *results = realloc(*results, sizeof(NeuroAtom) * capacity);
-                    if (!*results) {
-                        mdb_cursor_close(cursor);
-                        return -1;
-                    }
+                    NeuroAtom *grown = realloc(*results, sizeof(NeuroAtom) * capacity);
+                    if (!grown) { mdb_cursor_close(cursor); return -1; }
+                    *results = grown;
                 }
                 memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
                 (*count)++;
@@ -243,6 +247,7 @@ int hyper_find_by_participant(MDB_txn *txn, HyperMemory *mem,
 
 int hyper_find_by_context(MDB_txn *txn, HyperMemory *mem, ko_id_t context_id,
                            NeuroAtom **results, size_t *count) {
+    if (!mem || !txn) return -1;
     MDB_cursor *cursor;
     MDB_val key = { sizeof(ko_id_t), &context_id };
     MDB_val val_id;
@@ -277,7 +282,7 @@ int hyper_find_by_context(MDB_txn *txn, HyperMemory *mem, ko_id_t context_id,
 int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem,
                 ko_id_t start_id, NeuroAtom **chain,
                 size_t max_depth, size_t *count) {
-    if (!mem || !chain || !count) return -1;
+    if (!mem || !txn || !chain || !count) return -1;
 
     *chain = malloc(sizeof(NeuroAtom) * max_depth);
     if (!*chain) return -1;

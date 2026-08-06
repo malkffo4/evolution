@@ -52,6 +52,7 @@ static ko_id_t get_parent_context(MDB_txn *txn, HyperMemory *mem, ko_id_t ctx_id
 
 // OP_QUERY: arg[0]=process_id_reg, arg[1]=participant_reg, arg[2]=context_reg -> sp[arg[3]], count->reg[arg[4]]
 int vm_op_query(VMContext *ctx, const Instruction *ins) {
+    if (!ctx->hyper_mem) return VM_ERROR;
     if (ins->arg[0] >= VM_MAX_REGISTERS || ins->arg[1] >= VM_MAX_REGISTERS ||
         ins->arg[2] >= VM_MAX_REGISTERS || ins->arg[3] >= MAX_SCRATCHPAD ||
         ins->arg[4] >= VM_MAX_REGISTERS || (ins->arg[5] != 0 && ins->arg[5] >= VM_MAX_REGISTERS)) {
@@ -88,6 +89,7 @@ int vm_op_query(VMContext *ctx, const Instruction *ins) {
 // Новый факт наследует дефолтные значения когнитивной триады (см. п.2 TASK 1):
 // truth высок (это прямое утверждение), attention начальная, utility/valence нейтральны.
 int vm_op_assert(VMContext *ctx, const Instruction *ins) {
+    if (!ctx->hyper_mem) return VM_ERROR;
     if (ins->arg[0] >= VM_MAX_REGISTERS || ins->arg[1] >= VM_MAX_REGISTERS ||
         ins->arg[2] >= VM_MAX_REGISTERS || ins->arg[3] >= VM_MAX_REGISTERS ||
         (ins->operator_id == OP_DERIVE && ins->arg[4] >= VM_MAX_REGISTERS)) {
@@ -122,6 +124,7 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
 // OP_DERIVE: как ASSERT, но cause_id берётся из регистра (arg[3]) — логический вывод.
 // arg[0]=process, arg[1..2]=args, arg[3]=cause_id_reg, arg[4]=dst_id_reg
 int vm_op_derive(VMContext *ctx, const Instruction *ins) {
+    if (!ctx->hyper_mem) return VM_ERROR;
     if (ins->arg[0] >= VM_MAX_REGISTERS || ins->arg[1] >= VM_MAX_REGISTERS ||
         ins->arg[2] >= VM_MAX_REGISTERS || ins->arg[3] >= VM_MAX_REGISTERS ||
         (ins->operator_id == OP_DERIVE && ins->arg[4] >= VM_MAX_REGISTERS)) {
@@ -159,6 +162,7 @@ int vm_op_derive(VMContext *ctx, const Instruction *ins) {
 // OP_TRACE: обходит idx_causal вместо поля atom->cause_id
 // arg[0]=start_id_reg, arg[1]=max_depth(imm), arg[2]=sp_offset, arg[3]=count_reg
 int vm_op_trace(VMContext *ctx, const Instruction *ins) {
+    if (!ctx->hyper_mem) return VM_ERROR;
     if (ins->arg[0] >= VM_MAX_REGISTERS || ins->arg[2] >= MAX_SCRATCHPAD || ins->arg[3] >= VM_MAX_REGISTERS) {
         return VM_INVALID_REGISTER;
     }
@@ -194,6 +198,7 @@ int vm_op_trace(VMContext *ctx, const Instruction *ins) {
 
 // OP_SPAWN_CTX — без изменений структурно, args[2] не используются здесь напрямую
 int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
+    if (!ctx->hyper_mem) return VM_ERROR;
     if (ins->arg[0] >= VM_MAX_REGISTERS) {
         return VM_INVALID_REGISTER;
     }
@@ -275,6 +280,7 @@ static void remap_causal_index(MDB_txn *txn, HyperMemory *hmem, const IdMap *id_
 
 // OP_MERGE_CTX: схлопывание гипотезы. Теперь ремапит id и в idx_causal тоже.
 int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
+    if (!ctx->hyper_mem || !ctx->memory.txn) return VM_ERROR;
     float threshold = *(float*)&ins->arg[0];
 
     NeuroAtom *atoms = NULL;
