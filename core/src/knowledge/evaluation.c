@@ -120,7 +120,7 @@ node_id_t evaluation_record(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain dom
     if (cause_id != 0 && hmem->dbi_idx_causal) {
         MDB_val k = { sizeof(node_id_t), &eval_id };
         MDB_val v = { sizeof(node_id_t), &cause_id };
-        mdb_put(txn, hmem->dbi_idx_causal, &k, &v, MDB_APPENDDUP);
+        mdb_put(txn, hmem->dbi_idx_causal, &k, &v, 0);
     }
 
     // LOG_PLANNER("[EVAL] Recorded observation domain=%d subject=%lu outcome=%.3f (id=%lu)",

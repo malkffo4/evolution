@@ -31,8 +31,15 @@ static bool parse_constant_pool(cJSON *const_json, ConstantPool *c) {
         if (c->int_count > 0) {
             c->int_consts = calloc(c->int_count, sizeof(int64_t));
             if (!c->int_consts) goto cleanup;
-            for (uint32_t i = 0; i < c->int_count; i++)
-                c->int_consts[i] = (int64_t)cJSON_GetNumberValue(cJSON_GetArrayItem(item, (int)i));
+            for (uint32_t i = 0; i < c->int_count; i++) {
+                cJSON *elem = cJSON_GetArrayItem(item, (int)i);
+                // Читаем большие хэши как строки, чтобы избежать потери точности double (53 бита)
+                if (cJSON_IsString(elem)) {
+                    c->int_consts[i] = (int64_t)strtoull(elem->valuestring, NULL, 10);
+                } else {
+                    c->int_consts[i] = (int64_t)cJSON_GetNumberValue(elem);
+                }
+            }
         }
     }
 
@@ -91,7 +98,6 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
             const char *op_name = cJSON_GetStringValue(cJSON_GetObjectItem(ins, "operator_id"));
             p->code[i].operator_id = operator_find_by_name(op_name);
 
-            // Безопасный парсинг аргументов, не падающий при коротких массивах или числах
             cJSON *arg_item = cJSON_GetObjectItem(ins, "arg");
             if (arg_item) {
                 if (cJSON_IsArray(arg_item)) {
@@ -126,7 +132,6 @@ cleanup:
     return NULL;
 }
 
-// Args schema: {"var": "name"} | {"const": "STRING_TO_HASH"} | {"any": true}
 int hyper_pattern_from_json(cJSON *root, HyperPattern *out) {
     if (!root || !out) return -1;
     memset(out, 0, sizeof(*out));

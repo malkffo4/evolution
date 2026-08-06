@@ -238,7 +238,7 @@ static void remap_causal_index(MDB_txn *txn, HyperMemory *hmem, const IdMap *id_
                 MDB_val cause_val = val;  // копируем значение (cause_id)
                 // Вставляем запись с new_id
                 key.mv_data = &new_id;
-                mdb_put(txn, hmem->dbi_idx_causal, &key, &cause_val, MDB_APPENDDUP);
+                mdb_put(txn, hmem->dbi_idx_causal, &key, &cause_val, 0);
                 // Удаляем старую запись (курсор всё ещё на old_id)
                 mdb_cursor_del(cur, 0);
             } while (mdb_cursor_get(cur, &key, &val, MDB_NEXT_DUP) == MDB_SUCCESS);
@@ -260,7 +260,7 @@ static void remap_causal_index(MDB_txn *txn, HyperMemory *hmem, const IdMap *id_
                         // Добавляем новую пару (child, new_id)
                         MDB_val new_key = { sizeof(ko_id_t), &child };
                         MDB_val new_val = { sizeof(ko_id_t), &new_id };
-                        mdb_put(txn, hmem->dbi_idx_causal, &new_key, &new_val, MDB_APPENDDUP);
+                        mdb_put(txn, hmem->dbi_idx_causal, &new_key, &new_val, 0);
                         // Перезапускаем курсор на FIRST, т.к. мы изменили данные
                         mdb_cursor_get(cur, &scan_key, &scan_val, MDB_FIRST);
                         continue;

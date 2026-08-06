@@ -19,7 +19,7 @@ int vm_op_mine_causal_pattern(VMContext *ctx, const Instruction *ins) {
     uint32_t r_subject   = ins->arg[0];
     uint32_t r_min_count = ins->arg[1];
     uint32_t r_proc_out  = ins->arg[2];
-    uint32_t r_sample_out= ins->arg[3];
+    uint32_t r_sample_out= ins->arg[3]; // Больше не нужен, но оставляем для совместимости подписи
     uint32_t r_count_out = ins->arg[4];
     uint32_t r_found_out = ins->arg[5];
 
@@ -29,47 +29,56 @@ int vm_op_mine_causal_pattern(VMContext *ctx, const Instruction *ins) {
         return VM_INVALID_REGISTER;
     if (!ctx->hyper_mem || !ctx->memory.txn) return VM_ERROR;
 
+    node_id_t subject = (ctx->reg[r_subject].type == REG_NODE)
+        ? ctx->reg[r_subject].node : (node_id_t)ctx->reg[r_subject].i;
     int32_t min_count = (ctx->reg[r_min_count].type == REG_INT)
         ? (int32_t)ctx->reg[r_min_count].i : 2;
 
     MDB_cursor *cur;
-    if (mdb_cursor_open(ctx->memory.txn, ctx->hyper_mem->dbi_atoms, &cur) != MDB_SUCCESS)
+    if (mdb_cursor_open(ctx->memory.txn, db.graph.hyper.idx_causal_rev, &cur) != MDB_SUCCESS)
         return VM_ERROR;
 
-    typedef struct { ko_id_t process_id; uint32_t count; node_id_t sample; } Group;
+    MDB_val key = { sizeof(node_id_t), &subject };
+    MDB_val val;
+
+    typedef struct { ko_id_t process_id; uint32_t count; } Group;
     Group groups[PATTERN_MINE_MAX_GROUPS] = {0};
     uint32_t group_count = 0;
+    uint32_t scanned = 0;
 
-    MDB_val key, val;
-    int rc = mdb_cursor_get(cur, &key, &val, MDB_FIRST);
+    int rc = mdb_cursor_get(cur, &key, &val, MDB_SET);
+    while (rc == MDB_SUCCESS && scanned < PATTERN_MINE_MAX_CHILDREN) {
+        if (val.mv_size == sizeof(node_id_t)) {
+            node_id_t child_id;
+            memcpy(&child_id, val.mv_data, sizeof(node_id_t));
+            scanned++;
 
-    // Честный скан базы атомов для "Unsupervised Discovery" паттерна
-    while (rc == MDB_SUCCESS) {
-        NeuroAtom atom;
-        memcpy(&atom, val.mv_data, sizeof(NeuroAtom));
+            MDB_val k2 = { sizeof(node_id_t), &child_id };
+            MDB_val d2;
+            if (mdb_get(ctx->memory.txn, ctx->hyper_mem->dbi_atoms, &k2, &d2) == MDB_SUCCESS &&
+                d2.mv_size == sizeof(NeuroAtom)) {
+                NeuroAtom child;
+                memcpy(&child, d2.mv_data, sizeof(NeuroAtom));
 
-        // Игнорируем системные атомы, ищем только семантические связи
-        ProcKind kind = proc_kind(atom.process_id);
-        if (kind != PROC_KIND_EVENT && kind != PROC_KIND_INSTRUCTION && kind != PROC_KIND_GOAL) {
-            ko_id_t sample = HYPER_GET_ID(atom.args[0].raw);
-            if (sample != 0) {
-                bool found = false;
-                for (uint32_t g = 0; g < group_count; g++) {
-                    if (groups[g].process_id == atom.process_id && groups[g].sample == sample) {
-                        groups[g].count++;
-                        found = true;
-                        break;
+                ProcKind kind = proc_kind(child.process_id);
+                if (kind != PROC_KIND_EVENT && kind != PROC_KIND_INSTRUCTION && kind != PROC_KIND_GOAL) {
+                    bool found_group = false;
+                    for (uint32_t g = 0; g < group_count; g++) {
+                        if (groups[g].process_id == child.process_id) {
+                            groups[g].count++;
+                            found_group = true;
+                            break;
+                        }
                     }
-                }
-                if (!found && group_count < PATTERN_MINE_MAX_GROUPS) {
-                    groups[group_count].process_id = atom.process_id;
-                    groups[group_count].sample = sample;
-                    groups[group_count].count = 1;
-                    group_count++;
+                    if (!found_group && group_count < PATTERN_MINE_MAX_GROUPS) {
+                        groups[group_count].process_id = child.process_id;
+                        groups[group_count].count = 1;
+                        group_count++;
+                    }
                 }
             }
         }
-        rc = mdb_cursor_get(cur, &key, &val, MDB_NEXT);
+        rc = mdb_cursor_get(cur, &key, &val, MDB_NEXT_DUP);
     }
     mdb_cursor_close(cur);
 
@@ -88,8 +97,8 @@ int vm_op_mine_causal_pattern(VMContext *ctx, const Instruction *ins) {
 
     ctx->reg[r_proc_out].type = REG_INT;
     ctx->reg[r_proc_out].i = (int64_t)groups[best].process_id;
-    ctx->reg[r_sample_out].type = REG_NODE;
-    ctx->reg[r_sample_out].node = groups[best].sample;
+    ctx->reg[r_sample_out].type = REG_INT; // Больше не читаем sample, правило обобщено через r44 (goal_id)
+    ctx->reg[r_sample_out].i = 0;
     ctx->reg[r_count_out].type = REG_INT;
     ctx->reg[r_count_out].i = (int64_t)groups[best].count;
     ctx->reg[r_found_out].type = REG_INT;

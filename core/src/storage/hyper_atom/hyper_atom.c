@@ -119,13 +119,18 @@ int hyper_assert_with_cause(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *ato
     int rc = hyper_assert_unique(txn, mem, atom);
     if (rc != 0 && rc != 1) return rc;
 
-    if (cause_id != 0 && mem->dbi_idx_causal) {
-        MDB_val k_child = { sizeof(ko_id_t), (void *)&atom->id };
-        MDB_val v_cause = { sizeof(ko_id_t), (void *)&cause_id };
-        mdb_put(txn, mem->dbi_idx_causal, &k_child, &v_cause, MDB_APPENDDUP);
+    if (cause_id != 0) {
+        if (mem->dbi_idx_causal) {
+            MDB_val k_child = { sizeof(ko_id_t), (void *)&atom->id };
+            MDB_val v_cause = { sizeof(ko_id_t), (void *)&cause_id };
+            mdb_put(txn, mem->dbi_idx_causal, &k_child, &v_cause, 0);
+        }
 
-        // ВАЖНО: Мы больше не можем обращаться к db.graph.hyper... напрямую,
-        // если хотим полной изоляции, но пока оставим этот кусок (или прокинем dbi_idx_causal_rev в HyperMemory).
+        // Записываем связь в обратный индекс, чтобы eval_graph
+        // мог переходить к следующей инструкции сгенерированного графа!
+        MDB_val k_rev = { sizeof(ko_id_t), (void *)&cause_id };
+        MDB_val v_rev = { sizeof(ko_id_t), (void *)&atom->id };
+        mdb_put(txn, db.graph.hyper.idx_causal_rev, &k_rev, &v_rev, 0);
     }
     return rc;
 }

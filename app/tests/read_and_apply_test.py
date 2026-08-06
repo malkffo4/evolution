@@ -35,9 +35,11 @@ DSL_PROMPT = """Ты — компилятор алгоритмов NeuroCore. П
 загружай радиус через load_const.
 
 Верни СТРОГО JSON:
-{{"steps": [{{"op":"load_const","dst":2,"value":3.14159}},
+{{"steps": [{{"op":"load_const","dst":2,"value":314}},
             {{"op":"mul","dst":3,"a":1,"b":1}},
-            {{"op":"mul","dst":0,"a":2,"b":3}}],
+            {{"op":"mul","dst":4,"a":2,"b":3}},
+            {{"op":"load_const","dst":5,"value":100}},
+            {{"op":"div","dst":0,"a":4,"b":5}}],
   "output_register": 0}}
 
 output_register — регистр с финальным результатом (по конвенции R0).
@@ -47,8 +49,8 @@ output_register — регистр с финальным результатом 
 """
 
 DESCRIPTION = (
-    "Чтобы вычислить площадь круга, нужно умножить число Пи (3.14159) "
-    "на радиус, возведённый в квадрат (то есть радиус, умноженный сам на себя)."
+    "Чтобы вычислить площадь круга в целых числах, нужно умножить радиус сам на себя (возвести в квадрат), "
+    "затем умножить на 314 (приближенное Пи * 100) и разделить результат на 100."
 )
 
 
@@ -66,7 +68,7 @@ def compile_dsl_to_pipeline(dsl: dict) -> dict:
     for step in dsl["steps"]:
         if step["op"] == "load_const":
             const_idx = len(int_consts)
-            int_consts.append(step["value"])
+            int_consts.append(int(step["value"])) # Принудительно приводим к int
             code.append({"operator_id": "load_const", "arg": [step["dst"], const_idx, 0, 0, 0, 0]})
         elif step["op"] in op_map:
             code.append({"operator_id": op_map[step["op"]],
@@ -80,9 +82,8 @@ def compile_dsl_to_pipeline(dsl: dict) -> dict:
     code.append({"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]})
 
     return {"type": "pipeline", "algo_name": ALGO_NAME, "code": code,
-            "constants": {"int_consts": [int(x * 100000) for x in [1]] if False else [],
-                          "float_consts": int_consts}}
-
+            # Избавляемся от float_consts полностью
+            "constants": {"int_consts": int_consts}}
 
 def main():
     ipc = IPCClient()
