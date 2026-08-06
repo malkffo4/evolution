@@ -2,9 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cjson/cJSON.h>
 
 #include "hyper_retrieval.h"
-#include <cjson/cJSON.h>
+#include "math/hash.h"
 #include "runtime/logging/logging.h"
 #include "storage/node/node.h"
 #include "storage/string_pool/string_pool.h"
@@ -33,8 +34,10 @@ char* hyper_retrieve_json(MDB_txn *txn, HyperMemory *hmem, node_id_t participant
     node_id_t *queue = malloc((size_t)max_atoms * sizeof(node_id_t));
     node_id_t *visited = malloc((size_t)max_atoms * sizeof(node_id_t));
     if (!queue || !visited) {
-        free(queue);
-        free(visited);
+        if (queue)
+            free(queue);
+        if (visited)
+            free(visited);
         cJSON_Delete(root);
         return NULL;
     }
@@ -53,7 +56,17 @@ char* hyper_retrieve_json(MDB_txn *txn, HyperMemory *hmem, node_id_t participant
         NeuroAtom *results = NULL;
         size_t count = 0;
         if (hyper_find_by_participant(txn, hmem, current_participant, 0, &results, &count) == 0) {
-            for (size_t i = 0; i < count && (int)(q_tail + 1) < max_atoms; i++) {
+            for (size_t i = 0; i < count; i++) {
+                // Жестко ограничиваем размер самого JSON-массива
+                if (cJSON_GetArraySize(atoms_arr) >= max_atoms) {
+                    break;
+                }
+                // Игнорируем системный спам эпизодов в семантической выдаче!
+                // Для эпизодов у нас есть отдельная функция req_get_episodes.
+                if (results[i].process_id == proc_make(djb2_hash("EPISODE_RECORDED"), PROC_KIND_EVENT)) {
+                    continue;
+                }
+
                 cJSON *atom_json = cJSON_CreateObject();
 
                 // id

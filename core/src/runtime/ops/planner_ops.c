@@ -71,15 +71,14 @@ int vm_op_wm_top_goal(VMContext *ctx, const Instruction *ins) {
 // способом, каким это раньше делал захардкоженный C-фолбэк.
 int vm_op_select_algorithm(VMContext *ctx, const Instruction *ins) {
     uint32_t r_goal  = ins->arg[0];
-    uint32_t sp_base = ins->arg[1]; // Адрес в scratchpad, куда сложить ID всех алгоритмов
-    uint32_t r_count = ins->arg[2]; // Регистр для записи их количества
+    uint32_t sp_base = ins->arg[1];
+    uint32_t r_count = ins->arg[2];
 
     if (r_goal >= VM_MAX_REGISTERS || r_count >= VM_MAX_REGISTERS || sp_base >= MAX_SCRATCHPAD)
         return VM_INVALID_REGISTER;
 
     node_id_t goal_id = (ctx->reg[r_goal].type == REG_NODE) ? ctx->reg[r_goal].node : (node_id_t)ctx->reg[r_goal].i;
 
-    // Ищем в графе: (goal_id) -[HAS_ALGORITHM]-> (?)
     ko_id_t has_algo_proc = proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION);
     NeuroAtom *results = NULL;
     size_t count = 0;
@@ -87,8 +86,15 @@ int vm_op_select_algorithm(VMContext *ctx, const Instruction *ins) {
 
     if (hyper_find_by_process(ctx->memory.txn, ctx->hyper_mem, has_algo_proc, goal_id, 0, &results, &count) == 0) {
         for (size_t i = 0; i < count; i++) {
-            // Извлекаем target (сам алгоритм)
-            ko_id_t algo_id = HYPER_GET_ID(results[i].args[1].raw);
+            ko_id_t arg0 = HYPER_GET_ID(results[i].args[0].raw);
+            ko_id_t arg1 = HYPER_GET_ID(results[i].args[1].raw);
+
+            // Если в нулевом слоте лежит цель, значит алгоритм в первом. И наоборот.
+            ko_id_t algo_id = (arg0 == HYPER_GET_ID(goal_id)) ? arg1 : arg0;
+
+            // Защита от дурака (если вдруг оба слота равны)
+            if (algo_id == HYPER_GET_ID(goal_id)) continue;
+
             if (sp_base + written < MAX_SCRATCHPAD) {
                 ctx->scratchpad[sp_base + written].value = (int64_t)algo_id;
                 written++;

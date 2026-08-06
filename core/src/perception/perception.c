@@ -321,7 +321,7 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             if (cause_id) {
                 MDB_val k = { sizeof(ko_id_t), &atom.id };
                 MDB_val v = { sizeof(ko_id_t), &cause_id };
-                mdb_put(txn, /* db.graph.hyper.idx_causal */ hmem->dbi_idx_context, &k, &v, MDB_APPENDDUP);
+                mdb_put(txn, hmem->dbi_idx_causal, &k, &v, MDB_APPENDDUP);
                 // NB: в реальном коде используй отдельный dbi_idx_causal, а не idx_context
             }
         }
