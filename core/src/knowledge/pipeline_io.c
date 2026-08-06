@@ -90,9 +90,6 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
             cJSON *ins = cJSON_GetArrayItem(code_arr, (int)i);
             const char *op_name = cJSON_GetStringValue(cJSON_GetObjectItem(ins, "operator_id"));
             p->code[i].operator_id = operator_find_by_name(op_name);
-            if (p->code[i].operator_id == 0) {
-                LOG_DEBUG("operator_find_by_name '%s' not found\n", op_name);
-            }
             cJSON *arg_arr = cJSON_GetObjectItem(ins, "arg");
             for (int a = 0; a < 6; a++) {
                 p->code[i].arg[a] = (uint32_t)cJSON_GetNumberValue(cJSON_GetArrayItem(arg_arr, a));
@@ -100,9 +97,8 @@ Pipeline* pipeline_from_json(cJSON *root, uint64_t *out_algo_id) {
         }
     }
 
-    // bool rc = parse_constant_pool(cJSON_GetObjectItem(root, "constants"), &p->constants);
-    // if (!rc) goto cleanup;
-    memset(&p->constants, 0, sizeof(ConstantPool));
+    bool rc = parse_constant_pool(cJSON_GetObjectItem(root, "constants"), &p->constants);
+    if (!rc) goto cleanup;
 
     return p;
 
@@ -126,7 +122,6 @@ int hyper_pattern_from_json(cJSON *root, HyperPattern *out) {
 
     cJSON *cond_arr = cJSON_GetObjectItem(root, "conditions");
     if (!cJSON_IsArray(cond_arr)) return -1;
-
     int cc = cJSON_GetArraySize(cond_arr);
     if (cc <= 0 || cc > MAX_PATTERN_CONDITIONS) return -1;
     out->condition_count = (uint32_t)cc;
@@ -140,10 +135,8 @@ int hyper_pattern_from_json(cJSON *root, HyperPattern *out) {
         pc->process_id = djb2_hash(proc->valuestring);
 
         cJSON *args = cJSON_GetObjectItem(c, "args");
-        // Используем PATTERN_ARG_SLOTS (равен 2) вместо захардкоженной 3
         if (!cJSON_IsArray(args) || cJSON_GetArraySize(args) != PATTERN_ARG_SLOTS) return -1;
 
-        // Цикл строго до PATTERN_ARG_SLOTS
         for (int s = 0; s < PATTERN_ARG_SLOTS; s++) {
             cJSON *a = cJSON_GetArrayItem(args, s);
             cJSON *var = cJSON_GetObjectItem(a, "var");

@@ -26,9 +26,6 @@ typedef struct {
 static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     VmJob *job = arg;
 
-    LOG_INFO("[VM_POOL] worker txn started: algo=%lu goal=%lu",
-             (unsigned long)job->algo_id, (unsigned long)job->goal_id);
-
     WorkingMemory local_wm;
     if (wm_init(&local_wm, 256) != 0) {
         LOG_ERROR("[VM_POOL] wm_init failed: algo=%lu goal=%lu",
@@ -58,20 +55,6 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
         wm_clear(&local_wm);
         return -1;
     }
-
-    // Инъекция цели напрямую в ��окальную рабочую память воркера,
-    // чтобы алгоритмы, опирающиеся на OP_WM_TOP_GOAL (например, InductiveExtractor
-    // или AnalogyPlanner), могли ее обнаружить.
-    if (job->goal_id != 0) {
-        wm_activate(&local_wm, job->goal_id, 1.0f, 1.0f);
-        for (uint32_t i = 0; i < local_wm.count; i++) {
-            if (local_wm.nodes[i].node_id == job->goal_id) {
-                local_wm.nodes[i].state.usefulness = 1.0f;
-                break;
-            }
-        }
-    }
-
     ctx.hyper_mem = worker_hmem;
 
     uint64_t t_start = vm_rdtsc();
@@ -142,9 +125,6 @@ static void *vm_worker(void *arg) {
     pthread_detach(pthread_self());
     VmJob *job = arg;
 
-    LOG_INFO("[VM_POOL] worker thread started for algo=%lu goal=%lu",
-             (unsigned long)job->algo_id, (unsigned long)job->goal_id);
-
     int rc = db_write_sync(vm_worker_txn_fn, job);
     if (rc != 0) {
         LOG_DEBUG("vm_pool: worker finished non-OK (vm_status=%d, txn_rc=%d)",
@@ -176,8 +156,6 @@ void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id) {
     job->goal_id        = goal_id;
     job->algo_id        = algo_id;
     job->result         = VM_ERROR;
-
-    LOG_DEBUG("[VM_POOL] submit goal=%lu algo=%lu", (unsigned long)goal_id, (unsigned long)algo_id);
 
     pthread_t t;
     if (pthread_create(&t, NULL, vm_worker, job) != 0) {

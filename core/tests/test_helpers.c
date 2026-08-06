@@ -1,9 +1,11 @@
-#include "test_helpers.h"
+// tests/test_helpers.c
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <lmdb.h>
 
+#include "test_helpers.h"
+#include "types/id.h"
 #include "storage/db/db.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "math/hash.h"
@@ -19,7 +21,6 @@ int wait_for_atom_with_args(ko_id_t participant, ko_id_t process_id, ko_id_t arg
         if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) != MDB_SUCCESS) continue;
 
         HyperMemory local_hm = {0};
-        local_hm.txn = txn;
         local_hm.dbi_atoms = db.graph.hyper.atoms;
         local_hm.dbi_idx_process = db.graph.hyper.idx_process;
         local_hm.dbi_idx_args = db.graph.hyper.idx_args;
@@ -27,7 +28,7 @@ int wait_for_atom_with_args(ko_id_t participant, ko_id_t process_id, ko_id_t arg
 
         NeuroAtom *results = NULL;
         size_t count = 0;
-        int rc = hyper_find_by_participant(&local_hm, participant, 0, &results, &count);
+        int rc = hyper_find_by_participant(txn, &local_hm, participant, 0, &results, &count);
         if (rc == 0 && results && count > 0) {
             for (size_t i = 0; i < count; i++) {
                 if (results[i].process_id == process_id) {

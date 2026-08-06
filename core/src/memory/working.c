@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#include "core/globals.h"
 #include "working.h"
 #include "storage/db/db.h"
 #include "math/hash.h"

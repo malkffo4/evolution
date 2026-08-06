@@ -24,6 +24,8 @@ static bool check_registers(uint32_t r1, uint32_t r2) {
     return (r1 < VM_MAX_REGISTERS && r2 < VM_MAX_REGISTERS);
 }
 
+/* STREAMING_CHUNK:Implementing atomic vector similarity operator... */
+
 /* OP_VECTOR_SIM
 Аргументы инструкции:
 arg[0] - Регистр-приемник (REG_FLOAT) - результат близости
@@ -36,19 +38,19 @@ int vm_op_vector_sim(VMContext *ctx, const Instruction *ins) {
     uint32_t dst = ins->arg[0];
     uint32_t reg_a = ins->arg[1];
     uint32_t reg_b = ins->arg[2];
+
     if (!check_registers(dst, reg_a) || reg_b >= VM_MAX_REGISTERS) {
         LOG_ERROR("VM Engine: Invalid registers in OP_VECTOR_SIM");
         return VM_INVALID_REGISTER;
     }
 
-    if ((ctx->reg[reg_a].type != REG_NODE && ctx->reg[reg_a].type != REG_INT) ||
-        (ctx->reg[reg_b].type != REG_NODE && ctx->reg[reg_b].type != REG_INT)) {
+    if (ctx->reg[reg_a].type != REG_NODE || ctx->reg[reg_b].type != REG_NODE) {
         LOG_WARN("VM Engine: OP_VECTOR_SIM requires node registers as input");
         return VM_INVALID_TYPE;
     }
 
-    node_id_t node_a = (ctx->reg[reg_a].type == REG_NODE) ? ctx->reg[reg_a].node : (node_id_t)ctx->reg[reg_a].i;
-    node_id_t node_b = (ctx->reg[reg_b].type == REG_NODE) ? ctx->reg[reg_b].node : (node_id_t)ctx->reg[reg_b].i;
+    node_id_t node_a = ctx->reg[reg_a].node;
+    node_id_t node_b = ctx->reg[reg_b].node;
 
     MDB_txn *txn = ctx->memory.txn;
     if (!txn) {
@@ -102,6 +104,7 @@ int vm_op_prop_get(VMContext *ctx, const Instruction *ins) {
     uint32_t dst = ins->arg[0];
     uint32_t entity_reg = ins->arg[1];
     uint32_t key_reg = ins->arg[2];
+
     if (!check_registers(dst, entity_reg) || key_reg >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
@@ -127,47 +130,7 @@ int vm_op_prop_get(VMContext *ctx, const Instruction *ins) {
             return VM_OK;
         }
     }
-    PropertyType type;
-    uint8_t buf[4096];
-    uint32_t size = 0;
-
-    if (property_get(ctx->memory.txn, node_id, ctx->reg[key_reg].string.data, &type, buf, sizeof(buf), &size) == MDB_SUCCESS) {
-        vm_register_clear(ctx, &ctx->reg[dst]);
-        switch (type) {
-            case PROP_INT: {
-                int64_t v; memcpy(&v, buf, sizeof(v));
-                vm_register_set_int(ctx, &ctx->reg[dst], v);
-                return VM_OK;
-            }
-            case PROP_FLOAT: {
-                float v; memcpy(&v, buf, sizeof(v));
-                vm_register_set_float(ctx, &ctx->reg[dst], (double)v);
-                return VM_OK;
-            }
-            case PROP_BOOL: {
-                bool v; memcpy(&v, buf, sizeof(v));
-                vm_register_set_bool(ctx, &ctx->reg[dst], v);
-                return VM_OK;
-            }
-            case PROP_STRING: {
-                char sbuf[4096];
-                uint32_t len = size < sizeof(sbuf) ? size : sizeof(sbuf) - 1;
-                memcpy(sbuf, buf, len);
-                sbuf[len] = '\0';
-
-                vm_register_clear(ctx, &ctx->reg[dst]);
-                ctx->reg[dst].type = REG_STRING;
-                strncpy(ctx->reg[dst].string.data, sbuf, sizeof(ctx->reg[dst].string.data) - 1);
-                ctx->reg[dst].string.data[sizeof(ctx->reg[dst].string.data) - 1] = '\0';
-
-                return VM_OK;
-            }
-            default:
-                return VM_INVALID_TYPE;
-        }
-    }
-
-    return VM_NOT_FOUND; // Если свойства нет ни в кэше, ни в LMDB
+    return VM_NOT_FOUND;
 }
 
 /* OP_PROP_SET
@@ -180,6 +143,7 @@ int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
     uint32_t entity_reg = ins->arg[0];
     uint32_t key_reg = ins->arg[1];
     uint32_t val_reg = ins->arg[2];
+
     if (!check_registers(entity_reg, key_reg) || val_reg >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
@@ -235,6 +199,8 @@ int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
     return VM_OK;
 }
 
+/* STREAMING_CHUNK:Implementing atomic node edge traversal operations... */
+
 /* OP_NODE_TRAVERSE
  * Аргументы инструкции:
  * arg[0] - Регистр-приемник списка связей (REG_OBJECT / Handle OBJECT_EDGESET)
@@ -244,13 +210,14 @@ int vm_op_prop_set(VMContext *ctx, const Instruction *ins) {
 int vm_op_node_traverse(VMContext *ctx, const Instruction *ins) {
     uint32_t dst = ins->arg[0];
     uint32_t src = ins->arg[1];
+
     if (!check_registers(dst, src))
         return VM_INVALID_REGISTER;
 
-    if (ctx->reg[src].type != REG_NODE && ctx->reg[src].type != REG_INT)
-            return VM_INVALID_TYPE;
+    if (ctx->reg[src].type != REG_NODE)
+        return VM_INVALID_TYPE;
 
-    node_id_t source_node = (ctx->reg[src].type == REG_NODE) ? ctx->reg[src].node : (node_id_t)ctx->reg[src].i;
+    node_id_t source_node = ctx->reg[src].node;
     MDB_txn *txn = ctx->memory.txn;
 
     // Аллоцируем динамический EdgeList
@@ -283,6 +250,8 @@ int vm_op_node_traverse(VMContext *ctx, const Instruction *ins) {
     return VM_OK;
 }
 
+/* STREAMING_CHUNK:Implementing atomic working memory activation... */
+
 /* OP_WM_ACTIVATE
  * Аргументы инструкции:
  * arg[0] - Регистр ID узла (REG_NODE)
@@ -295,16 +264,18 @@ int vm_op_wm_activate(VMContext *ctx, const Instruction *ins) {
     uint32_t node_reg = ins->arg[0];
     uint32_t act_reg = ins->arg[1];
     uint32_t prime_reg = ins->arg[2];
+
     if (!check_registers(node_reg, act_reg) || prime_reg >= VM_MAX_REGISTERS) {
         return VM_INVALID_REGISTER;
     }
 
-    if ((ctx->reg[node_reg].type != REG_NODE && ctx->reg[node_reg].type != REG_INT) ||
+    if (ctx->reg[node_reg].type != REG_NODE ||
         ctx->reg[act_reg].type != REG_FLOAT ||
         ctx->reg[prime_reg].type != REG_FLOAT) {
         return VM_INVALID_TYPE;
     }
-    node_id_t node_id = (ctx->reg[node_reg].type == REG_NODE) ? ctx->reg[node_reg].node : (node_id_t)ctx->reg[node_reg].i;
+
+    node_id_t node_id = ctx->reg[node_reg].node;
     float activation = (float)ctx->reg[act_reg].f;
     float priming = (float)ctx->reg[prime_reg].f;
 
@@ -335,23 +306,24 @@ int vm_op_edge_write(VMContext *ctx, const Instruction *ins) {
     uint32_t src_reg = ins->arg[0];
     uint32_t rel_reg = ins->arg[1];
     uint32_t tgt_reg = ins->arg[2];
-    if (!check_registers(src_reg, rel_reg) || tgt_reg >= VM_MAX_REGISTERS) {
+
+    if (!check_registers(src_reg, rel_reg) ||
+        tgt_reg >= VM_MAX_REGISTERS) {
         return VM_INVALID_REGISTER;
     }
 
-    if ((ctx->reg[src_reg].type != REG_NODE && ctx->reg[src_reg].type != REG_INT) ||
-        (ctx->reg[tgt_reg].type != REG_NODE && ctx->reg[tgt_reg].type != REG_INT)) {
+    if (ctx->reg[src_reg].type != REG_NODE ||
+        ctx->reg[tgt_reg].type != REG_NODE) {
         return VM_INVALID_TYPE;
     }
-    node_id_t source = (ctx->reg[src_reg].type == REG_NODE) ? ctx->reg[src_reg].node : (node_id_t)ctx->reg[src_reg].i;
-    node_id_t target = (ctx->reg[tgt_reg].type == REG_NODE) ? ctx->reg[tgt_reg].node : (node_id_t)ctx->reg[tgt_reg].i;
+
+    node_id_t source = ctx->reg[src_reg].node;
+    node_id_t target = ctx->reg[tgt_reg].node;
     node_id_t relation = 0;
     MDB_txn *txn = ctx->memory.txn;
 
     if (ctx->reg[rel_reg].type == REG_NODE) {
         relation = ctx->reg[rel_reg].node;
-    } else if (ctx->reg[rel_reg].type == REG_INT) {
-        relation = (node_id_t)ctx->reg[rel_reg].i;
     } else if (ctx->reg[rel_reg].type == REG_STRING) {
         relation = djb2_hash(ctx->reg[rel_reg].string.data);
         add_string_to_pool(txn, ctx->reg[rel_reg].string.data);
@@ -407,10 +379,8 @@ int vm_op_cond_branch(VMContext *ctx, const Instruction *ins) {
         if ((double)ra->i > rb->f) condition_met = true;
     }
 
-    if (condition_met) {
-        // Учитываем инкремент ip++ в основном цикле VM (работает даже если target_ip == 0 из-за underflow)
-        frame->ip = target_ip - 1;
-    }
+    if (condition_met)
+        frame->ip = target_ip;
 
     return VM_OK;
 }

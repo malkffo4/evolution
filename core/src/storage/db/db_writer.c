@@ -95,13 +95,10 @@ void db_writer_stop(void) {
 
 static int enqueue(WriteJob *job) {
     pthread_mutex_lock(&queue_mutex);
-    if (!running) {
+    if (!running || count == DB_WRITER_QUEUE_SIZE) {
         pthread_mutex_unlock(&queue_mutex);
         return -1;
     }
-    while(count>=DB_WRITER_QUEUE_SIZE)
-        pthread_cond_wait(&queue_cond, &queue_mutex);
-
     queue[tail] = *job;
     tail = (tail + 1) % DB_WRITER_QUEUE_SIZE;
     count++;

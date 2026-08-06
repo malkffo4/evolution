@@ -1,4 +1,4 @@
-// storage/property/property.c
+// core/src/storage/property.c
 #include <string.h>
 #include <stdlib.h>
 

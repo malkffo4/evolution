@@ -4,7 +4,6 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h> // mkdir
-#include <errno.h>
 
 #include "runtime/logging/logging.h"
 #include "storage/db/db.h"
@@ -19,8 +18,7 @@ int init_lmdb(const char *db_path) {
     #ifdef _WIN32
     mkdir(db_path);
     #else
-    if (mkdir(db_path, 0755) != 0 && errno != EEXIST)
-        return -1;
+    mkdir(db_path, 0755);
     #endif
 
     rc = mdb_env_create(&db.env);

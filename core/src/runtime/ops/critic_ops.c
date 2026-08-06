@@ -115,20 +115,12 @@ int vm_op_credit_assign(VMContext *ctx, const Instruction *ins) {
 
     if (ctx->reg[r_result].type != REG_NODE && ctx->reg[r_result].type != REG_INT)
         return VM_INVALID_TYPE;
-    float outcome = 0.0f;
-    if (ctx->reg[r_outcome].type == REG_FLOAT) {
-        outcome = (float)ctx->reg[r_outcome].f;
-    } else if (ctx->reg[r_outcome].type == REG_INT) {
-        outcome = (float)ctx->reg[r_outcome].i;
-    } else if (ctx->reg[r_outcome].type == REG_BOOL) {
-        outcome = ctx->reg[r_outcome].b ? 1.0f : 0.0f;
-    } else {
+    if (ctx->reg[r_outcome].type != REG_FLOAT)
         return VM_INVALID_TYPE;
-    }
 
     node_id_t result_id = (ctx->reg[r_result].type == REG_NODE)
         ? ctx->reg[r_result].node : (node_id_t)ctx->reg[r_result].i;
-
+    float outcome  = (float)ctx->reg[r_outcome].f;
     float discount = *(const float*)&ins->arg[4];
 
     int propagated = score_propagate_credit(ctx->memory.txn, ctx->hyper_mem, (CognitiveDomain)domain,

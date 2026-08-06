@@ -6,10 +6,8 @@
 #include <stdbool.h>
 #include <lmdb.h>
 
+#include "types/id.h"
 #include "math/vector_math.h"
-
-// 64-битный универсальный идентификатор
-typedef uint64_t ko_id_t;
 
 // --- СИСТЕМА ТИПИЗАЦИИ АРГУМЕНТОВ (2 СТАРШИХ БИТА) ---
 // Используем верхние 2 бита ko_id_t. Оставшиеся 62 бита - это чистый ID/Значение.

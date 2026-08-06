@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+
 #include "types/id.h"
 
 // Ожидает материализации факта: существует ли атом с process_id == process_id

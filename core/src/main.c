@@ -1,12 +1,12 @@
+// core/src/main.c
+#include <signal.h>
+#include <stdlib.h>
+#include <fcntl.h>    // open
+#include <sys/file.h> // flock
 #include <sys/stat.h>
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
-#include <fcntl.h>
-#include <sys/file.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <stdio.h>
 
 #include "memory/working.h"
 #include "memory/subconscious.h"
@@ -18,7 +18,6 @@
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
 #include "execution/executor.h"
-#include "runtime/vm/vm_pool.h"
 
 
 #define VERSION "0.4.0"
@@ -81,9 +80,6 @@ static void shutdown_everything(void) {
     // 4. Очищаем оперативную рабочую память
     wm_clear(&global_wm);
 
-    // 4.5. Останавливаем vm_pool (если реализовано)
-    vm_pool_shutdown();
-
     // 5. Закрываем базу данных и файлы логов
     db_writer_stop();
     close_lmdb();
@@ -132,9 +128,6 @@ static int init_everything(void) {
         return -1;
     }
 
-    // Инициализируем vm_pool (контракт, может быть пустым)
-    vm_pool_init();
-
     // Инициализируем HyperMemory
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, 0, &txn) == MDB_SUCCESS) {
@@ -176,9 +169,12 @@ int main(void) {
     // ИСПРАВЛЕНИЕ: Главный поток просто ждет сигнала завершения (g_running = 0)
     // Всю работу по приему и диспетчеризации делают потоки клиентов
     while (g_running) { //[cite: 32]
-        sleep(1);
+        sleep(1); // Засыпаем, чтобы не перегружать CPU
     }
 
+    // Полное высвобождение ресурсов
     shutdown_everything();
-    return 0;
+    printf("[OK] Evolution Core stopped cleanly.\n");
+
+    return EXIT_SUCCESS;
 }

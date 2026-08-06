@@ -1,4 +1,4 @@
-// storage/property/property.h
+// storage/property.h
 #pragma once
 
 #include <stdint.h>

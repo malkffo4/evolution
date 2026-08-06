@@ -122,8 +122,7 @@ typedef struct { ko_id_t node_id; float similarity; } SimilarityResult;
 int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t *results) {
     uint64_t query_hash[4];
     compute_simhash256(query_emb, query_hash);
-    SimilarityResult *similarities = NULL;
-    SimilarityResult *heap = NULL;
+
     MDB_cursor *cursor;
     if (mdb_cursor_open(txn, db.vectors.simhash_index, &cursor) != MDB_SUCCESS) return 0;
 
@@ -152,7 +151,7 @@ int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t 
 
     if (candidate_count == 0) return 0;
 
-    similarities = malloc((size_t)candidate_count * sizeof(SimilarityResult));
+    SimilarityResult *similarities = malloc((size_t)candidate_count * sizeof(SimilarityResult));
     if (!similarities)
         goto cleanup;
     int valid_count = 0;
@@ -168,7 +167,7 @@ int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t 
     if (valid_count == 0) { free(similarities); return 0; }
 
     int heap_capacity = (topK < valid_count) ? topK : valid_count;
-    heap = malloc((size_t)heap_capacity * sizeof(SimilarityResult));
+    SimilarityResult *heap = malloc((size_t)heap_capacity * sizeof(SimilarityResult));
     if (!heap)
         goto cleanup;
     int heap_size = 0;

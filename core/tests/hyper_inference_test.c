@@ -9,7 +9,6 @@
 #include "storage/hyper_atom/hyper_atom.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/ops/vm_ops.h"
-#include "runtime/ops/opcode.h"
 #include "runtime/vm/vm_status.h"
 
 #define ID_IS_CHILD_OF 0x0001
@@ -58,11 +57,8 @@ int main() {
     ctx.reg[1].i = ID_CAUSES;
     ctx.reg[2].i = HYPER_MAKE_REF(ID_FIRE);
     ctx.reg[3].i = HYPER_MAKE_REF(ID_SMOKE);
-
-    Instruction i1 = {
-        .operator_id = OP_ASSERT,
-        .arg = {1, 2, 3, 10, 0, 0}
-    };
+    Instruction i1 = {0};
+    i1.arg[0]=1; i1.arg[1]=2; i1.arg[2]=3; i1.arg[3]=10;
     rc = vm_op_assert(&ctx, &i1);
     assert(rc == VM_OK);
 
@@ -70,14 +66,9 @@ int main() {
     ctx.reg[1].i = ID_CAUSES;
     ctx.reg[2].i = HYPER_MAKE_REF(ID_SMOKE);
     ctx.reg[3].i = HYPER_MAKE_REF(ID_ALARM);
-
-    Instruction i2 = {
-        .operator_id = OP_ASSERT,
-        .arg = {1, 2, 3, 11, 0, 0}
-    };
-    rc = vm_op_assert(&ctx, &i2);
+    i1.arg[0]=1; i1.arg[1]=2; i1.arg[2]=3; i1.arg[3]=11;
+    rc = vm_op_assert(&ctx, &i1);
     assert(rc == VM_OK);
-
     ko_id_t smoke_alarm_id = (ko_id_t)ctx.reg[11].i;
 
     // DERIVE fire CAUSES alarm с причиной smoke_alarm_id
@@ -86,18 +77,15 @@ int main() {
     ctx.reg[2].i = HYPER_MAKE_REF(ID_FIRE);
     ctx.reg[3].i = HYPER_MAKE_REF(ID_ALARM);
     ctx.reg[4].i = (int64_t)smoke_alarm_id;   // причина
-
-    Instruction i3 = {
-        .operator_id = OP_DERIVE,
-        .arg = {1, 2, 3, 4, 12, 0}
-    };
-    rc = vm_op_derive(&ctx, &i3);
+    Instruction i2 = {0};
+    i2.arg[0]=1; i2.arg[1]=2; i2.arg[2]=3; i2.arg[3]=4; i2.arg[4]=12;
+    rc = vm_op_derive(&ctx, &i2);
     assert(rc == VM_OK);
     ko_id_t derived_id = (ko_id_t)ctx.reg[12].i;
 
     // TRACE от derived
     ctx.reg[12].i = (int64_t)derived_id;
-    memset((void *)&i3, 0, sizeof(Instruction));
+    Instruction i3 = {0};
     i3.arg[0]=12; i3.arg[1]=5; i3.arg[2]=0; i3.arg[3]=14;
     rc = vm_op_trace(&ctx, &i3);
     assert(rc == VM_OK);

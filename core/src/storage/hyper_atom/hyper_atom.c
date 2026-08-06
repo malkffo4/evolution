@@ -38,8 +38,7 @@ HyperMemory *hyper_memory_new(MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args,
 
 void hyper_memory_free(HyperMemory *mem) {
     if (mem) {
-        if (mem->idgen)
-            free(mem->idgen);
+        free(mem->idgen);
         free(mem);
     }
 }
@@ -182,13 +181,11 @@ int hyper_find_by_process_sti(MDB_txn *txn, HyperMemory *mem,
             // Добавляем в результат
             if (*count >= capacity) {
                 capacity *= 2;
-                NeuroAtom *tmp = realloc(*results, capacity*sizeof(NeuroAtom));
-                if (!tmp) {
-                    free(*results);
+                *results = realloc(*results, sizeof(NeuroAtom) * capacity);
+                if (!*results) {
                     mdb_cursor_close(cursor);
                     return -1;
                 }
-                *results = tmp;
             }
             memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
             (*count)++;
@@ -223,14 +220,11 @@ int hyper_find_by_participant(MDB_txn *txn, HyperMemory *mem,
             if (context_id == 0 || atom->context_or_time_link == context_id) {
                 if (*count >= capacity) {
                     capacity *= 2;
-                    NeuroAtom *tmp = realloc(*results, sizeof(NeuroAtom) * capacity);
-                    if (!tmp) {
-                        free(*results);
-                        *results = NULL;
+                    *results = realloc(*results, sizeof(NeuroAtom) * capacity);
+                    if (!*results) {
                         mdb_cursor_close(cursor);
                         return -1;
                     }
-                    *results = tmp;
                 }
                 memcpy(&(*results)[*count], atom, sizeof(NeuroAtom));
                 (*count)++;
