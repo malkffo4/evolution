@@ -1,4 +1,4 @@
-// tests/executor_test.c
+// core/tests/executor_test.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +10,7 @@
 
 static int tests_passed = 0;
 static int tests_failed = 0;
+static int tests_skipped = 0;
 
 #define TEST(name) do { \
     printf("[TEST] %s... ", name); fflush(stdout); \
@@ -17,6 +18,7 @@ static int tests_failed = 0;
 
 #define PASS() do { printf("PASSED\n"); tests_passed++; } while(0)
 #define FAIL(msg) do { printf("FAILED: %s\n", msg); tests_failed++; } while(0)
+#define SKIP(msg) do { printf("SKIPPED (%s)\n", msg); tests_skipped++; } while(0)
 
 // Вспомогательная функция: создать простой echo-скрипт во временном файле
 static char* create_script(const char *content) {
@@ -64,17 +66,10 @@ int main(void) {
     // ========== Тест 3: Сигнал (убиваем процесс) ==========
     TEST("signal_kill");
     {
-        char *script = create_script("#!/bin/sh\nsleep 10");
-        int id;
-        executor_enqueue_script("/bin/sh", script, NULL, &id);
-        usleep(100000); // даём чуть времени на запуск
-        // убиваем процесс по сигналу (в реальном executor пока нет API для cancel,
-        // поэтому протестируем синхронный метод с прерыванием или просто пропустим)
-        // Но для полноты можно синхронно запустить и снять ограничение по времени.
-        // Здесь просто отметим, что тест требует доработки executor.
-        printf("(skipped - needs cancel support) ");
-        unlink(script); free(script);
-        PASS();
+        // В реальном executor пока нет API для cancel (отмены задачи по ID).
+        // Поэтому мы не ставим sleep в очередь, иначе executor_stop_daemon()
+        // в конце будет ждать его 10 секунд. Честно скипаем тест.
+        SKIP("needs cancel support in executor API");
     }
 
     // ========== Тест 4: Пустой вывод ==========
@@ -183,6 +178,7 @@ int main(void) {
 
     printf("\n=== Executor Test Results ===\n");
     printf("Passed: %d\n", tests_passed);
+    if (tests_skipped > 0) printf("Skipped: %d\n", tests_skipped);
     printf("Failed: %d\n", tests_failed);
     return tests_failed ? 1 : 0;
 }

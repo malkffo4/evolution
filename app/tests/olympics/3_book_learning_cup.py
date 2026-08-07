@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # app/tests/olympics/3_book_learning_cup.py
 """
-🏆 AGI OLYMPICS: BOOK LEARNING CUP 🏆
+    AGI OLYMPICS: BOOK LEARNING CUP
 Уровни 3 и 4: Генерация новых понятий и Перенос знаний (Transfer Learning).
 
 Тест проверяет:
