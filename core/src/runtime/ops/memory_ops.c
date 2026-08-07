@@ -5,6 +5,7 @@
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
 #include "runtime/vm/vm_param.h"
+#include "runtime/register/register.h"
 
 int vm_op_sub(VMContext *ctx, const Instruction *ins) {
     uint32_t dst = ins->arg[0], src1 = ins->arg[1], src2 = ins->arg[2];
@@ -137,6 +138,21 @@ int vm_op_load_const(VMContext *ctx, const Instruction *ins) {
     return VM_OK;
 }
 
+// ФИКС ROOT-CAUSE #4 (correctness): раньше здесь был raw struct copy
+// (`ctx->reg[dst] = ctx->reg[src];`), который полностью игнорировал
+// refcounting VMObject-дескрипторов (REG_OBJECT/EdgeList/NodeList/
+// GraphView/String в arena). Любой пайплайн, который делает `move` в
+// регистр, уже занятый живым handle, а затем очищает/перезаписывает ИЛИ
+// исходный, ИЛИ целевой регистр, приводит к несбалансированному
+// refcount -> use-after-free/double-free объекта в VMArena.
+//
+// vm_register_copy() корректно: (1) освобождает то, что было в dst
+// ПЕРЕД перезаписью, (2) делает retain на handle, если src — REG_OBJECT,
+// сохраняя семантику "OP_MOVE фактически читается как COPY" (в кодовой
+// базе повсеместно читают src повторно ПОСЛЕ move — см.
+// InductiveExtractor: move(52,60) затем move(12,60) читает r60 снова;
+// значит это НЕ move-с-обнулением-source, а copy — vm_register_move()
+// здесь неприменим, он обнулил бы r60).
 int vm_op_move(VMContext *ctx, const Instruction *ins) {
     uint32_t dst = ins->arg[0];
     uint32_t src = ins->arg[1];
@@ -144,7 +160,10 @@ int vm_op_move(VMContext *ctx, const Instruction *ins) {
     if (dst >= VM_MAX_REGISTERS || src >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
 
-    ctx->reg[dst] = ctx->reg[src];
+    if (dst == src)
+        return VM_OK; // no-op; иначе clear(dst==src) обнулил бы src ДО копирования
+
+    vm_register_copy(ctx, &ctx->reg[dst], &ctx->reg[src]);
 
     return VM_OK;
 }

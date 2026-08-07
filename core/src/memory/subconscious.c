@@ -86,6 +86,22 @@ static void *decay_timer_loop(void *arg) {
                     global_wm.nodes[i].state.usefulness = 0.85f;
         }
 
+        // ФИКС ROOT-CAUSE #1: wm_decay() был полностью реализован в
+        // memory/working.c, но НИКОГДА не вызывался ни из одного места
+        // кодовой базы. Working Memory поэтому никогда не забывала узлы
+        // по времени — только через LRU-вытеснение при заполнении
+        // capacity=256 или через *0.4 "прижигание" в OP_DISPATCH_ASYNC.
+        // На долгоживущем core-процессе (общий для всех CLI-сессий,
+        // Olympiad-кубков через один и тот же /tmp/evolution.sock) это
+        // приводило к тому, что случайные активации из НЕСВЯЗАННЫХ
+        // предыдущих сессий навсегда оставались в global_wm с высокой
+        // активацией и могли "перехватывать" OP_WM_TOP_GOAL (см. фикс
+        // #2 в runtime/ops/planner_ops.c), полностью блокируя выбор
+        // реальной цели молча, без единой ошибки. Тикаем в том же ритме,
+        // что и decay HyperMemory (10с) — обе памяти должны стареть
+        // синхронно (docs/01_Principles.md, Principle 11).
+        wm_decay(&global_wm);
+
         int rc = db_write_sync(decay_txn_fn, NULL);
         if (rc != 0) LOG_WARN("[SUBCONSCIOUS] Timed decay cycle failed rc=%d", rc);
     }

@@ -1,6 +1,5 @@
 // memory/decay.h
-#ifndef SUBCONSCIOUS_DECAY_H
-#define SUBCONSCIOUS_DECAY_H
+#pragma once
 
 #include <stdint.h>
 #include <lmdb.h>
@@ -31,4 +30,22 @@ typedef struct {
  */
 int subconscious_decay_cycle(MDB_txn *txn, HyperMemory *hmem, const DecayPolicy *policy, DecayStats *out_stats);
 
-#endif
+/*
+ * Публичная обёртка над внутренней архивацией атома: перемещает атом в
+ * холодное хранилище (dbi_archive) и убирает его из активных индексов
+ * (idx_process/idx_args/idx_context/idx_causal), но НЕ трогает
+ * dbi_atoms-запись других атомов. В отличие от subconscious_decay_cycle()
+ * (который решает САМ, что архивировать, на основе sti/lti/utility), эта
+ * функция архивирует НЕМЕДЛЕННО и БЕЗУСЛОВНО конкретный атом, переданный
+ * вызывающей стороной.
+ *
+ * Основной потребитель: OP_MERGE_CTX (runtime/ops/hyper_ops.c) — чтобы
+ * временные графовые Code-as-Data инструкции синтеза (PROC_KIND_INSTRUCTION)
+ * не продвигались в базовую реальность вместе с реально выведенным знанием,
+ * но при этом оставались доступны для explainability/OP_TRACE через архив,
+ * а не терялись безвозвратно.
+ *
+ * ДОЛЖНА вызываться внутри write-транзакции db_writer, как и все прочие
+ * мутации HyperMemory. Не создаёт новых объектов, не влияет на atom->id.
+ */
+void hyper_atom_archive(MDB_txn *txn, HyperMemory *hmem, const NeuroAtom *atom);

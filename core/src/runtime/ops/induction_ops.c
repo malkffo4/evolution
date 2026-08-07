@@ -5,6 +5,7 @@
 
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
+#include "runtime/logging/logging.h"
 #include "storage/db/db.h"
 #include "storage/hyper_atom/hyper_atom.h"
 
@@ -90,14 +91,20 @@ int vm_op_mine_causal_pattern(VMContext *ctx, const Instruction *ins) {
     }
 
     if (best == UINT32_MAX) {
+        LOG_REASONER("[MINE_CAUSAL_PATTERN] subject=%lu scanned=%u groups=%u -> no pattern >= min_count=%d",
+                     (unsigned long)subject, scanned, group_count, min_count);
         ctx->reg[r_found_out].type = REG_INT;
         ctx->reg[r_found_out].i = 0;
         return VM_OK;
     }
 
+    LOG_REASONER("[MINE_CAUSAL_PATTERN] subject=%lu scanned=%u groups=%u -> pattern process=%lu count=%u",
+                 (unsigned long)subject, scanned, group_count,
+                 (unsigned long)groups[best].process_id, groups[best].count);
+
     ctx->reg[r_proc_out].type = REG_INT;
     ctx->reg[r_proc_out].i = (int64_t)groups[best].process_id;
-    ctx->reg[r_sample_out].type = REG_INT; // Больше не читаем sample, правило обобщено через r44 (goal_id)
+    ctx->reg[r_sample_out].type = REG_INT;
     ctx->reg[r_sample_out].i = 0;
     ctx->reg[r_count_out].type = REG_INT;
     ctx->reg[r_count_out].i = (int64_t)groups[best].count;

@@ -6,26 +6,14 @@
 #include "opcode.h"
 #include "runtime/vm/vm_context.h"
 #include "runtime/vm/vm_status.h"
+#include "runtime/logging/logging.h"
 #include "storage/hyper_atom/hyper_atom.h"
+#include "memory/decay.h"
 
 #define ID_IS_CHILD_OF 0x0001
 #define ID_BELIEF      0x0002
 
 typedef struct { ko_id_t old_id; ko_id_t new_id; } IdMap;
-
-// Читает truth_confidence из уже сохранённого атома (belief теперь читается
-// напрямую из вектора truth, отдельный процесс ID_BELIEF больше не нужен
-// для confidence — но оставлен для обратной совместимости с legacy данными).
-/* static float get_atom_confidence(HyperMemory *mem, ko_id_t atom_id) {
-    MDB_val key = { sizeof(ko_id_t), &atom_id };
-    MDB_val data;
-    if (mdb_get(txn, mem->dbi_atoms, &key, &data) == MDB_SUCCESS &&
-        data.mv_size == sizeof(NeuroAtom)) {
-        NeuroAtom *a = (NeuroAtom *)data.mv_data;
-        return a->truth_confidence;
-    }
-    return 0.5f; // дефолт для несуществующего/повреждённого атома
-} */
 
 static ko_id_t get_parent_context(MDB_txn *txn, HyperMemory *mem, ko_id_t ctx_id) {
     if (ctx_id == 0) return 0;
@@ -115,6 +103,11 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
     if (hyper_assert_with_cause(ctx->memory.txn, ctx->hyper_mem, &atom, ctx->current_episode_id) < 0)
         return VM_ERROR;
 
+    LOG_REASONER("[ASSERT] atom id=%lu process=%lu args=(%lu,%lu) context=%lu",
+                 (unsigned long)atom.id, (unsigned long)atom.process_id,
+                 (unsigned long)atom.args[0].raw, (unsigned long)atom.args[1].raw,
+                 (unsigned long)atom.context_or_time_link);
+
     ctx->reg[ins->arg[3]].type = REG_INT;
     ctx->reg[ins->arg[3]].i = (int64_t)atom.id;
     ctx->last_result_id = atom.id;
@@ -152,6 +145,11 @@ int vm_op_derive(VMContext *ctx, const Instruction *ins) {
 
     if (hyper_assert_with_cause(ctx->memory.txn, ctx->hyper_mem, &atom, cause_id) < 0)
         return VM_ERROR;
+
+    LOG_REASONER("[DERIVE] atom id=%lu process=%lu args=(%lu,%lu) cause=%lu context=%lu",
+                 (unsigned long)atom.id, (unsigned long)atom.process_id,
+                 (unsigned long)atom.args[0].raw, (unsigned long)atom.args[1].raw,
+                 (unsigned long)cause_id, (unsigned long)atom.context_or_time_link);
 
     ctx->reg[ins->arg[4]].type = REG_INT;
     ctx->reg[ins->arg[4]].i = (int64_t)atom.id;
@@ -216,6 +214,8 @@ int vm_op_spawn_ctx(VMContext *ctx, const Instruction *ins) {
 
     hyper_assert_with_cause(ctx->memory.txn, ctx->hyper_mem, &rel, ctx->current_episode_id);
 
+    LOG_REASONER("[SPAWN_CTX] sandbox=%lu <- parent=%lu", (unsigned long)child_id, (unsigned long)ctx->current_context);
+
     ctx->current_context = child_id;
 
     ctx->reg[ins->arg[0]].type = REG_INT;
@@ -278,7 +278,18 @@ static void remap_causal_index(MDB_txn *txn, HyperMemory *hmem, const IdMap *id_
     mdb_cursor_close(cur);
 }
 
-// OP_MERGE_CTX: схлопывание гипотезы. Теперь ремапит id и в idx_causal тоже.
+// OP_MERGE_CTX: схлопывание гипотезы. Ремапит id в idx_causal.
+//
+// ФИКС ROOT-CAUSE #4 (масштаб): раньше merge_ctx безусловно продвигал
+// ВСЕ атомы sandbox-контекста в базовую реальность — включая временные
+// графовые "инструкции" (PROC_KIND_INSTRUCTION), которыми
+// OP_ASSERT_INSTRUCTION кодирует Code-as-Data синтеза (см.
+// runtime/ops/graph_ops.c). Это означает, что КАЖДЫЙ акт индукции
+// навсегда оставлял в графе несколько атомов мёртвого байткода, никогда
+// больше не нужного для рассуждения — недопустимо при целевом масштабе
+// "терабайты боевых мануалов" (см. TODO.md Priority 2/4). Теперь такие
+// атомы АРХИВИРУЮТСЯ (остаются доступны для explainability/аудита через
+// dbi_archive), а не тащатся в активные индексы базовой реальности.
 int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     if (!ctx->hyper_mem || !ctx->memory.txn) return VM_ERROR;
     float threshold = *(float*)&ins->arg[0];
@@ -289,7 +300,8 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     if (hyper_find_by_context(ctx->memory.txn, ctx->hyper_mem, ctx->current_context, &atoms, &count) != 0)
         return VM_ERROR;
 
-    ko_id_t parent = get_parent_context(ctx->memory.txn, ctx->hyper_mem, ctx->current_context);
+    ko_id_t sandbox_id = ctx->current_context;
+    ko_id_t parent = get_parent_context(ctx->memory.txn, ctx->hyper_mem, sandbox_id);
 
     IdMap *id_map = count > 0 ? malloc(sizeof(IdMap) * count) : NULL;
     if (!id_map && count > 0) {
@@ -297,8 +309,16 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
         return VM_ERROR;
     }
     size_t map_size = 0;
+    uint32_t archived = 0, promoted = 0, dropped = 0;
 
     for (size_t i = 0; i < count; i++) {
+        if (proc_kind(atoms[i].process_id) == PROC_KIND_INSTRUCTION) {
+            hyper_atom_archive(ctx->memory.txn, ctx->hyper_mem, &atoms[i]);
+            atoms[i].id = 0;
+            archived++;
+            continue;
+        }
+
         float conf = atoms[i].truth_confidence;
         if (conf >= threshold) {
             ko_id_t new_id = hyper_memory_new_id(ctx->hyper_mem);
@@ -308,8 +328,10 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
 
             atoms[i].id = new_id;
             atoms[i].context_or_time_link = parent;
+            promoted++;
         } else {
             atoms[i].id = 0;
+            dropped++;
         }
     }
 
@@ -317,7 +339,7 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
     if (map_size > 0) {
         remap_causal_index(ctx->memory.txn, ctx->hyper_mem, id_map, map_size);
 
-        // --- НОВЫЙ БЛОК: Ремаппинг ссылок внутри самой базы атомов и индексов ---
+        // --- Ремаппинг ссылок внутри самой базы атомов и индексов ---
         for (size_t i = 0; i < count; i++) {
             if (atoms[i].id == 0) continue;
 
@@ -338,6 +360,9 @@ int vm_op_merge_ctx(VMContext *ctx, const Instruction *ins) {
             hyper_assert_unique(ctx->memory.txn, ctx->hyper_mem, &atoms[i]);
         }
     }
+
+    LOG_REASONER("[MERGE_CTX] sandbox=%lu -> parent=%lu: promoted=%u archived(instructions)=%u dropped(low-conf)=%u",
+                 (unsigned long)sandbox_id, (unsigned long)parent, promoted, archived, dropped);
 
     if (id_map) free(id_map);
     if (atoms) free(atoms);

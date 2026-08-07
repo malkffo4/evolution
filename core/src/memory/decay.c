@@ -87,6 +87,11 @@ static void archive_atom(MDB_txn *txn, HyperMemory *hmem, const NeuroAtom *atom)
     mdb_del(txn, hmem->dbi_atoms, &k, NULL);
 }
 
+void hyper_atom_archive(MDB_txn *txn, HyperMemory *hmem, const NeuroAtom *atom) {
+    if (!txn || !hmem || !atom) return;
+    archive_atom(txn, hmem, atom);
+}
+
 int subconscious_decay_cycle(MDB_txn *txn, HyperMemory *hmem, const DecayPolicy *policy, DecayStats *out_stats) {
     if (!hmem || !txn) return -1;
     if (!policy) policy = &DECAY_POLICY_DEFAULT;

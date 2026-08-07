@@ -40,8 +40,16 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
         return VM_ERROR;
 
     node_id_t current = (ctx->reg[r_start].type == REG_NODE) ? ctx->reg[r_start].node : (node_id_t)ctx->reg[r_start].i;
+    node_id_t start_id = current;
 
     uint32_t max_steps = (ctx->reg[r_max].type == REG_INT && ctx->reg[r_max].i > 0)  ? (uint32_t)ctx->reg[r_max].i : VM_EVAL_GRAPH_DEFAULT_STEPS;
+
+    if (current == 0) {
+        LOG_REASONER("[EVAL_GRAPH] start register is empty/zero — nothing to interpret");
+        ctx->reg[r_status].type = REG_INT;
+        ctx->reg[r_status].i = VM_NOT_FOUND;
+        return VM_OK;
+    }
 
     int status = VM_OK;
     uint32_t steps = 0;
@@ -56,6 +64,8 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
         // O(log N): точечное чтение по первичному ключу dbi_atoms.
         if (mdb_get(ctx->memory.txn, ctx->hyper_mem->dbi_atoms, &key, &data) != MDB_SUCCESS ||
             data.mv_size != sizeof(NeuroAtom)) {
+            LOG_REASONER("[EVAL_GRAPH] instruction atom %lu not found at step %u (start=%lu) — program truncated",
+                         (unsigned long)current, steps, (unsigned long)start_id);
             status = VM_NOT_FOUND;
             break;
         }
@@ -88,6 +98,8 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
         } else {
             const Operator *op = operator_find(op_id);
             if (!op) {
+                LOG_REASONER("[EVAL_GRAPH] unknown opcode %u encoded in instruction atom %lu at step %u",
+                             (unsigned)op_id, (unsigned long)current, steps);
                 status = VM_UNKNOWN_OPCODE;
                 break;
             }
@@ -101,6 +113,8 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
                 bool soft = (rc == VM_NOT_FOUND) && (instr_atom.valence < 0.0f);
 
                 if (!soft) {
+                    LOG_REASONER("[EVAL_GRAPH] operator '%s' (opcode=%u) failed with status=%d at instruction %lu (step %u)",
+                                 op->name, (unsigned)op_id, rc, (unsigned long)current, steps);
                     status = rc;
                     break;
                 }
@@ -131,6 +145,7 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
         }
 
         if (next == current) {
+            LOG_REASONER("[EVAL_GRAPH] self-loop detected at instruction %lu (step %u) — aborting", (unsigned long)current, steps);
             status = VM_ERROR; // защита от самопетли
             break;
         }
@@ -138,6 +153,8 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
         current = next;
         steps++;
     }
+
+    LOG_REASONER("[EVAL_GRAPH] finished: start=%lu steps=%u status=%d", (unsigned long)start_id, steps, status);
 
     ctx->reg[r_status].type = REG_INT;
     ctx->reg[r_status].i = status;
@@ -257,6 +274,11 @@ int vm_op_assert_instruction(VMContext *ctx, const Instruction *ins) {
     if (hyper_assert_with_cause(ctx->memory.txn, ctx->hyper_mem, &instr, cause_id) < 0)
         return VM_ERROR;
 
+    LOG_REASONER("[ASSERT_INSTRUCTION] created instr id=%lu opcode=%u fields=(%u,%u,%u,%u,%u,%u) cause=%lu context=%lu",
+                 (unsigned long)instr.id, (unsigned)target_opcode,
+                 fields[0], fields[1], fields[2], fields[3], fields[4], fields[5],
+                 (unsigned long)cause_id, (unsigned long)ctx->current_context);
+
     ctx->reg[r_dst].type = REG_INT;
     ctx->reg[r_dst].i = (int64_t)instr.id;
     ctx->last_result_id = instr.id;
@@ -302,6 +324,9 @@ int vm_op_atom_reinforce(VMContext *ctx, const Instruction *ins) {
     // индексы не трогаются (process_id/args не меняются).
     if (hyper_assert(ctx->memory.txn, ctx->hyper_mem, &atom) != MDB_SUCCESS)
         return VM_ERROR;
+
+    LOG_REASONER("[ATOM_REINFORCE] atom=%lu delta=%.3f -> truth_confidence=%.3f",
+                 (unsigned long)atom_id, delta, atom.truth_confidence);
 
     return VM_OK;
 }
