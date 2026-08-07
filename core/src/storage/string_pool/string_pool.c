@@ -35,10 +35,29 @@ uint64_t add_string_to_pool(MDB_txn *txn, const char *str) {
 
     LOG_GRAPH("Added string hash=%016lx value=\"%s\"", hash, str);
 
+    // ФИКС: Сохраняем также маскированные версии хэша!
+    // При создании NeuroAtom мы упаковываем типы (ProcKind, HyperType)
+    // в старшие биты 64-битного хэша. Из-за этого при retrieve мы ищем строку
+    // по маскированному ID и получаем "UNKNOWN". Сохраняя маскированные ключи,
+    // мы гарантируем, что retrieve всегда найдет строку.
+
+    // 1. Маска для process_id (срезаются старшие 8 бит)
+    uint64_t proc_hash = hash & 0x00FFFFFFFFFFFFFFULL;
+    if (proc_hash != hash) {
+        key.mv_data = (void *)&proc_hash;
+        mdb_put(txn, db.graph.strings, &key, &data, MDB_NOOVERWRITE);
+    }
+
+    // 2. Маска для аргументов args (срезаются старшие 2 бита)
+    uint64_t arg_hash = hash & 0x3FFFFFFFFFFFFFFFULL;
+    if (arg_hash != hash && arg_hash != proc_hash) {
+        key.mv_data = (void *)&arg_hash;
+        mdb_put(txn, db.graph.strings, &key, &data, MDB_NOOVERWRITE);
+    }
+
     return hash;
 }
 
-// NEEDED FREE
 const char *get_string_from_pool(MDB_txn *txn, uint64_t hash) {
     MDB_val key, data;
     int rc;
