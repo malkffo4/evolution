@@ -50,6 +50,15 @@ int main(void) {
 
     assert(planner_bootstrap(txn) == MDB_SUCCESS);
 
+    // Явно указываем планировщику, что IntegrationGoal — это Goal!
+    NeuroAtom goal_type = {0};
+    goal_type.id = 7000;
+    goal_type.process_id = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);
+    goal_type.args[0].raw = HYPER_MAKE_REF(goal_id);
+    goal_type.args[1].raw = HYPER_MAKE_REF(djb2_hash("Goal"));
+    goal_type.truth_mean = 1.0f; goal_type.truth_confidence = 1.0f;
+    assert(hyper_assert_unique(txn, hmem, &goal_type) >= 0);
+
     NeuroAtom meta = {0};
     meta.id = 6000;
     meta.process_id = proc_make(djb2_hash("IS_A"), PROC_KIND_RELATION);

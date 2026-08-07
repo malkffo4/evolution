@@ -29,42 +29,35 @@ def get_opcodes_map():
     op_map = {}
     if not opcode_path.exists():
         print(f"[WARN] Не найден {opcode_path}, используем хардкод.", file=sys.stderr)
-        return {"OP_GLOAD_CONST": 11, "OP_ASSERT": 4} # fallback
+        return {"OP_GLOAD_CONST": 79, "OP_ASSERT": 46} # fallback на актуальные номера
 
     try:
-        with open(opcode_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        content = opcode_path.read_text(encoding="utf-8")
 
-        # Полностью вырезаем все C-комментарии (и строчные, и блочные) до парсинга строк
+        # 1. Вычищаем ВСЕ комментарии (строчные и блочные)
         content = re.sub(r'//.*', '', content)
         content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
 
-        in_enum = False
-        counter = 0
-        for line in content.split("\n"):
-            line = line.strip()
-            if not line: continue
-            if "typedef enum" in line or "enum {" in line:
-                in_enum = True
-                continue
-            if in_enum and "}" in line:
-                break
-            if in_enum:
-                # Берем только часть до запятой или знака '}'
-                part = line.split(",")[0].strip()
+        # 2. Ищем строго блок typedef enum { ... }
+        match = re.search(r'typedef\s+enum\s*\{(.*?)\}', content, re.DOTALL)
+        if match:
+            enum_body = match.group(1)
+            counter = 0
+            # 3. Разбиваем по запятым и перебираем элементы
+            for line in enum_body.split(','):
+                part = line.strip()
                 if not part: continue
 
-                if "=" in part:
-                    name, val = part.split("=")
-                    name = name.strip()
+                if '=' in part:
+                    name, val = part.split('=')
                     counter = int(val.strip())
-                    op_map[name] = counter
+                    op_map[name.strip()] = counter
                 else:
                     op_map[part] = counter
                 counter += 1
     except Exception as e:
         print(f"[WARN] Ошибка парсинга opcode.h: {e}", file=sys.stderr)
-        return {"OP_GLOAD_CONST": 11, "OP_ASSERT": 4} # fallback
+        return {"OP_GLOAD_CONST": 79, "OP_ASSERT": 46} # fallback
 
     return op_map
 
