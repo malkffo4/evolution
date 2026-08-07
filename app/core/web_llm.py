@@ -2,7 +2,7 @@
 import os
 import sys
 import time
-from playwright.async_api import async_playwright
+from playwright.sync_api import sync_playwright  # ФИКС: был async_api
 
 class WebLLMClient:
     """
@@ -30,7 +30,7 @@ class WebLLMClient:
         self.last_request_time = 0
         self.min_delay_sec = 12.0
 
-        print("[WebLLM] Запускаю Playwright... (первый запуск может потребовать логина)")
+        print(f"[WebLLM] Запускаю Playwright для {provider}... (первый запуск может потребовать логина)")
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch_persistent_context(
             user_data_dir=self.user_data_dir,
@@ -54,9 +54,7 @@ class WebLLMClient:
         """Пытается найти скрытый input для файлов и загрузить картинку."""
         if not image_path or not os.path.exists(image_path):
             return
-
         try:
-            # Большинство чат-интерфейсов используют <input type="file"> для кнопок-скрепок
             self.page.set_input_files('input[type="file"]', image_path, timeout=5000)
             print(f"[WebLLM] Изображение {os.path.basename(image_path)} прикреплено.")
             time.sleep(3) # Ждем пока UI отрендерит превью картинки
@@ -92,7 +90,7 @@ class WebLLMClient:
             current_text = elements[-1].inner_text()
             if current_text and current_text == last_text:
                 stable_count += 1
-                if stable_count >= 4:  # Текст не меняется 2 секунды (4 * 0.5s)
+                if stable_count >= 4:
                     return current_text
             else:
                 stable_count = 0
@@ -105,7 +103,6 @@ class WebLLMClient:
     def _query_deepseek(self, prompt: str, image_path: str) -> str:
         self.page.goto("https://chat.deepseek.com/")
         self.page.wait_for_selector("textarea", timeout=15000)
-
         self._upload_image_if_present(image_path)
         self.page.fill("textarea", prompt)
         time.sleep(0.5)
@@ -115,7 +112,6 @@ class WebLLMClient:
     def _query_chatgpt(self, prompt: str, image_path: str) -> str:
         self.page.goto("https://chatgpt.com/")
         self.page.wait_for_selector("#prompt-textarea", timeout=15000)
-
         self._upload_image_if_present(image_path)
         self.page.fill("#prompt-textarea", prompt)
         time.sleep(0.5)
@@ -125,7 +121,6 @@ class WebLLMClient:
     def _query_gemini(self, prompt: str, image_path: str) -> str:
         self.page.goto("https://gemini.google.com/app")
         self.page.wait_for_selector("rich-textarea", timeout=15000)
-
         self._upload_image_if_present(image_path)
         self.page.click("rich-textarea")
         self.page.keyboard.type(prompt)

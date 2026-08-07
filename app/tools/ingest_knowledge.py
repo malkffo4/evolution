@@ -1,7 +1,5 @@
-#!/usr/bin/env python3
 # app/tools/ingest_knowledge.py
 """
-Асинхронный параллельный Knowledge Ingestion Pipeline.
 Разбивает текст на чанки и парсит их через облачные API одновременно,
 что ускоряет загрузку целых книг в десятки раз.
 
@@ -66,25 +64,43 @@ async def ingest_file_async(core: CoreClient, llm: LLMClient, path: Path, source
     print(f"[ingest] Начинаю парсинг '{path.name}': {len(chunks)} чанков, {len(text)} символов.")
     print(f"[ingest] Модель: {llm.provider} ({llm.model})")
 
-    # Семафор ограничивает количество параллельных HTTP запросов к LLM провайдеру
-    sem = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+    # ФИКС: Если выбран web_*, отключаем асинхронность и работаем синхронно,
+    # чтобы мог спокойно вбивать данные в одну вкладку без конфликтов.
+    if llm.provider.startswith("web_"):
+        print("[ingest] Web-режим. Обрабатываем строго последовательно (1 поток)...")
+        total_atoms = 0
+        for i, chunk in enumerate(chunks):
+            print(f"  -> Отправка чанка {i+1}/{len(chunks)} в браузер...")
+            prompt = EXTRACTION_PROMPT.format(chunk=chunk)
 
-    tasks = [
-        extract_and_learn_chunk(core, llm, chunk, source_tag, sem)
-        for chunk in chunks
-    ]
+            # Используем прямой СИНХРОННЫЙ запрос
+            raw_response = llm.query(prompt, json_mode=True)
+            data = parse_json(raw_response)
 
-    # Запускаем все задачи с красивым прогресс-баром
-    results = await tqdm.gather(*tasks, desc="Извлечение знаний", unit="чанк")
-
-    total_atoms = sum(results)
-    return {"file": str(path), "chunks": len(chunks), "atoms": total_atoms}
-
+            if data and "atoms" in data and data["atoms"]:
+                atoms = data["atoms"]
+                for a in atoms:
+                    a.setdefault("context", source_tag)
+                resp = core.learn({"atoms": atoms})
+                if resp.get("name") != "error":
+                    total_atoms += len(atoms)
+                    print(f"     ✅ Извлечено {len(atoms)} атомов.")
+        return {"file": str(path), "chunks": len(chunks), "atoms": total_atoms}
+    else:
+        # Для нормального API (Ollama/OpenAI) используем параллелизм
+        sem = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+        tasks = [
+            extract_and_learn_chunk(core, llm, chunk, source_tag, sem)
+            for chunk in chunks
+        ]
+        results = await tqdm.gather(*tasks, desc="Извлечение знаний", unit="чанк")
+        return {"file": str(path), "chunks": len(chunks), "atoms": sum(results)}
 
 def main():
     ap = argparse.ArgumentParser(description="Parallel NeuroCore Knowledge Ingestion")
     ap.add_argument("path", type=Path, help="Путь к текстовому файлу (.txt, .md)")
-    ap.add_argument("--provider", default="auto", choices=["auto", "ollama", "openai", "gemini", "deepseek", "anthropic"])
+    # Добавлены web_ опции в choices
+    ap.add_argument("--provider", default="auto", choices=["auto", "ollama", "openai", "gemini", "deepseek", "anthropic", "web_chatgpt", "web_deepseek"])
     ap.add_argument("--source", default=None, help="Тег источника (по умолчанию имя файла)")
     ap.add_argument("--workers", type=int, default=5, help="Количество параллельных потоков (по умолчанию 5)")
     args = ap.parse_args()

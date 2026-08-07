@@ -22,7 +22,7 @@ from tools.knowledge_report import print_diff
 
 def main():
     print("====================================================")
-    print("🏆 AGI OLYMPICS: MEMORY CUP (LEVEL 2: PERSISTENCE) 🏆")
+    print("     AGI OLYMPICS: MEMORY CUP (LEVEL 2: PERSISTENCE)     ")
     print("====================================================\n")
 
     manager = EvolutionManager()
@@ -66,7 +66,7 @@ def main():
         assert restored_atoms >= after_atoms, "Persistence failed! Memory lost after restart."
 
         print("\n====================================================")
-        print("✅ MEMORY CUP: PASSED")
+        print("     MEMORY CUP: PASSED  ")
         print("====================================================")
     finally:
         manager2.shutdown()

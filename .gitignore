@@ -83,3 +83,5 @@ test_vm_env-lock
 .neurocore_history
 .working_llm_cache.json
 build.sh
+.browser_session
+.working_llm_cache.json
