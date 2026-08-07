@@ -130,7 +130,6 @@ void cmd_learn(IPCPacket *req, IPCPacket *resp) {
     if (root) {
         cJSON *type = cJSON_GetObjectItem(root, "type");
         if (cJSON_IsString(type) && strcmp(type->valuestring, "pipeline") == 0) {
-            const char *an = cJSON_GetStringValue(cJSON_GetObjectItem(root, "algo_name"));
             job.imported_pipeline = pipeline_from_json(root, &job.algo_id);
         } else if (cJSON_IsString(type) && strcmp(type->valuestring, "hyper_pattern") == 0) {
             job.is_pattern = (hyper_pattern_from_json(root, &job.pattern) == 0);

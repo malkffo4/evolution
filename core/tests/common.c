@@ -22,5 +22,5 @@ int planner_bootstrap(MDB_txn *txn) {
         .code_len = 6, // ТУТ ТЕПЕРЬ 6 ИНСТРУКЦИЙ!
         .capacity = 6
     };
-    int rc = algorithm_save(txn, djb2_hash("CorePlanner"), &core_planner_pipeline);
+    return algorithm_save(txn, djb2_hash("CorePlanner"), &core_planner_pipeline);
 }
