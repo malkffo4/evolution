@@ -16,7 +16,7 @@ def run_test(script_path: Path):
 
 def main():
     print("====================================================")
-    print("        🏅 NEUROCORE AGI OLYMPICS 🏅               ")
+    print("         NEUROCORE AGI OLYMPICS      ")
     print("====================================================")
 
     tests_dir = Path(__file__).parent
@@ -36,7 +36,7 @@ def main():
             sys.exit(1)
 
     print("\n====================================================")
-    print("🎉 ALL OLYMPIC CUPS PASSED SUCCESSFULLY! 🎉")
+    print("         ALL OLYMPIC CUPS PASSED SUCCESSFULLY!       ")
     print("====================================================")
 
 if __name__ == "__main__":

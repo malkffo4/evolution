@@ -263,14 +263,16 @@ class EvolutionManager:
             except Exception as e: print(f"[ERROR] {e}")
 
         elif cmd_name == "ingest":
-             file_path = args[0] if args else None
-             if not file_path:
-                 print("Usage: ingest <file_path>")
-             else:
-                 print(f"[Manager] Starting parallel ingestion for {file_path}...")
-                 from tools.ingest_knowledge import main as run_ingest
-                 sys.argv = ["ingest_knowledge.py", file_path]
-                 run_ingest()
+            file_path = args[0] if args else None
+            if not file_path:
+                print("Usage: ingest <file_path> [--provider ollama]")
+            else:
+                file_path = args[0]
+                print(f"[Manager] Starting parallel ingestion for {file_path}...")
+                from tools.ingest_knowledge import main as run_ingest
+                # Пробрасываем все аргументы скрипту!
+                sys.argv = ["ingest_knowledge.py", file_path] + list(args[1:])
+                run_ingest()
         else:
             print(f"Unknown command: {cmd_name}")
         return True

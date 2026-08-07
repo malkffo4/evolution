@@ -2,7 +2,6 @@ PyMuPDF
 wikipedia-api
 requests
 python-dotenv
-playwright
 httpx
 tenacity
 tqdm

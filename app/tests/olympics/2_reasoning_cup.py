@@ -24,7 +24,7 @@ PATTERN_PROC = "DiscoveredPhenomenon"
 
 def main():
     print("====================================================")
-    print("🏆 AGI OLYMPICS: REASONING CUP (LEVEL 8: NEW KNOWLEDGE) 🏆")
+    print("     AGI OLYMPICS: REASONING CUP (LEVEL 8: NEW KNOWLEDGE)    ")
     print("====================================================\n")
 
     manager = EvolutionManager()
@@ -71,7 +71,7 @@ def main():
         print("[Reasoning Cup] SUCCESS! The system autonomously synthesized a new rule from scattered data!")
 
         print("\n====================================================")
-        print("✅ REASONING CUP: PASSED")
+        print("     REASONING CUP: PASSED   ")
         print("====================================================")
 
     finally:

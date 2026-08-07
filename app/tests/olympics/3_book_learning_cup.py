@@ -22,7 +22,7 @@ from tools.knowledge_report import print_diff
 
 def main():
     print("====================================================")
-    print("🏆 AGI OLYMPICS: BOOK LEARNING CUP (LEVEL 3 & 4) 🏆")
+    print("     AGI OLYMPICS: BOOK LEARNING CUP (LEVEL 3 & 4)   ")
     print("====================================================\n")
 
     manager = EvolutionManager()
@@ -37,9 +37,11 @@ def main():
         print(f"\n[Book Cup] Step 2: Reading book: {book_path.name}")
         print("[Book Cup] This will use LLM for Deep Extraction (Parallel)...\n")
 
-        # Внутри execute_command("ingest") запустится ingest_knowledge.py
-        manager.execute_command("ingest", str(book_path))
-        time.sleep(2) # Даем время на синхронизацию LMDB
+        # ФИКС: Вызываем web_chatgpt (или web_deepseek).
+        # Когда это запустится, откроется браузер Chromium и начнет сам печатать промпты.
+        # Тебе нужно будет ОДИН раз залогиниться в ChatGPT (при первом запуске браузер подождет).
+        manager.execute_command("ingest", str(book_path), "--provider", "web_chatgpt")
+        time.sleep(2)
 
         stats_after = core.get_stats()
         print("\n[Book Cup] Step 3: Knowledge Report (Level 3 Validation)")
@@ -48,7 +50,7 @@ def main():
 
         atoms_diff = int(stats_after.get("atoms_total", 0)) - int(stats_before.get("atoms_total", 0))
         if atoms_diff <= 0:
-            print("[Book Cup] ⚠️ Warning: Atoms did not increase. Ensure LLM provider and API keys are valid.")
+            print("[Book Cup] Warning: Atoms did not increase. Ensure LLM provider and API keys are valid.")
 
         print("\n[Book Cup] Step 4: Transfer Learning (Level 4 Validation)")
         question = "Какая функция в C опасна и вызывает переполнение буфера, и чем её заменить?"
@@ -63,10 +65,10 @@ def main():
         if "strcpy" in reply_lower and "strncpy" in reply_lower:
             print("[Book Cup] SUCCESS! Agent successfully transferred knowledge from the book to a conversational context!")
         else:
-            print("[Book Cup] ⚠️ Warning: Agent did not explicitly mention strcpy/strncpy. The LLM might have rephrased it.")
+            print("[Book Cup] Warning: Agent did not explicitly mention strcpy/strncpy. The LLM might have rephrased it.")
 
         print("\n====================================================")
-        print("✅ BOOK LEARNING CUP: COMPLETED")
+        print("     BOOK LEARNING CUP: COMPLETED    ")
         print("====================================================")
 
     finally:

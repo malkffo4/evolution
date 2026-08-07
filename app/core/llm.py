@@ -82,7 +82,7 @@ class LLMClient:
             self.providers.append("web_chatgpt")
 
             if not self.providers:
-                print("[LLM] ⚠️ Ни один провайдер не определен. Переход на web_deepseek.", file=sys.stderr)
+                print("[LLM] Ни один провайдер не определен. Переход на web_deepseek.", file=sys.stderr)
                 self.providers.append("web_deepseek")
 
             self.provider = self.providers[0]
