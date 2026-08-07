@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # app/tests/olympics/1_memory_cup.py
 """
-🏆 AGI OLYMPICS: MEMORY CUP 🏆
+    AGI OLYMPICS: MEMORY CUP
 Уровень 2: Запоминание и Эффективность (Memorization & Baseline).
 
 Тест проверяет:
