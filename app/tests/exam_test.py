@@ -52,10 +52,10 @@ def main():
         print(f"[FAILED] Could not inject facts: {resp}")
         sys.exit(1)
 
-    time.sleep(2)
+    time.sleep(1)
     print(f"[EXAM] 2. Activating goal '{GOAL_NAME}' in Working Memory...")
     core.activate_goal(GOAL_NAME, utility=0.9)
-    time.sleep(2)
+    time.sleep(1)
     print("[EXAM] 3. Triggering C-core subconscious (think)...")
     # Даем ядру время:
     # - Заметить цель
@@ -65,9 +65,8 @@ def main():
     # - Подтвердить через OP_MERGE_CTX
     for i in range(5):
         core.think()
-        time.sleep(1)
+        time.sleep(0.5)
 
-    time.sleep(5)
     print("[EXAM] 4. Verifying if core generalized the rule autonomously...")
     # Если InductiveExtractor отработал штатно, он сгенерировал правило, которое
     # взяло `process` паттерна и применило его к самой цели, создав новый атом.
