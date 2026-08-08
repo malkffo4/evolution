@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 def run_test(script_path: Path):
-    print(f"\n🏃 Running {script_path.name}...")
+    print(f"\n  Running {script_path.name}...")
     result = subprocess.run([sys.executable, str(script_path)])
     if result.returncode != 0:
         print(f"❌ {script_path.name} FAILED!")

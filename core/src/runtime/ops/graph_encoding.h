@@ -1,5 +1,6 @@
 // runtime/ops/graph_encoding.h
 #pragma once
+
 #include <stdint.h>
 
 #define GRAPH_INSTR_FIELD_BITS 10
