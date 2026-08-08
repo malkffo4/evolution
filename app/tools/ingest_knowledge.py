@@ -33,7 +33,14 @@ async def extract_and_learn_chunk(core: CoreClient, llm: LLMClient, chunk: str, 
     """Асинхронный воркер: запрашивает LLM и отправляет извлеченные атомы в ядро."""
     async with sem:  # Ограничиваем параллелизм
         prompt = EXTRACTION_PROMPT.format(chunk=chunk)
-        raw_response = await llm.aquery(prompt, json_mode=True)
+        try:
+            # Пробуем быстрый асинхронный вызов (теперь он знает про кэш)
+            raw_response = await llm.aquery(prompt, json_mode=True)
+        except Exception as e:
+            print(f"\n[WARN] Асинхронный запрос упал ({e}). Переключаемся на каскадный фоллбэк...", file=sys.stderr)
+            # Если падает, вызываем llm.query в отдельном потоке — он сам переберет все остальные провайдеры
+            raw_response = await asyncio.to_thread(llm.query, prompt, json_mode=True)
+
         data = parse_json(raw_response)
 
         if not data or "atoms" not in data or not isinstance(data["atoms"], list):
@@ -93,7 +100,7 @@ async def ingest_file_async(core: CoreClient, llm: LLMClient, path: Path, source
             extract_and_learn_chunk(core, llm, chunk, source_tag, sem)
             for chunk in chunks
         ]
-        results = await tqdm.gather(*tasks, desc="Извлечение знаний", unit="чанк")
+        results = await tqdm.gather(*tasks, desc="Knowledge extraction", unit="chunk")
         return {"file": str(path), "chunks": len(chunks), "atoms": sum(results)}
 
 def main():

@@ -109,6 +109,11 @@ typedef enum {
     OP_GLOAD_CONST,          // псевдо-опкод: широкая 62-битная константа из args[1]
     OP_LOAD_FCONST,
     OP_JGE_GRAPH,            // Условный переход внутри графовой программы
+
+    // --- Zero-Shot Algorithm Composition ---
+    OP_FIND_PRODUCER_CHAIN,  // ищет (A,X,B): PRODUCES(A,X) ∧ REQUIRES(B,X) ∧ PRODUCES(B,goal)
+    OP_SYNTHESIZE_SEQUENCE,  // строит и algorithm_save()'ит составной Pipeline A;B
+
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;

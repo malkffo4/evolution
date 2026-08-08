@@ -23,6 +23,14 @@ def float_to_uint32(f: float) -> int:
     """Конвертирует float в битовое представление uint32 для передачи в C-ядро"""
     return struct.unpack('<I', struct.pack('<f', f))[0]
 
+PROC_KIND_RELATION = 0
+PROC_TYPE_SHIFT = 56
+PROC_ID_MASK = (~(0xFF << PROC_TYPE_SHIFT)) & 0xFFFFFFFFFFFFFFFF
+
+def proc_make(base_id: int, kind: int) -> int:
+    """Побитово совпадает с core/src/storage/hyper_atom/hyper_atom.h::proc_make()"""
+    return (base_id & PROC_ID_MASK) | ((kind & 0xFF) << PROC_TYPE_SHIFT)
+
 def get_opcodes_map():
     """Парсит opcode.h, чтобы динамически получить правильные ID инструкций."""
     opcode_path = Path(__file__).resolve().parents[2] / "core" / "src" / "runtime" / "ops" / "opcode.h"
@@ -103,15 +111,39 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
     ], {"int_consts": [16, 0, 1, str(djb2_hash("CriticMain"))]}) # Передаем большие хэши как строки!
 
-    # 2. CorePlanner
+    # 2.5. ZeroShotComposer — компонует существующие алгоритмы через
+    # PRODUCES/REQUIRES, когда для цели нет прямого HAS_ALGORITHM.
+    learn_pipeline("ZeroShotComposer", [
+        {"operator_id": "load_const",          "arg": [10, 0, 0, 0, 0, 0]},   # 0
+        {"operator_id": "load_const",          "arg": [7, 1, 0, 0, 0, 0]},    # 1
+        {"operator_id": "move",                "arg": [1, R_GOAL_ID, 0, 0, 0, 0]},  # 2
+        {"operator_id": "find_producer_chain", "arg": [1, 2, 3, 4, 5, 6]},    # 3
+        {"operator_id": "cond_branch_gt",      "arg": [5, 7, 6, 0, 0, 0]},    # 4
+        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]},    # 5
+        {"operator_id": "spawn_ctx",           "arg": [8, 0, 0, 0, 0, 0]},    # 6
+        {"operator_id": "synthesize_sequence", "arg": [2, 3, 9, 0, 0, 0]},    # 7
+        {"operator_id": "derive",              "arg": [10, 9, 1, 6, 11, 0]},  # 8
+        {"operator_id": "merge_ctx",           "arg": [float_to_uint32(0.30), 0, 0, 0, 0, 0]},  # 9
+        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]}     # 10
+    ], {"int_consts": [
+        str(proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION)),
+        0,
+    ]})
+
+    # 3. CorePlanner — теперь с fallback на ZeroShotComposer при пустом HAS_ALGORITHM
     learn_pipeline("CorePlanner", [
-        {"operator_id": "wm_top_goal", "arg": [1, 2, 0, 0, 0, 0]},
-        {"operator_id": "branch_if_empty", "arg": [1, 5, 0, 0, 0, 0]},
-        {"operator_id": "select_algorithm", "arg": [1, 0, 3, 0, 0, 0]},
-        {"operator_id": "read_sp", "arg": [4, 0, 0, 0, 0, 0]},
-        {"operator_id": "dispatch_async", "arg": [1, 4, 0, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
-    ])
+        {"operator_id": "load_const",       "arg": [6, 0, 0, 0, 0, 0]},    # 0
+        {"operator_id": "load_const",       "arg": [7, 1, 0, 0, 0, 0]},    # 1
+        {"operator_id": "wm_top_goal",      "arg": [1, 2, 0, 0, 0, 0]},    # 2
+        {"operator_id": "branch_if_empty",  "arg": [1, 10, 0, 0, 0, 0]},   # 3
+        {"operator_id": "select_algorithm", "arg": [1, 0, 3, 0, 0, 0]},    # 4
+        {"operator_id": "cond_branch_gt",   "arg": [3, 6, 8, 0, 0, 0]},    # 5
+        {"operator_id": "dispatch_async",   "arg": [1, 7, 0, 0, 0, 0]},    # 6
+        {"operator_id": "branch",           "arg": [10, 0, 0, 0, 0, 0]},   # 7
+        {"operator_id": "read_sp",          "arg": [4, 0, 0, 0, 0, 0]},    # 8
+        {"operator_id": "dispatch_async",   "arg": [1, 4, 0, 0, 0, 0]},    # 9
+        {"operator_id": "halt",             "arg": [0, 0, 0, 0, 0, 0]}     # 10
+    ], {"int_consts": [0, str(djb2_hash("ZeroShotComposer"))]})
 
     # 3. CriticMain
     learn_pipeline("CriticMain", [
