@@ -11,7 +11,7 @@ def run_test(script_path: Path):
     print(f"\n  Running {script_path.name}...")
     result = subprocess.run([sys.executable, str(script_path)])
     if result.returncode != 0:
-        print(f"❌ {script_path.name} FAILED!")
+        print(f"{script_path.name} FAILED!")
         sys.exit(result.returncode)
 
 def main():
@@ -24,7 +24,8 @@ def main():
     cups = [
         "1_memory_cup.py",
         "2_reasoning_cup.py",
-        "3_book_learning_cup.py"
+        "3_book_learning_cup.py",
+        "4_composition_cup.py"
     ]
 
     for cup in cups:

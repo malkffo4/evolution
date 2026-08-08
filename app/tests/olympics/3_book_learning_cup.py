@@ -37,10 +37,7 @@ def main():
         print(f"\n[Book Cup] Step 2: Reading book: {book_path.name}")
         print("[Book Cup] This will use LLM for Deep Extraction (Parallel)...\n")
 
-        # ФИКС: Вызываем web_chatgpt (или web_deepseek).
-        # Когда это запустится, откроется браузер Chromium и начнет сам печатать промпты.
-        # Тебе нужно будет ОДИН раз залогиниться в ChatGPT (при первом запуске браузер подождет).
-        manager.execute_command("ingest", str(book_path), "--provider", "web_chatgpt")
+        manager.execute_command("ingest", str(book_path), "--provider", "auto")
         time.sleep(2)
 
         stats_after = core.get_stats()

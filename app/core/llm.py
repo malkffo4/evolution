@@ -57,7 +57,7 @@ class LLMClient:
 
             def is_valid_key(k):
                 if not k: return False
-                if "ваш_ключ" in k or "другой_ключ" in k: return False
+                if "YOUR_KEY" in k or "OTHER_KEY" in k: return False
                 try:
                     k.encode('ascii')
                     return True
@@ -82,8 +82,8 @@ class LLMClient:
             self.providers.append("web_chatgpt")
 
             if not self.providers:
-                print("[LLM] Ни один провайдер не определен. Переход на web_deepseek.", file=sys.stderr)
-                self.providers.append("web_deepseek")
+                print("[LLM] API ключей нет, использую локальную Ollama.", file=sys.stderr)
+                self.providers.append("ollama")
 
             self.provider = self.providers[0]
         else:
@@ -94,6 +94,22 @@ class LLMClient:
         self.api_key = api_key
         self.model_to_use = None
         self.key_to_use = None
+
+        # 1. Читаем кэш прямо при инициализации, чтобы сразу подхватить рабочий LLM
+        if os.path.exists(LLM_CACHE_FILE):
+            try:
+                with open(LLM_CACHE_FILE, "r") as f:
+                    cached = json.load(f).get("provider")
+                    if cached and cached in self.providers:
+                        self.providers.remove(cached)
+                        self.providers.insert(0, cached)
+                        self.provider = cached
+            except Exception:
+                pass
+
+        # 2. Сразу инициализируем переменные, иначе прямые вызовы aquery() упадут
+        self.model_to_use = self._get_model(self.provider)
+        self.key_to_use = self._get_api_key(self.provider)
 
     def _get_api_key(self, provider):
         if self.api_key: return self.api_key

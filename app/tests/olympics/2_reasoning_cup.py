@@ -31,7 +31,7 @@ def main():
     print("====================================================\n")
 
     # Генерируем случайные концепции для текущего запуска
-    OOD_GOAL = f"Goal_{generate_alien_word()}"
+    OOD_GOAL = "InductiveSynthesisGoal"
     OOD_PROCESS = f"Proc_{generate_alien_word()}"
     OOD_ENTITIES = [f"Ent_{generate_alien_word()}" for _ in range(3)]
 

@@ -53,8 +53,13 @@ def has_direct_algorithm(ipc, goal) -> bool:
     resp = ipc.request("retrieve", {"query": goal})
     payload = resp.get("payload", {})
     if isinstance(payload, str):
+        import json
         payload = json.loads(payload) if payload else {}
-    return any(a.get("process") == "HAS_ALGORITHM" for a in payload.get("atoms", []))
+    # ИСПРАВЛЕНО: проверяем, что процесс именно HAS_ALGORITHM и наша Цель есть в аргументах
+    for a in payload.get("atoms", []):
+        if a.get("process") == "HAS_ALGORITHM" and goal in a.get("args", []):
+            return True
+    return False
 
 
 def activate(ipc):
