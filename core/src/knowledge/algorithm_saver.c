@@ -27,6 +27,10 @@ int algorithm_save(MDB_txn *txn, node_id_t algo_id, const Pipeline *pipeline) {
     total_size += sizeof(uint32_t);                     // float_count
     total_size += c->float_count * sizeof(double);
     total_size += sizeof(uint32_t);                     // str_count
+    total_size += sizeof(uint32_t); /* in_count */
+    total_size += pipeline->in_count * sizeof(uint8_t);
+    total_size += sizeof(uint32_t); /* out_count */
+    total_size += pipeline->out_count * sizeof(uint8_t);
 
     for (uint32_t i = 0; i < c->str_count; i++) {
         total_size += sizeof(uint32_t) + c->str_consts[i].len;
@@ -78,6 +82,24 @@ int algorithm_save(MDB_txn *txn, node_id_t algo_id, const Pipeline *pipeline) {
             memcpy(ptr, c->str_consts[i].data, c->str_consts[i].len);
             ptr += c->str_consts[i].len;
         }
+    }
+    /* Pipeline I/O signature */
+    tmp32 = (uint32_t)pipeline->in_count;
+    memcpy(ptr, &tmp32, sizeof(tmp32));
+    ptr += sizeof(tmp32);
+
+    if (pipeline->in_count > 0) {
+        memcpy(ptr, pipeline->in_regs, pipeline->in_count * sizeof(uint8_t));
+        ptr += pipeline->in_count * sizeof(uint8_t);
+    }
+
+    tmp32 = (uint32_t)pipeline->out_count;
+    memcpy(ptr, &tmp32, sizeof(tmp32));
+    ptr += sizeof(tmp32);
+
+    if (pipeline->out_count > 0) {
+        memcpy(ptr, pipeline->out_regs, pipeline->out_count * sizeof(uint8_t));
+        ptr += pipeline->out_count * sizeof(uint8_t);
     }
 
     data.mv_size = total_size;

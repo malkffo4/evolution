@@ -109,6 +109,44 @@ int algorithm_load(MDB_txn *txn, node_id_t algo_id, Pipeline **out_pipeline) {
             cptr += slen;
         }
     }
+    /* Pipeline I/O signature.
+     * Old records may not contain this section; keep legacy defaults.
+     */
+    if (cptr + sizeof(uint32_t) <= end) {
+        memcpy(&n, cptr, sizeof(uint32_t));
+        cptr += sizeof(uint32_t);
+
+        if (n > 8)
+            goto cleanup;
+
+        p->in_count = (uint8_t)n;
+
+        if (n > 0) {
+            if (cptr + n * sizeof(uint8_t) > end)
+                goto cleanup;
+
+            memcpy(p->in_regs, cptr, n * sizeof(uint8_t));
+            cptr += n * sizeof(uint8_t);
+        }
+    }
+
+    if (cptr + sizeof(uint32_t) <= end) {
+        memcpy(&n, cptr, sizeof(uint32_t));
+        cptr += sizeof(uint32_t);
+
+        if (n > 8)
+            goto cleanup;
+
+        p->out_count = (uint8_t)n;
+
+        if (n > 0) {
+            if (cptr + n * sizeof(uint8_t) > end)
+                goto cleanup;
+
+            memcpy(p->out_regs, cptr, n * sizeof(uint8_t));
+            cptr += n * sizeof(uint8_t);
+        }
+    }
 
 done:
     *out_pipeline = p;

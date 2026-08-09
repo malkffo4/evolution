@@ -29,12 +29,14 @@ typedef struct {
 /* Пайплайн (граф обработки) */
 typedef struct Pipeline {
     PipelineID      id;
-    Instruction     *code;          // байткод
-    uint32_t        capacity; // WHY?
+    Instruction     *code;
+    uint32_t        capacity;
     uint32_t        code_len;
-    ConstantPool    constants;    // пул констант
-    // const Operator *resolved[MAX_OPERATORS_IN_PIPELINE];
-    /* могут быть другие поля */
+    ConstantPool    constants;
+    uint8_t         in_regs[8];
+    uint8_t         in_count;
+    uint8_t         out_regs[8];
+    uint8_t         out_count;
 } Pipeline;
 
 Pipeline* pipeline_create(void);

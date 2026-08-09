@@ -131,6 +131,26 @@ void cmd_learn(IPCPacket *req, IPCPacket *resp) {
         cJSON *type = cJSON_GetObjectItem(root, "type");
         if (cJSON_IsString(type) && strcmp(type->valuestring, "pipeline") == 0) {
             job.imported_pipeline = pipeline_from_json(root, &job.algo_id);
+            if (job.imported_pipeline) {
+                cJSON *in_regs = cJSON_GetObjectItem(root, "in_regs");
+                if (cJSON_IsArray(in_regs)) {
+                    int n = cJSON_GetArraySize(in_regs);
+                    for (int i = 0; i < n && i < 8; i++) {
+                        cJSON *item = cJSON_GetArrayItem(in_regs, i);
+                        if (cJSON_IsNumber(item))
+                            job.imported_pipeline->in_regs[job.imported_pipeline->in_count++] = (uint8_t)item->valueint;
+                    }
+                }
+                cJSON *out_regs = cJSON_GetObjectItem(root, "out_regs");
+                if (cJSON_IsArray(out_regs)) {
+                    int n = cJSON_GetArraySize(out_regs);
+                    for (int i = 0; i < n && i < 8; i++) {
+                        cJSON *item = cJSON_GetArrayItem(out_regs, i);
+                        if (cJSON_IsNumber(item))
+                            job.imported_pipeline->out_regs[job.imported_pipeline->out_count++] = (uint8_t)item->valueint;
+                    }
+                }
+            }
         } else if (cJSON_IsString(type) && strcmp(type->valuestring, "hyper_pattern") == 0) {
             job.is_pattern = (hyper_pattern_from_json(root, &job.pattern) == 0);
         }

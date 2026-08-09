@@ -27,18 +27,29 @@ def main():
         GOAL = f"FindVulnFromLogGoal_{gen_word()}"
 
         print("[Composition Cup] 1. Injecting fundamental skills (A and B)...")
-        core.learn_pipeline("ExtractIP", [
-            {"operator_id": "load_const", "arg": [0, 0, 0, 0, 0, 0]},
-            {"operator_id": "halt"}
-        ], {"int_consts": [10]})
+        core.learn_pipeline(
+            "ExtractIP",
+            [
+                {"operator_id": "load_const", "arg": [0, 0, 0, 0, 0, 0]},
+                {"operator_id": "halt"}
+            ],
+            {"int_consts": [10]},
+            out_regs=[0]
+        )
 
-        core.learn_pipeline("ScanIP", [
-            {"operator_id": "load_const", "arg": [2, 0, 0, 0, 0, 0]},
-            {"operator_id": "mul", "arg": [0, 1, 2, 0, 0, 0]},
-            {"operator_id": "load_const", "arg": [3, 1, 0, 0, 0, 0]},
-            {"operator_id": "assert", "arg": [3, 0, 0, 4, 0, 0]},
-            {"operator_id": "halt"}
-        ], {"int_consts": [2, str(djb2_hash("VULNERABILITY"))]})
+        core.learn_pipeline(
+            "ScanIP",
+            [
+                {"operator_id": "load_const", "arg": [2, 0, 0, 0, 0, 0]},
+                {"operator_id": "mul", "arg": [0, 1, 2, 0, 0, 0]},
+                {"operator_id": "load_const", "arg": [3, 1, 0, 0, 0, 0]},
+                {"operator_id": "assert", "arg": [3, 0, 0, 4, 0, 0]},
+                {"operator_id": "halt"}
+            ],
+            {"int_consts": [2, str(djb2_hash("VULNERABILITY"))]},
+            in_regs=[1],
+            out_regs=[0]
+        )
 
         facts = {"atoms": [
             {"process": "PRODUCES", "kind": "relation", "args": ["ExtractIP", "IP_Address"], "confidence": 1.0},
