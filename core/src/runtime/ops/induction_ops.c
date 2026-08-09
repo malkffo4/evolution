@@ -42,7 +42,19 @@ int vm_op_mine_causal_pattern(VMContext *ctx, const Instruction *ins) {
     MDB_val key = { sizeof(node_id_t), &subject };
     MDB_val val;
 
-    typedef struct { ko_id_t process_id; uint32_t count; } Group;
+    typedef struct {
+        ko_id_t process_id;
+        uint32_t count;
+
+        ko_id_t arg0_val;
+        ko_id_t arg1_val;
+
+        bool arg0_is_var;
+        bool arg1_is_var;
+
+        bool arg0_is_subject;
+        bool arg1_is_subject;
+    } Group;
     Group groups[PATTERN_MINE_MAX_GROUPS] = {0};
     uint32_t group_count = 0;
     uint32_t scanned = 0;
@@ -67,6 +79,8 @@ int vm_op_mine_causal_pattern(VMContext *ctx, const Instruction *ins) {
                     for (uint32_t g = 0; g < group_count; g++) {
                         if (groups[g].process_id == child.process_id) {
                             groups[g].count++;
+                            if (groups[g].arg0_val != child.args[0].raw) groups[g].arg0_is_var = true;
+                            if (groups[g].arg1_val != child.args[1].raw) groups[g].arg1_is_var = true;
                             found_group = true;
                             break;
                         }
@@ -74,6 +88,10 @@ int vm_op_mine_causal_pattern(VMContext *ctx, const Instruction *ins) {
                     if (!found_group && group_count < PATTERN_MINE_MAX_GROUPS) {
                         groups[group_count].process_id = child.process_id;
                         groups[group_count].count = 1;
+                        groups[group_count].arg0_val = child.args[0].raw;
+                        groups[group_count].arg1_val = child.args[1].raw;
+                        groups[group_count].arg0_is_var = false;
+                        groups[group_count].arg1_is_var = false;
                         group_count++;
                     }
                 }
@@ -101,6 +119,20 @@ int vm_op_mine_causal_pattern(VMContext *ctx, const Instruction *ins) {
     LOG_REASONER("[MINE_CAUSAL_PATTERN] subject=%lu scanned=%u groups=%u -> pattern process=%lu count=%u",
                  (unsigned long)subject, scanned, group_count,
                  (unsigned long)groups[best].process_id, groups[best].count);
+
+    // TODO. лучше — не считать любую вариативность автоматически переменной subject.
+    // Нужно проверять, действительно ли изменяющийся аргумент связан с subject.
+    // Иначе Core начнёт учить:
+    // "раз у этих примеров разные значения, значит это переменная"
+    // что логически неверно.
+    ko_id_t out_arg0 = groups[best].arg0_is_var ? HYPER_MAKE_REF(subject) : groups[best].arg0_val;
+
+    ko_id_t out_arg1 = groups[best].arg1_is_var ? HYPER_MAKE_REF(subject) : groups[best].arg1_val;
+
+    ctx->reg[48].type = REG_INT;
+    ctx->reg[48].i = (int64_t)out_arg0;
+    ctx->reg[53].type = REG_INT;
+    ctx->reg[53].i = (int64_t)out_arg1;
 
     ctx->reg[r_proc_out].type = REG_INT;
     ctx->reg[r_proc_out].i = (int64_t)groups[best].process_id;

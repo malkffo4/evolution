@@ -122,9 +122,10 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]},    # 5
         {"operator_id": "spawn_ctx",           "arg": [8, 0, 0, 0, 0, 0]},    # 6
         {"operator_id": "synthesize_sequence", "arg": [2, 3, 9, 0, 0, 0]},    # 7
-        {"operator_id": "derive",              "arg": [10, 9, 1, 6, 11, 0]},  # 8
-        {"operator_id": "merge_ctx",           "arg": [float_to_uint32(0.30), 0, 0, 0, 0, 0]},  # 9
-        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]}     # 10
+        {"operator_id": "exec_algorithm",      "arg": [9, 0, 0, 0, 0, 0]},    # 8
+        {"operator_id": "derive",              "arg": [10, 9, 1, 6, 11, 0]},  # 9
+        {"operator_id": "merge_ctx",           "arg": [float_to_uint32(0.30), 0, 0, 0, 0, 0]},  # 10
+        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]}     # 11
     ], {"int_consts": [
         str(proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION)),
         0,

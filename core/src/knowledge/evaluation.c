@@ -2,7 +2,6 @@
 // Полная реализация RFC-0001 Adaptive Planner v2
 // Идентичность — через process + args, поиск — через hyper_find_by_participant.
 // Оценка разделена на неизменяемые Evaluation (наблюдения) и мутируемый Score (свёртка).
-
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -268,9 +267,7 @@ int score_recompute(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, nod
     return rc;
 }
 
-int score_propagate_credit(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain,
-                            node_id_t result_atom_id, float outcome,
-                            uint32_t max_depth, float discount) {
+int score_propagate_credit(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain domain, node_id_t result_atom_id, float outcome, uint32_t max_depth, float discount) {
     if (!hmem || !txn || !hmem->dbi_idx_causal) return -1;
     if (result_atom_id == 0) return -1;
     if (max_depth == 0)  max_depth = 8;
@@ -285,9 +282,14 @@ int score_propagate_credit(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain doma
         MDB_val key = { sizeof(ko_id_t), &current_id };
         MDB_val val;
 
-        if (mdb_get(txn, hmem->dbi_atoms, &key, &val) != MDB_SUCCESS ||
-            val.mv_size != sizeof(NeuroAtom)) {
-            break; // атом уже архивирован decay-циклом — обрываем трассировку, не ошибка
+        int atom_rc = mdb_get(txn, hmem->dbi_atoms, &key, &val);
+        if (atom_rc != MDB_SUCCESS) {
+            LOG_PLANNER("[CREDIT] atom lookup failed: atom=%lu rc=%d (%s)", (unsigned long)current_id, atom_rc, mdb_strerror(atom_rc));
+            break;
+        }
+        if (val.mv_size != sizeof(NeuroAtom)) {
+            LOG_PLANNER("[CREDIT] invalid atom size: atom=%lu size=%zu expected=%zu", (unsigned long)current_id, val.mv_size, sizeof(NeuroAtom));
+            break;
         }
 
         NeuroAtom atom;
@@ -295,33 +297,59 @@ int score_propagate_credit(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain doma
 
         float weight = powf(discount, (float)depth);
 
+        LOG_PLANNER(
+                    "[CREDIT] depth=%u atom=%lu process=%lu "
+                    "arg0=%lu type0=%llu arg1=%lu type1=%llu weight=%.4f",
+                    depth,
+                    (unsigned long)atom.id,
+                    (unsigned long)atom.process_id,
+                    (unsigned long)HYPER_GET_ID(atom.args[0].raw),
+                    (unsigned long long)HYPER_GET_TYPE(atom.args[0].raw),
+                    (unsigned long)HYPER_GET_ID(atom.args[1].raw),
+                    (unsigned long long)HYPER_GET_TYPE(atom.args[1].raw),
+                    weight
+                );
+
         for (int slot = 0; slot < HYPER_VAL_SLOTS; slot++) {
             if (HYPER_GET_TYPE(atom.args[slot].raw) != HYPER_TYPE_REF) continue;
             node_id_t subject = HYPER_GET_ID(atom.args[slot].raw);
             if (subject == 0) continue;
 
-            if (score_update_weighted(txn, hmem, domain, subject, outcome, weight,
-                                       atom.id, atom.context_or_time_link) == 0)
+            int rc = score_update_weighted(txn, hmem, domain, subject, outcome, weight, atom.id, atom.context_or_time_link);
+            if (rc == 0)
                 propagated++;
         }
 
         MDB_val cause_val;
-        if (mdb_get(txn, hmem->dbi_idx_causal, &key, &cause_val) != MDB_SUCCESS ||
-            cause_val.mv_size != sizeof(ko_id_t)) {
+        int cause_rc = mdb_get(txn, hmem->dbi_idx_causal, &key, &cause_val);
+        if (cause_rc != MDB_SUCCESS) {
+            LOG_PLANNER("[CREDIT] causal lookup ended: atom=%lu rc=%d (%s)", (unsigned long)current_id, cause_rc, mdb_strerror(cause_rc));
             break;
         }
+        if (cause_val.mv_size != sizeof(ko_id_t)) {
+            LOG_PLANNER("[CREDIT] invalid causal value: atom=%lu size=%zu expected=%zu", (unsigned long)current_id, cause_val.mv_size, sizeof(ko_id_t));
+            break;
+        }
+
         ko_id_t next_id;
         memcpy(&next_id, cause_val.mv_data, sizeof(ko_id_t));
-        if (next_id == current_id) break; // защита от самопетли
+        if (next_id == current_id) { // защита от самопетли
+            LOG_PLANNER("[CREDIT] causal self-loop detected: atom=%lu", (unsigned long)current_id);
+            break;
+        }
         current_id = next_id;
         depth++;
     }
+    LOG_PLANNER("[CREDIT] finished result=%lu propagated=%d depth=%u",(unsigned long)result_atom_id, propagated, depth);
 
     return propagated;
 }
 
 float score_domain_kappa(CognitiveDomain domain) {
-    if (domain >= 0 || (size_t)domain >= sizeof(kDomainKappa)/sizeof(kDomainKappa[0]))
+    size_t n = sizeof(kDomainKappa) / sizeof(kDomainKappa[0]);
+
+    if ((int)domain < 0 || (size_t)domain >= n)
         return kDomainKappa[0];
+
     return kDomainKappa[domain];
 }

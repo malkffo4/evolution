@@ -17,7 +17,13 @@ ko_id_t hyper_memory_new_id(HyperMemory *mem) {
 
     return ((uint64_t)mem->idgen->node_id << 48) | ((uint64_t)mem->idgen->session_id << 32) | seq;
 }
-
+// TODO. Для системы, которая должна жить месяцами, учиться, исполнять алгоритмы и сохранять историю, я бы сделал:
+// node_id | boot/session_id | monotonic sequence
+// причём node_id должен быть постоянным для конкретного экземпляра Core, а session — новым при каждом запуске.
+// Иначе persistence начинает зависеть от того, какой HyperMemory первым получил какой ID.
+// В vm_pool это частично исправлено установкой session_id:
+// worker_hmem->idgen->session_id = (uint16_t)((job->goal_id ^ job->algo_id) & 0xFFFF);
+// Но это всё ещё не полноценная глобальная идентичность.
 HyperMemory *hyper_memory_new(MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx) {
     HyperMemory *mem = calloc(1, sizeof(HyperMemory));
     if (!mem) return NULL;
@@ -80,6 +86,9 @@ static bool hyper_atom_exists(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *a
             }
         }
         if (match) {
+            // ФИКС: Обновляем ID, чтобы вызывающая сторона (OP_ASSERT/DERIVE)
+            // использовала реальный узел, а не "повисший" фантомный ID.
+            ((NeuroAtom *)atom)->id = existing[i].id;
             free(existing);
             return true;
         }
@@ -103,19 +112,35 @@ int hyper_assert(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom) {
     if (rc != MDB_SUCCESS) return rc;
 
     MDB_val key_proc = {sizeof(ko_id_t), (void *)&atom->process_id};
-    mdb_put(txn, mem->dbi_idx_process, &key_proc, &key_id, 0);
+    rc = mdb_put(txn, mem->dbi_idx_process, &key_proc, &key_id, 0);
+    if (rc != MDB_SUCCESS) return rc;
 
     for (int i = 0; i < HYPER_VAL_SLOTS; i++) {
-        if (HYPER_GET_TYPE(atom->args[i].raw) == HYPER_TYPE_REF && atom->args[i].raw != 0) {
-            ko_id_t clean_ref = HYPER_GET_ID(atom->args[i].raw);
-            MDB_val key_arg = {sizeof(ko_id_t), (void *)&clean_ref};
-            mdb_put(txn, mem->dbi_idx_args, &key_arg, &key_id, 0);
-        }
+        if (HYPER_GET_ID(atom->args[i].raw) == 0)
+            continue;
+
+        ko_id_t clean_ref = HYPER_GET_ID(atom->args[i].raw);
+
+        MDB_val key_arg = {
+            sizeof(ko_id_t),
+            (void *)&clean_ref
+        };
+
+        rc = mdb_put(txn, mem->dbi_idx_args, &key_arg, &key_id, 0);
+        if (rc != MDB_SUCCESS)
+            return rc;
     }
 
-    MDB_val key_ctx = {sizeof(ko_id_t), (void *)&atom->context_or_time_link};
-    mdb_put(txn, mem->dbi_idx_context, &key_ctx, &key_id, 0);
-    return 0;
+    MDB_val key_ctx = {
+        sizeof(ko_id_t),
+        (void *)&atom->context_or_time_link
+    };
+
+    rc = mdb_put(txn, mem->dbi_idx_context, &key_ctx, &key_id, 0);
+    if (rc != MDB_SUCCESS)
+        return rc;
+
+    return MDB_SUCCESS;
 }
 
 int hyper_assert_with_cause(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id) {
@@ -177,8 +202,7 @@ int hyper_find_by_process_sti(MDB_txn *txn, HyperMemory *mem,
             if (participant_id != 0) {
                 bool found = false;
                 for (int i = 0; i < HYPER_VAL_SLOTS; i++) {
-                    if (HYPER_GET_TYPE(atom->args[i].raw) == HYPER_TYPE_REF &&
-                        HYPER_GET_ID(atom->args[i].raw) == participant_id) {
+                    if (HYPER_GET_ID(atom->args[i].raw) == participant_id) {
                         found = true;
                         break;
                     }
@@ -279,10 +303,11 @@ int hyper_find_by_context(MDB_txn *txn, HyperMemory *mem, ko_id_t context_id,
 }
 
 // Трассировка причинности
-int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem,
-                ko_id_t start_id, NeuroAtom **chain,
-                size_t max_depth, size_t *count) {
+int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem, ko_id_t start_id, NeuroAtom **chain, size_t max_depth, size_t *count) {
     if (!mem || !txn || !chain || !count) return -1;
+
+    // Если запрошен дефолт (0), ставим разумный лимит глубины
+    if (max_depth == 0) max_depth = 64;
 
     *chain = malloc(sizeof(NeuroAtom) * max_depth);
     if (!*chain) return -1;
@@ -293,8 +318,12 @@ int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem,
         // Загружаем текущий атом
         MDB_val key = {sizeof(ko_id_t), &current_id};
         MDB_val val;
-        if (mdb_get(txn, mem->dbi_atoms, &key, &val) != MDB_SUCCESS)
-            break;
+        if (mdb_get(txn, mem->dbi_atoms, &key, &val) != MDB_SUCCESS) {
+            // ФОЛБЭК: ищем в архиве, так как инструкции и старые факты могут быть там
+            if (!mem->dbi_archive || mdb_get(txn, mem->dbi_archive, &key, &val) != MDB_SUCCESS) {
+                break;
+            }
+        }
 
         NeuroAtom *atom = (NeuroAtom *)val.mv_data;
         memcpy(&(*chain)[*count], atom, sizeof(NeuroAtom));

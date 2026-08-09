@@ -9,6 +9,7 @@
 #include "vm_pool.h"
 #include "vm_param.h"
 #include "vm.h"
+#include "memory/critic_state.h"
 #include "core/globals.h"
 #include "storage/db/db.h"
 #include "storage/db/db_writer.h"
@@ -53,6 +54,7 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
 
     // Случайный session_id — защита от коллизий ID между параллельными воркерами.
     // Детерминированный ID на основе XOR цели и алгоритма
+    // TODO. session_id должен относиться к запуску/worker instance, а не вычисляться из пары goal/algo.
     worker_hmem->idgen->session_id = (uint16_t)((job->goal_id ^ job->algo_id) & 0xFFFF);
     hyper_memory_set_db_causal(worker_hmem, db.graph.hyper.idx_causal);
     hyper_memory_set_db_archive(worker_hmem, db.graph.hyper.archive);
@@ -89,6 +91,10 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     // видели непустую рабочую память.
     wm_activate(&local_wm, job->goal_id, 1.0f, 0.0f);
 
+    // ФИКС: Генерируем ID эпизода ДО исполнения, чтобы OP_ASSERT мог связать
+    // новые факты с этим запуском.
+    ctx.current_episode_id = hyper_memory_new_id(ctx.hyper_mem);
+
     uint64_t t_start = vm_rdtsc();
     int rc = vm_execute(&ctx, job->pipeline);
     uint64_t t_end = vm_rdtsc();
@@ -104,39 +110,43 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
                   (unsigned long)ctx.cycles, (unsigned long)ctx.last_result_id);
     }
 
-    // ГЛАВНЫЙ ФИКС: неудача исполнения — валидный когнитивный опыт
+    // ЗДЕСЬ ЗАМЫКАЕМ ПЕТЛЮ: отправляем результат исполнения Критику
+    record_execution_result(job->algo_id, rc);
+
+    // неудача исполнения — валидный когнитивный опыт
     // (docs/09_Learning.md: "Обучение на ошибках"), а не инфраструктурный
     // сбой. Score/Episode об ошибке ОБЯЗАНЫ попасть в LMDB — иначе UCB
     // (algorithm_planner.c::pick_best) никогда не увидит, что confidence
     // упала, и будет бесконечно выбирать один и тот же плохой алгоритм.
-    float outcome = (rc == VM_OK) ? 1.0f : 0.0f;
-    if (score_update(txn, ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, outcome, 0, 0) != 0) {
-        LOG_ERROR("[VM_POOL] score_update failed: algo=%lu outcome=%.1f",
-                  (unsigned long)job->algo_id, outcome);
+    float execution_success = (rc == VM_OK) ? 1.0f : 0.0f;
+    if (score_update(txn, ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, execution_success, 0, 0) != 0) {
+        LOG_ERROR("[VM_POOL] score_update failed: algo=%lu execution_success=%.1f",
+                  (unsigned long)job->algo_id, execution_success);
     }
+    // TODO. Добавить verification_score, result_validity, потом именно result_validity должен определять обучение алгоритма.
 
     if (ctx.last_result_id != 0) {
         int propagated = score_propagate_credit(txn, ctx.hyper_mem, COGNITIVE_DOMAIN_HYPOTHESIS,
-                                                  ctx.last_result_id, outcome, 0, 0.7f);
+                                                  ctx.last_result_id, execution_success, 0, 0.7f);
         // Если гипотеза была построена по аналогии (ctx.userdata хранит признаки x[4],
         // проставленные в момент OP_DERIVE аналогии — см. AnalogyEvaluation.score),
         // используем реальный исход как обучающий сигнал для весов эвристики.
         if (ctx.userdata) {
             const float *analogy_features = (const float *)ctx.userdata; // [neigh,center,cov,rel]
-            reasoning_weights_sgd_update(txn, analogy_features, outcome);
+            reasoning_weights_sgd_update(txn, analogy_features, execution_success);
         }
         LOG_DEBUG("[VM_POOL] credit propagated=%d result_id=%lu", propagated,
                 (unsigned long)ctx.last_result_id);
     }
 
     Episode ep = {0};
-    ep.id               = hyper_memory_new_id(ctx.hyper_mem);
+    ep.id               = ctx.current_episode_id; // Используем уже сгенерированный ID
     ep.goal_id          = job->goal_id;
     ep.algorithm_id     = job->algo_id;
     ep.result_atom_id   = ctx.last_result_id;
     ep.context_id       = ctx.current_context;
     ep.vm_status        = (int32_t)rc;
-    ep.outcome          = outcome;
+    ep.outcome          = execution_success;
     ep.start_cycles     = t_start;
     ep.duration_cycles  = (t_end > t_start) ? (t_end - t_start) : 0;
     ep.wall_time        = (uint64_t)time(NULL);
