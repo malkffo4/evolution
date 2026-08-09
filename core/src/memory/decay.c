@@ -20,6 +20,21 @@ const DecayPolicy DECAY_POLICY_DEFAULT = {
 // всей таблицы небольшими порциями (bounded cycle).
 static ko_id_t g_resume_key = 0;
 static bool    g_resume_valid = false;
+// TODO.
+// Если subconscious_decay_cycle() когда-нибудь начнёт выполняться из нескольких потоков/транзакций, это race condition.
+// А твоя архитектура уже имеет VM pool.
+// Я бы сделал позицию decay частью состояния конкретного процесса/памяти:
+// typedef struct {
+//     ko_id_t resume_key;
+//     bool resume_valid;
+// } DecayCursorState;
+// а не глобальной переменной.
+// Ещё важнее — сейчас логика:
+// mdb_cursor_get(cursor, &peek_key, &peek_data, MDB_NEXT);
+// archive_atom(...);
+// mdb_cursor_get(cursor, ..., MDB_SET_RANGE);
+// усложняет корректное продолжение обхода после удаления.
+// Я бы сначала сделал decay детерминированным и максимально простым, а оптимизацию round-robin уже потом.
 
 static void regress_to_zero(float *v, float rate) {
     *v = *v * (1.0f - rate);
@@ -39,10 +54,18 @@ static void remove_index_entries(MDB_txn *txn, HyperMemory *hmem, const NeuroAto
         mdb_cursor_close(cur);
     }
 
-    // idx_args: ref_arg -> id  (до 2 слотов теперь)
+    // idx_args: ref_arg -> id
+    // проект движется к:
+    // knowledge
+    //  → algorithm
+    //  → procedure
+    //  → execution
+    // и двум аргументам станет тесно.
+    // Сейчас это не надо расширять просто "на всякий случай", но нужно иметь в виду:
+    // индекс аргументов должен быть источником истины для поиска зависимостей, а не случайным ограничением конкретного opcode.
     if (mdb_cursor_open(txn, hmem->dbi_idx_args, &cur) == MDB_SUCCESS) {
         for (int i = 0; i < 2; i++) {
-            if (HYPER_GET_TYPE(atom->args[i].raw) != HYPER_TYPE_REF) continue;
+            if (HYPER_GET_ID(atom->args[i].raw) == 0) continue;
             ko_id_t ref = HYPER_GET_ID(atom->args[i].raw);
             MDB_val k = { sizeof(ko_id_t), (void *)&ref };
             MDB_val v = { sizeof(ko_id_t), (void *)&atom->id };
@@ -61,15 +84,8 @@ static void remove_index_entries(MDB_txn *txn, HyperMemory *hmem, const NeuroAto
         mdb_cursor_close(cur);
     }
 
-    // idx_causal: child_id -> cause_id  (атом как child — удаляем всю dup-группу)
-    if (hmem->dbi_idx_causal && mdb_cursor_open(txn, hmem->dbi_idx_causal, &cur) == MDB_SUCCESS) {
-        MDB_val k = { sizeof(ko_id_t), (void *)&atom->id };
-        MDB_val v;
-        if (mdb_cursor_get(cur, &k, &v, MDB_SET) == MDB_SUCCESS) {
-            mdb_cursor_del(cur, MDB_NODUPDATA);
-        }
-        mdb_cursor_close(cur);
-    }
+    // ВАЖНО: Блок удаления из dbi_idx_causal вырезан!
+    // Архивные атомы обязаны сохранять причинно-следственные связи.
 }
 
 static void archive_atom(MDB_txn *txn, HyperMemory *hmem, const NeuroAtom *atom) {

@@ -57,30 +57,17 @@ int main(void) {
     assert(algorithm_save(txn, inner_algo_id, &inner_pl) == MDB_SUCCESS);
 
     /* --- Внешний алгоритм: компонует два вызова InnerDerive ---
-     * const[0]=CAUSES, const[1]=REF(FIRE), const[2]=REF(SMOKE),
-     * const[3]=0(корневая причина), const[4]=inner_algo_id, const[5]=REF(ALARM) */
+    * Ожидает: r1=CAUSES, r2=FIRE, r3=SMOKE, r4=0 (корень), r5=ALARM, r7=inner_algo_id */
     Instruction outer_code[] = {
-        { .operator_id = OP_LOAD_CONST, .arg = {1, 0} },   /* r1 = CAUSES        */
-        { .operator_id = OP_LOAD_CONST, .arg = {2, 1} },   /* r2 = REF(FIRE)      */
-        { .operator_id = OP_LOAD_CONST, .arg = {3, 2} },   /* r3 = REF(SMOKE)     */
-        { .operator_id = OP_LOAD_CONST, .arg = {4, 3} },   /* r4 = 0 (корень)     */
-        { .operator_id = OP_LOAD_CONST, .arg = {7, 4} },   /* r7 = inner_algo_id  */
         { .operator_id = OP_EXEC_ALGORITHM, .arg = {7} },  /* derive FIRE->SMOKE  */
-        { .operator_id = OP_MOVE, .arg = {4, 6} },         /* r4 = id предыдущего */
-        { .operator_id = OP_LOAD_CONST, .arg = {2, 2} },   /* r2 = REF(SMOKE)     */
-        { .operator_id = OP_LOAD_CONST, .arg = {3, 5} },   /* r3 = REF(ALARM)     */
+        { .operator_id = OP_MOVE, .arg = {4, 6} },         /* r4 = id(FIRE->SMOKE) (причина для след. шага) */
+        { .operator_id = OP_MOVE, .arg = {2, 3} },         /* r2 = SMOKE (сдвигаем исходный r3 в r2) */
+        { .operator_id = OP_MOVE, .arg = {3, 5} },         /* r3 = ALARM (берем ALARM из r5) */
         { .operator_id = OP_EXEC_ALGORITHM, .arg = {7} },  /* derive SMOKE->ALARM */
         { .operator_id = OP_HALT }
     };
-    Pipeline outer_pl = { .code = outer_code, .code_len = 11, .capacity = 11 };
-    outer_pl.constants.int_consts = malloc(6 * sizeof(int64_t));
-    outer_pl.constants.int_consts[0] = (int64_t)CAUSES;
-    outer_pl.constants.int_consts[1] = (int64_t)HYPER_MAKE_REF(FIRE);
-    outer_pl.constants.int_consts[2] = (int64_t)HYPER_MAKE_REF(SMOKE);
-    outer_pl.constants.int_consts[3] = 0;
-    outer_pl.constants.int_consts[4] = (int64_t)inner_algo_id;
-    outer_pl.constants.int_consts[5] = (int64_t)HYPER_MAKE_REF(ALARM);
-    outer_pl.constants.int_count = 6;
+    Pipeline outer_pl = { .code = outer_code, .code_len = 6, .capacity = 6 };
+    // Пулу констант для outer_pl больше не нужны хардкод-значения, всё передадим в регистрах
 
     VMContext ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -88,6 +75,14 @@ int main(void) {
     memset(&wm, 0, sizeof(wm));
     assert(vm_init(&ctx, txn, &wm) == VM_OK);
     ctx.hyper_mem = hmem;
+
+    // Предзаполняем регистры корректными ТИПАМИ
+    ctx.reg[1].type = REG_NODE; ctx.reg[1].node = CAUSES;
+    ctx.reg[2].type = REG_NODE; ctx.reg[2].node = FIRE;
+    ctx.reg[3].type = REG_NODE; ctx.reg[3].node = SMOKE;
+    ctx.reg[4].type = REG_INT;  ctx.reg[4].i    = 0;
+    ctx.reg[5].type = REG_NODE; ctx.reg[5].node = ALARM;
+    ctx.reg[7].type = REG_INT;  ctx.reg[7].i    = (int64_t)inner_algo_id;
 
     int rc = vm_execute(&ctx, &outer_pl);
     assert(rc == VM_OK);

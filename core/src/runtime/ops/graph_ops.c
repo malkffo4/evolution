@@ -91,10 +91,14 @@ int vm_op_eval_graph(VMContext *ctx, const Instruction *ins) {
                 status = VM_INVALID_REGISTER;
                 break;
             }
-            ctx->reg[dst].type = REG_INT;
-            // БЫЛО: ctx->reg[dst].i = (int64_t)HYPER_GET_ID(instr_atom.args[1].raw);
-            // СТАЛО: сохраняем маску типа!
-            ctx->reg[dst].i = (int64_t)instr_atom.args[1].raw;
+            ko_id_t raw_val = instr_atom.args[1].raw;
+            if (HYPER_GET_TYPE(raw_val) == HYPER_TYPE_REF) {
+                ctx->reg[dst].type = REG_NODE;
+                ctx->reg[dst].node = HYPER_GET_ID(raw_val);
+            } else {
+                ctx->reg[dst].type = REG_INT;
+                ctx->reg[dst].i = (int64_t)HYPER_GET_ID(raw_val);
+            }
         } else {
             const Operator *op = operator_find(op_id);
             if (!op) {
@@ -255,7 +259,7 @@ int vm_op_assert_instruction(VMContext *ctx, const Instruction *ins) {
         if (ctx->reg[r_wide].type == REG_NODE)
             instr.args[1].raw = HYPER_MAKE_REF((ko_id_t)ctx->reg[r_wide].node);
         else if (ctx->reg[r_wide].type == REG_INT)
-            instr.args[1].raw = HYPER_MAKE_REF((ko_id_t)ctx->reg[r_wide].i);
+            instr.args[1].raw = (ko_id_t)ctx->reg[r_wide].i;
         else
             return VM_INVALID_TYPE;
     }

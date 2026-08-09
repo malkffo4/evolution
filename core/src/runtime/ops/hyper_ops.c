@@ -36,6 +36,17 @@ static ko_id_t get_parent_context(MDB_txn *txn, HyperMemory *mem, ko_id_t ctx_id
     return parent_id;
 }
 
+static ko_id_t pack_reg(const Register *r) {
+    if (r->type == REG_NODE) return HYPER_MAKE_REF(r->node);
+    if (r->type == REG_INT) return (ko_id_t)(r->i) | HYPER_TYPE_INT;
+    if (r->type == REG_FLOAT) {
+        union { double d; ko_id_t i; } u;
+        u.d = r->f;
+        return u.i | HYPER_TYPE_FLOAT;
+    }
+    return 0;
+}
+
 // --- HYPER OPS: строго args[2] ---
 
 // OP_QUERY: arg[0]=process_id_reg, arg[1]=participant_reg, arg[2]=context_reg -> sp[arg[3]], count->reg[arg[4]]
@@ -87,8 +98,8 @@ int vm_op_assert(VMContext *ctx, const Instruction *ins) {
     atom.id = hyper_memory_new_id(ctx->hyper_mem);
     atom.process_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
 
-    atom.args[0].raw = (ko_id_t)ctx->reg[ins->arg[1]].i;
-    atom.args[1].raw = (ko_id_t)ctx->reg[ins->arg[2]].i;
+    atom.args[0].raw = pack_reg(&ctx->reg[ins->arg[1]]);
+    atom.args[1].raw = pack_reg(&ctx->reg[ins->arg[2]]);
 
     atom.truth_mean = 1.0f;
     atom.truth_confidence = 0.6f;   // прямое ASSERT чуть увереннее дефолта
@@ -127,8 +138,8 @@ int vm_op_derive(VMContext *ctx, const Instruction *ins) {
     atom.id = hyper_memory_new_id(ctx->hyper_mem);
     atom.process_id = (ko_id_t)ctx->reg[ins->arg[0]].i;
 
-    atom.args[0].raw = (ko_id_t)ctx->reg[ins->arg[1]].i;
-    atom.args[1].raw = (ko_id_t)ctx->reg[ins->arg[2]].i;
+    atom.args[0].raw = pack_reg(&ctx->reg[ins->arg[1]]);
+    atom.args[1].raw = pack_reg(&ctx->reg[ins->arg[2]]);
 
     // Выведенное знание изначально менее уверенно, чем прямой ASSERT —
     // confidence зависит от источника (можно передавать через доп. регистр).

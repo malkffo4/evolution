@@ -66,8 +66,13 @@ int main(void) {
 
     // Гипотеза по аналогии: BAT -CAN-> FLY, cause = precedent.id
     ctx.reg[1].type = REG_INT; ctx.reg[1].i = (int64_t)CAN;
-    ctx.reg[2].type = REG_INT; ctx.reg[2].i = HYPER_MAKE_REF(BAT);
-    ctx.reg[3].type = REG_INT; ctx.reg[3].i = HYPER_MAKE_REF(FLY);
+    // Было:
+    // ctx.reg[2].type = REG_INT; ctx.reg[2].i = HYPER_MAKE_REF(BAT);
+    // ctx.reg[3].type = REG_INT; ctx.reg[3].i = HYPER_MAKE_REF(FLY);
+
+    // Стало:
+    ctx.reg[2].type = REG_NODE; ctx.reg[2].node = BAT;
+    ctx.reg[3].type = REG_NODE; ctx.reg[3].node = FLY;
     ctx.reg[4].type = REG_INT; ctx.reg[4].i = (int64_t)precedent.id;
 
     Instruction derive = {0};
@@ -85,8 +90,8 @@ int main(void) {
     assert(before_bat  == SCORE_PRIOR);
 
     // Симулируем то, что делает vm_op_evaluate_goals() после успеха
-    int propagated = score_propagate_credit(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS,
-                                             ctx.last_result_id, 1.0f, 0, 0.7f);
+    int propagated = score_propagate_credit(txn, hmem, COGNITIVE_DOMAIN_HYPOTHESIS, ctx.last_result_id, 1.0f, 0, 0.7f);
+    fprintf(stderr, "\n[LEARNING_TEST] hypothesis_id=%lu propagated=%d\n", (unsigned long)ctx.last_result_id,  propagated);
     assert(propagated == 4); // 2 атома на цепочке * 2 REF-аргумента
     ctx.last_result_id = 0;  // именно так поступает vm_op_evaluate_goals
 

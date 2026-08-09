@@ -46,6 +46,17 @@
 #include "knowledge/algorithm_saver.h"
 #include "knowledge/algorithm_loader.h"
 #include "storage/hyper_atom/hyper_atom.h"
+#include "storage/property/property.h"
+
+static uint32_t read_reg_convention(MDB_txn *txn, node_id_t algo_id, const char *key, uint32_t def) {
+    PropertyType t;
+    int64_t v;
+    uint32_t sz;
+    if (property_get(txn, algo_id, key, &t, &v, sizeof(v), &sz) == MDB_SUCCESS && t == PROP_INT) {
+        if (v >= 0 && v < VM_MAX_REGISTERS) return (uint32_t)v;
+    }
+    return def;
+}
 
 // arg[0]=r_goal(src), arg[1]=r_algo_a(dst,0=не нужен), arg[2]=r_algo_b(dst),
 // arg[3]=r_resource_x(dst), arg[4]=r_found(dst,0/1),
@@ -178,10 +189,7 @@ int vm_op_find_producer_chain(VMContext *ctx, const Instruction *ins) {
 /*
  * Zero-shot composition:
  *   A -> B
- * I/O contract is taken directly from Pipeline:
- *   A.out_regs[0] -> B.in_regs[0]
- * If a pipeline has no explicit I/O metadata, R0 is the legacy default.
- * No algorithm-specific knowledge is stored here.
+ * I/O contract is read dynamically from graph properties via LMDB.
  */
 int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
     uint32_t r_algo_a = ins->arg[0];
@@ -202,7 +210,6 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
     if (algo_b == 0) return VM_INVALID_TYPE;
 
     node_id_t algo_a = 0;
-
     if (ctx->reg[r_algo_a].type == REG_NODE) algo_a = ctx->reg[r_algo_a].node;
     else if (ctx->reg[r_algo_a].type == REG_INT) algo_a = (node_id_t)ctx->reg[r_algo_a].i;
 
@@ -211,12 +218,6 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
     Pipeline *pl_a = NULL;
     Pipeline *pl_b = NULL;
 
-    /*
-     * Load both pipelines before constructing the composite.
-     *
-     * This is deliberately metadata-driven:
-     * the composer does not know what A or B actually do.
-     */
     if (has_a) {
         if (algorithm_load(ctx->memory.txn, algo_a, &pl_a) != 0 || !pl_a)
             return VM_ERROR;
@@ -227,47 +228,11 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
         return VM_ERROR;
     }
 
-    /*
-     * Pipeline I/O contract.
-     *
-     * Explicit metadata wins.
-     * Missing metadata preserves the old R0 convention.
-     */
-    uint32_t out_a = 0;
-    uint32_t in_b  = 0;
+    // Читаем I/O контракт напрямую из свойств графа, а не из хрупкой структуры Pipeline
+    uint32_t out_a = has_a ? read_reg_convention(ctx->memory.txn, algo_a, "output_reg", 0) : 0;
+    uint32_t in_b  = read_reg_convention(ctx->memory.txn, algo_b, "input_reg", 0);
 
-    if (has_a && pl_a->out_count > 0)
-        out_a = pl_a->out_regs[0];
-
-    if (pl_b->in_count > 0)
-        in_b = pl_b->in_regs[0];
-
-    /*
-     * Validate register numbers before putting them into OP_MOVE.
-     *
-     * in_regs/out_regs are uint8_t in the serialized format, but the
-     * VM still has a finite register file.
-     */
-    if (out_a >= VM_MAX_REGISTERS || in_b >= VM_MAX_REGISTERS) {
-        pipeline_free(pl_a);
-        pipeline_free(pl_b);
-        return VM_INVALID_REGISTER;
-    }
-
-    /*
-     * Base sequence:
-     *
-     *   LOAD_CONST(A)
-     *   EXEC_ALGORITHM(A)
-     *   [MOVE(B.in, A.out)]
-     *   LOAD_CONST(B)
-     *   EXEC_ALGORITHM(B)
-     *   HALT
-     *
-     * 3 mandatory instructions + 2 for A + optional MOVE.
-     */
     uint32_t capacity = 3u + (has_a ? 2u : 0u) + (has_a && out_a != in_b ? 1u : 0u);
-
     Pipeline *p = pipeline_create_with_capacity(capacity);
 
     if (!p) {
@@ -276,68 +241,11 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
         return VM_OUT_OF_MEMORY;
     }
 
-    /*
-     * Composite input contract = A input contract.
-     *
-     * If A is absent, the composite is simply B.
-     */
-    if (has_a) {
-        p->in_count = pl_a->in_count;
-
-        if (p->in_count > 8) {
-            pipeline_free(p);
-            pipeline_free(pl_a);
-            pipeline_free(pl_b);
-            return VM_ERROR;
-        }
-
-        memcpy(p->in_regs,
-               pl_a->in_regs,
-               p->in_count * sizeof(uint8_t));
-    } else {
-        p->in_count = pl_b->in_count;
-
-        if (p->in_count > 8) {
-            pipeline_free(p);
-            pipeline_free(pl_a);
-            pipeline_free(pl_b);
-            return VM_ERROR;
-        }
-
-        memcpy(p->in_regs,
-               pl_b->in_regs,
-               p->in_count * sizeof(uint8_t));
-    }
-
-    /*
-     * Composite output contract = B output contract.
-     */
-    p->out_count = pl_b->out_count;
-
-    if (p->out_count > 8) {
-        pipeline_free(p);
-        pipeline_free(pl_a);
-        pipeline_free(pl_b);
-        return VM_ERROR;
-    }
-
-    memcpy(p->out_regs,
-           pl_b->out_regs,
-           p->out_count * sizeof(uint8_t));
-
     pipeline_free(pl_a);
     pipeline_free(pl_b);
 
-    /*
-     * Constants:
-     *
-     *   [A, B] when A exists
-     *   [B]    when A is absent
-     */
     uint32_t constant_count = has_a ? 2u : 1u;
-
-    p->constants.int_consts =
-        malloc(constant_count * sizeof(int64_t));
+    p->constants.int_consts = malloc(constant_count * sizeof(int64_t));
 
     if (!p->constants.int_consts) {
         pipeline_free(p);
@@ -355,124 +263,45 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
 
     p->constants.int_consts[ci] = (int64_t)algo_b;
     const_b = ci++;
-
     p->constants.int_count = ci;
 
-    /*
-     * The composite executor uses one dedicated register only for
-     * passing algorithm IDs into OP_EXEC_ALGORITHM.
-     *
-     * The actual data path is NOT tied to COMPOSE_REG.
-     */
-    #define VM_COMPOSITION_ALGO_REG (VM_MAX_REGISTERS - 2)
-
-    if (VM_COMPOSITION_ALGO_REG >= VM_MAX_REGISTERS) {
-        pipeline_free(p);
-        return VM_INVALID_REGISTER;
-    }
-
+    const uint32_t COMPOSE_REG = 40;
     bool build_ok = true;
 
     if (has_a) {
-        Instruction load_a = {
-            .operator_id = OP_LOAD_CONST,
-            .arg = { VM_COMPOSITION_ALGO_REG, const_a }
-        };
+        Instruction load_a = { .operator_id = OP_LOAD_CONST, .arg = { COMPOSE_REG, const_a } };
+        Instruction exec_a = { .operator_id = OP_EXEC_ALGORITHM, .arg = { COMPOSE_REG } };
 
-        Instruction exec_a = {
-            .operator_id = OP_EXEC_ALGORITHM,
-            .arg = { VM_COMPOSITION_ALGO_REG }
-        };
+        build_ok = build_ok && (pipeline_add_instruction(p, &load_a) == VM_OK);
+        build_ok = build_ok && (pipeline_add_instruction(p, &exec_a) == VM_OK);
 
-        build_ok =
-            build_ok &&
-            (pipeline_add_instruction(p, &load_a) == VM_OK);
-
-        build_ok =
-            build_ok &&
-            (pipeline_add_instruction(p, &exec_a) == VM_OK);
-
-        /*
-         * Generic register adapter.
-         *
-         * Example:
-         *
-         *   A.out = R0
-         *   B.in  = R1
-         *
-         * becomes:
-         *
-         *   MOVE R1 <- R0
-         *
-         * No knowledge of A/B is required.
-         */
         if (out_a != in_b) {
-            Instruction bridge = {
-                .operator_id = OP_MOVE,
-                .arg = { in_b, out_a, 0, 0, 0, 0 }
-            };
-
-            build_ok =
-                build_ok &&
-                (pipeline_add_instruction(p, &bridge) == VM_OK);
+            Instruction bridge = { .operator_id = OP_MOVE, .arg = { in_b, out_a, 0, 0, 0, 0 } };
+            build_ok = build_ok && (pipeline_add_instruction(p, &bridge) == VM_OK);
         }
     }
 
-    Instruction load_b = {
-        .operator_id = OP_LOAD_CONST,
-        .arg = { VM_COMPOSITION_ALGO_REG, const_b }
-    };
+    Instruction load_b = { .operator_id = OP_LOAD_CONST, .arg = { COMPOSE_REG, const_b } };
+    Instruction exec_b = { .operator_id = OP_EXEC_ALGORITHM, .arg = { COMPOSE_REG } };
+    Instruction halt_i = { .operator_id = OP_HALT };
 
-    Instruction exec_b = {
-        .operator_id = OP_EXEC_ALGORITHM,
-        .arg = { VM_COMPOSITION_ALGO_REG }
-    };
-
-    Instruction halt_i = {
-        .operator_id = OP_HALT
-    };
-
-    build_ok =
-        build_ok &&
-        (pipeline_add_instruction(p, &load_b) == VM_OK);
-
-    build_ok =
-        build_ok &&
-        (pipeline_add_instruction(p, &exec_b) == VM_OK);
-
-    build_ok =
-        build_ok &&
-        (pipeline_add_instruction(p, &halt_i) == VM_OK);
+    build_ok = build_ok && (pipeline_add_instruction(p, &load_b) == VM_OK);
+    build_ok = build_ok && (pipeline_add_instruction(p, &exec_b) == VM_OK);
+    build_ok = build_ok && (pipeline_add_instruction(p, &halt_i) == VM_OK);
 
     if (!build_ok) {
         pipeline_free(p);
         return VM_ERROR;
     }
 
-    /*
-     * Persist the generated executable as a normal algorithm.
-     */
     node_id_t new_algo_id = hyper_memory_new_id(ctx->hyper_mem);
-
     int rc = algorithm_save(ctx->memory.txn, new_algo_id, p);
-
     pipeline_free(p);
 
     if (rc != MDB_SUCCESS) {
-        LOG_ERROR("[ZERO_SHOT] algorithm_save failed for composite id=%lu: %s", (unsigned long)new_algo_id, mdb_strerror(rc));
+        LOG_ERROR("[ZERO_SHOT] algorithm_save failed: %s", mdb_strerror(rc));
         return VM_ERROR;
     }
-
-    LOG_REASONER(
-        "[ZERO_SHOT] synthesized composite algorithm id=%lu "
-        "(A=%lu%s, B=%lu, bridge=R%lu<-R%lu)",
-        (unsigned long)new_algo_id,
-        (unsigned long)algo_a,
-        has_a ? "" : " [skipped]",
-        (unsigned long)algo_b,
-        (unsigned long)in_b,
-        (unsigned long)out_a
-    );
 
     ctx->reg[r_dst].type = REG_NODE;
     ctx->reg[r_dst].node = new_algo_id;
