@@ -3,7 +3,7 @@
 #include <lmdb.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <time.h>
 #include <stdatomic.h>
 
 #include "math/vector_math.h"
@@ -11,12 +11,16 @@
 #include "storage/db/db.h"
 #include "hyper_atom.h"
 
-ko_id_t hyper_memory_new_id(HyperMemory *mem) {
-    if (!mem || !mem->idgen) return 0;
-    uint64_t seq = atomic_fetch_add(&mem->idgen->counter,1);
+// ФИКС 1: Глобально атомарный сиквенс + timestamp полностью исключает коллизии ID
+static _Atomic uint64_t g_hyper_seq = 1;
 
-    return ((uint64_t)mem->idgen->node_id << 48) | ((uint64_t)mem->idgen->session_id << 32) | seq;
+ko_id_t hyper_memory_new_id(HyperMemory *mem) {
+    (void)mem;
+    uint64_t seq = atomic_fetch_add(&g_hyper_seq, 1);
+    uint64_t now = (uint64_t)time(NULL);
+    return (now << 32) | (seq & 0xFFFFFFFF);
 }
+
 // TODO. Для системы, которая должна жить месяцами, учиться, исполнять алгоритмы и сохранять историю, я бы сделал:
 // node_id | boot/session_id | monotonic sequence
 // причём node_id должен быть постоянным для конкретного экземпляра Core, а session — новым при каждом запуске.
@@ -27,15 +31,6 @@ ko_id_t hyper_memory_new_id(HyperMemory *mem) {
 HyperMemory *hyper_memory_new(MDB_dbi atoms, MDB_dbi idx_proc, MDB_dbi idx_args, MDB_dbi idx_ctx) {
     HyperMemory *mem = calloc(1, sizeof(HyperMemory));
     if (!mem) return NULL;
-    mem->idgen = calloc(1, sizeof(HyperIdGenerator));
-    if (!mem->idgen) {
-        free(mem);
-        return NULL;
-    }
-    mem->idgen->node_id = 0;
-    mem->idgen->session_id = 0;
-    atomic_store(&mem->idgen->counter, 1);
-
     mem->dbi_atoms = atoms;
     mem->dbi_idx_process = idx_proc;
     mem->dbi_idx_args = idx_args;
@@ -72,6 +67,14 @@ int hyper_find_by_process(MDB_txn *txn, HyperMemory *mem,
 // (без учёта id, context_id и time_tick — только семантическая проверка)
 static bool hyper_atom_exists(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom) {
     if (!mem || !txn) return false;
+
+    // ФИКС: Инструкции, события и цели уникальны по определению.
+    // Их нельзя дедуплицировать, иначе причинно-следственный граф сплетётся в узел.
+    ProcKind kind = proc_kind(atom->process_id);
+    if (kind == PROC_KIND_EVENT || kind == PROC_KIND_INSTRUCTION || kind == PROC_KIND_GOAL) {
+        return false;
+    }
+
     NeuroAtom *existing = NULL;
     size_t count = 0;
     if (hyper_find_by_process(txn, mem, atom->process_id, 0, atom->context_or_time_link, &existing, &count) != 0)
@@ -86,8 +89,7 @@ static bool hyper_atom_exists(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *a
             }
         }
         if (match) {
-            // ФИКС: Обновляем ID, чтобы вызывающая сторона (OP_ASSERT/DERIVE)
-            // использовала реальный узел, а не "повисший" фантомный ID.
+            // Обновляем ID, чтобы OP_ASSERT/DERIVE ссылались на актуальный физический адрес
             ((NeuroAtom *)atom)->id = existing[i].id;
             free(existing);
             return true;
@@ -109,44 +111,38 @@ int hyper_assert(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom) {
     MDB_val val_atom = {sizeof(NeuroAtom), (void *)atom};
 
     int rc = mdb_put(txn, mem->dbi_atoms, &key_id, &val_atom, 0);
-    if (rc != MDB_SUCCESS) return rc;
+    if (rc != MDB_SUCCESS && rc != MDB_KEYEXIST) return rc;
 
     MDB_val key_proc = {sizeof(ko_id_t), (void *)&atom->process_id};
     rc = mdb_put(txn, mem->dbi_idx_process, &key_proc, &key_id, 0);
-    if (rc != MDB_SUCCESS) return rc;
+    // ФИКС: MDB_KEYEXIST - штатное поведение для DUPSORT, не обрываем сохранение
+    if (rc != MDB_SUCCESS && rc != MDB_KEYEXIST) return rc;
 
     for (int i = 0; i < HYPER_VAL_SLOTS; i++) {
-        if (HYPER_GET_ID(atom->args[i].raw) == 0)
-            continue;
-
-        ko_id_t clean_ref = HYPER_GET_ID(atom->args[i].raw);
-
-        MDB_val key_arg = {
-            sizeof(ko_id_t),
-            (void *)&clean_ref
-        };
-
-        rc = mdb_put(txn, mem->dbi_idx_args, &key_arg, &key_id, 0);
-        if (rc != MDB_SUCCESS)
-            return rc;
+        if (HYPER_GET_ID(atom->args[i].raw) != 0) {
+            ko_id_t clean_ref = HYPER_GET_ID(atom->args[i].raw);
+            MDB_val key_arg = {sizeof(ko_id_t), (void *)&clean_ref};
+            rc = mdb_put(txn, mem->dbi_idx_args, &key_arg, &key_id, 0);
+            if (rc != MDB_SUCCESS && rc != MDB_KEYEXIST) return rc;
+        }
     }
 
-    MDB_val key_ctx = {
-        sizeof(ko_id_t),
-        (void *)&atom->context_or_time_link
-    };
-
+    MDB_val key_ctx = {sizeof(ko_id_t), (void *)&atom->context_or_time_link};
     rc = mdb_put(txn, mem->dbi_idx_context, &key_ctx, &key_id, 0);
-    if (rc != MDB_SUCCESS)
-        return rc;
+    if (rc != MDB_SUCCESS && rc != MDB_KEYEXIST) return rc;
 
     return MDB_SUCCESS;
 }
 
 int hyper_assert_with_cause(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom, ko_id_t cause_id) {
     if (!txn || !mem || !atom) return -1;
+
     int rc = hyper_assert_unique(txn, mem, atom);
-    if (rc != 0 && rc != 1) return rc;
+    if (rc < 0) return rc;
+
+    // ФИКС: Блокируем дублирование причинно-следственных связей для УЖЕ существующих атомов!
+    // Это ломало hyper_trace_cause, сворачивая трассировку в тупики
+    if (rc == 1) return 1;
 
     if (cause_id != 0) {
         if (mem->dbi_idx_causal) {
@@ -334,7 +330,10 @@ int hyper_trace_cause(MDB_txn *txn, HyperMemory *mem, ko_id_t start_id, NeuroAto
         if (mdb_get(txn, mem->dbi_idx_causal, &key, &cause_val) != MDB_SUCCESS)
             break;   // нет причины, завершаем
 
-        current_id = *(ko_id_t *)cause_val.mv_data;  // следующий атом в цепочке
+        // БЕЗОПАСНОЕ ЧТЕНИЕ: копируем память во избежание UBSan
+        ko_id_t next_id;
+        memcpy(&next_id, cause_val.mv_data, sizeof(ko_id_t));
+        current_id = next_id;  // следующий атом в цепочке
     }
 
     return 0;

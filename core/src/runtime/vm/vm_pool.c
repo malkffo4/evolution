@@ -52,10 +52,7 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
         return -1;
     }
 
-    // Случайный session_id — защита от коллизий ID между параллельными воркерами.
-    // Детерминированный ID на основе XOR цели и алгоритма
-    // TODO. session_id должен относиться к запуску/worker instance, а не вычисляться из пары goal/algo.
-    worker_hmem->idgen->session_id = (uint16_t)((job->goal_id ^ job->algo_id) & 0xFFFF);
+    // Генератор ID теперь глобально-атомарный, idgen->session_id больше не нужен
     hyper_memory_set_db_causal(worker_hmem, db.graph.hyper.idx_causal);
     hyper_memory_set_db_archive(worker_hmem, db.graph.hyper.archive);
     hyper_memory_set_db_vectors(worker_hmem, db.graph.hyper.idx_vectors);

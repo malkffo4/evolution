@@ -133,11 +133,15 @@ int find_similar_nodes(MDB_txn *txn, const float *query_emb, int topK, uint64_t 
     int rc = mdb_cursor_get(cursor, &key, &data, MDB_FIRST);
     while (rc == MDB_SUCCESS && candidate_count < MAX_CANDIDATES) {
         if (key.mv_size == sizeof(query_hash)) {
-            int dist = hamming_distance((uint64_t *)key.mv_data, query_hash);
+            uint64_t cand_hash[4];
+            memcpy(cand_hash, key.mv_data, sizeof(cand_hash));
+            int dist = hamming_distance(cand_hash, query_hash);
             if (dist < HAMMING_THRESHOLD) {
                 do {
                     if (data.mv_size == sizeof(ko_id_t)) {
-                        candidates[candidate_count++] = *(ko_id_t *)data.mv_data;
+                        ko_id_t cand_id;
+                        memcpy(&cand_id, data.mv_data, sizeof(ko_id_t));
+                        candidates[candidate_count++] = cand_id;
                     }
                     rc = mdb_cursor_get(cursor, &key, &data, MDB_NEXT_DUP);
                 } while (rc == MDB_SUCCESS && candidate_count < MAX_CANDIDATES);

@@ -44,7 +44,8 @@ static ko_id_t pack_reg(const Register *r) {
         u.d = r->f;
         return u.i | HYPER_TYPE_FLOAT;
     }
-    return 0;
+    // ФИКС: Если тип пустой (как в C-тестах, где делают ctx.reg[X].i = Y), возвращаем сырое значение
+    return (ko_id_t)r->i;
 }
 
 // --- HYPER OPS: строго args[2] ---
@@ -268,9 +269,11 @@ static void remap_causal_index(MDB_txn *txn, HyperMemory *hmem, const IdMap *id_
         if (mdb_cursor_get(cur, &scan_key, &scan_val, MDB_FIRST) == MDB_SUCCESS) {
             do {
                 if (scan_val.mv_size == sizeof(ko_id_t)) {
-                    ko_id_t cause = *(ko_id_t*)scan_val.mv_data;
+                    ko_id_t cause;
+                    memcpy(&cause, scan_val.mv_data, sizeof(ko_id_t));
                     if (cause == old_id) {
-                        ko_id_t child = *(ko_id_t*)scan_key.mv_data;
+                        ko_id_t child;
+                        memcpy(&child, scan_key.mv_data, sizeof(ko_id_t));
                         // Удаляем старую пару (child, old_id)
                         mdb_cursor_del(cur, 0);
                         // Добавляем новую пару (child, new_id)

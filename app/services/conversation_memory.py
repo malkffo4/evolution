@@ -54,10 +54,16 @@ class ConversationMemory:
         for a in atoms:
             if a.get("process") in ("USER_SAYS", "CORE_SAYS"):
                 args = a.get("args", [])
-                if len(args) >= 3:
+                if len(args) >= 2:
                     speaker = "User" if a["process"] == "USER_SAYS" else "Core"
                     text = args[1]
-                    ts = float(args[2]) if args[2] else 0
+                    ts = 0.0
+                    # БЕЗОПАСНЫЙ ПАРСИНГ: C-ядро может вернуть в args[2] мусор или session_id
+                    if len(args) > 2:
+                        try:
+                            ts = float(args[2])
+                        except (ValueError, TypeError):
+                            pass
                     utterances.append((ts, f"[{speaker}]: {text}"))
 
         utterances.sort(key=lambda x: x[0])

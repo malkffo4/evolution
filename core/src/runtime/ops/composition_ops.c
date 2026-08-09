@@ -46,16 +46,12 @@
 #include "knowledge/algorithm_saver.h"
 #include "knowledge/algorithm_loader.h"
 #include "storage/hyper_atom/hyper_atom.h"
-#include "storage/property/property.h"
 
-static uint32_t read_reg_convention(MDB_txn *txn, node_id_t algo_id, const char *key, uint32_t def) {
-    PropertyType t;
-    int64_t v;
-    uint32_t sz;
-    if (property_get(txn, algo_id, key, &t, &v, sizeof(v), &sz) == MDB_SUCCESS && t == PROP_INT) {
-        if (v >= 0 && v < VM_MAX_REGISTERS) return (uint32_t)v;
-    }
-    return def;
+static uint32_t pipeline_out_reg(const Pipeline *pl, uint32_t def) {
+    return (pl && pl->out_count > 0) ? pl->out_regs[0] : def;
+}
+static uint32_t pipeline_in_reg(const Pipeline *pl, uint32_t def) {
+    return (pl && pl->in_count > 0) ? pl->in_regs[0] : def;
 }
 
 // arg[0]=r_goal(src), arg[1]=r_algo_a(dst,0=не нужен), arg[2]=r_algo_b(dst),
@@ -198,21 +194,17 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
 
     if (r_algo_a >= VM_MAX_REGISTERS || r_algo_b >= VM_MAX_REGISTERS || r_dst >= VM_MAX_REGISTERS)
         return VM_INVALID_REGISTER;
-
     if (!ctx->hyper_mem || !ctx->memory.txn) return VM_ERROR;
-
     if (ctx->reg[r_algo_b].type != REG_NODE && ctx->reg[r_algo_b].type != REG_INT)
         return VM_INVALID_TYPE;
 
     node_id_t algo_b = (ctx->reg[r_algo_b].type == REG_NODE)
         ? ctx->reg[r_algo_b].node : (node_id_t)ctx->reg[r_algo_b].i;
-
     if (algo_b == 0) return VM_INVALID_TYPE;
 
     node_id_t algo_a = 0;
     if (ctx->reg[r_algo_a].type == REG_NODE) algo_a = ctx->reg[r_algo_a].node;
     else if (ctx->reg[r_algo_a].type == REG_INT) algo_a = (node_id_t)ctx->reg[r_algo_a].i;
-
     bool has_a = (algo_a != 0);
 
     Pipeline *pl_a = NULL;
@@ -222,47 +214,29 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
         if (algorithm_load(ctx->memory.txn, algo_a, &pl_a) != 0 || !pl_a)
             return VM_ERROR;
     }
-
     if (algorithm_load(ctx->memory.txn, algo_b, &pl_b) != 0 || !pl_b) {
         pipeline_free(pl_a);
         return VM_ERROR;
     }
 
-    // Читаем I/O контракт напрямую из свойств графа, а не из хрупкой структуры Pipeline
-    uint32_t out_a = has_a ? read_reg_convention(ctx->memory.txn, algo_a, "output_reg", 0) : 0;
-    uint32_t in_b  = read_reg_convention(ctx->memory.txn, algo_b, "input_reg", 0);
+    // ФИКС: реальный контракт вместо несуществующих graph properties.
+    uint32_t out_a = has_a ? pipeline_out_reg(pl_a, 0) : 0;
+    uint32_t in_b  = pipeline_in_reg(pl_b, 0);
 
     uint32_t capacity = 3u + (has_a ? 2u : 0u) + (has_a && out_a != in_b ? 1u : 0u);
     Pipeline *p = pipeline_create_with_capacity(capacity);
 
-    if (!p) {
-        pipeline_free(pl_a);
-        pipeline_free(pl_b);
-        return VM_OUT_OF_MEMORY;
-    }
-
     pipeline_free(pl_a);
     pipeline_free(pl_b);
+    if (!p) return VM_OUT_OF_MEMORY;
 
     uint32_t constant_count = has_a ? 2u : 1u;
     p->constants.int_consts = malloc(constant_count * sizeof(int64_t));
+    if (!p->constants.int_consts) { pipeline_free(p); return VM_OUT_OF_MEMORY; }
 
-    if (!p->constants.int_consts) {
-        pipeline_free(p);
-        return VM_OUT_OF_MEMORY;
-    }
-
-    uint32_t ci = 0;
-    uint32_t const_a = 0;
-    uint32_t const_b = 0;
-
-    if (has_a) {
-        p->constants.int_consts[ci] = (int64_t)algo_a;
-        const_a = ci++;
-    }
-
-    p->constants.int_consts[ci] = (int64_t)algo_b;
-    const_b = ci++;
+    uint32_t ci = 0, const_a = 0, const_b = 0;
+    if (has_a) { p->constants.int_consts[ci] = (int64_t)algo_a; const_a = ci++; }
+    p->constants.int_consts[ci] = (int64_t)algo_b; const_b = ci++;
     p->constants.int_count = ci;
 
     const uint32_t COMPOSE_REG = 40;
@@ -271,7 +245,6 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
     if (has_a) {
         Instruction load_a = { .operator_id = OP_LOAD_CONST, .arg = { COMPOSE_REG, const_a } };
         Instruction exec_a = { .operator_id = OP_EXEC_ALGORITHM, .arg = { COMPOSE_REG } };
-
         build_ok = build_ok && (pipeline_add_instruction(p, &load_a) == VM_OK);
         build_ok = build_ok && (pipeline_add_instruction(p, &exec_a) == VM_OK);
 
@@ -284,20 +257,15 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
     Instruction load_b = { .operator_id = OP_LOAD_CONST, .arg = { COMPOSE_REG, const_b } };
     Instruction exec_b = { .operator_id = OP_EXEC_ALGORITHM, .arg = { COMPOSE_REG } };
     Instruction halt_i = { .operator_id = OP_HALT };
-
     build_ok = build_ok && (pipeline_add_instruction(p, &load_b) == VM_OK);
     build_ok = build_ok && (pipeline_add_instruction(p, &exec_b) == VM_OK);
     build_ok = build_ok && (pipeline_add_instruction(p, &halt_i) == VM_OK);
 
-    if (!build_ok) {
-        pipeline_free(p);
-        return VM_ERROR;
-    }
+    if (!build_ok) { pipeline_free(p); return VM_ERROR; }
 
     node_id_t new_algo_id = hyper_memory_new_id(ctx->hyper_mem);
     int rc = algorithm_save(ctx->memory.txn, new_algo_id, p);
     pipeline_free(p);
-
     if (rc != MDB_SUCCESS) {
         LOG_ERROR("[ZERO_SHOT] algorithm_save failed: %s", mdb_strerror(rc));
         return VM_ERROR;
@@ -305,6 +273,5 @@ int vm_op_synthesize_sequence(VMContext *ctx, const Instruction *ins) {
 
     ctx->reg[r_dst].type = REG_NODE;
     ctx->reg[r_dst].node = new_algo_id;
-
     return VM_OK;
 }
