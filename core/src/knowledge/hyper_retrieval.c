@@ -116,20 +116,41 @@ char* hyper_retrieve_json(MDB_txn *txn, HyperMemory *hmem, node_id_t participant
 
                 cJSON_AddItemToArray(atoms_arr, atom_json);
 
-                // Добавляем новых участников в очередь
-                for (int a = 0; a < 2; a++) {
-                    if (HYPER_GET_TYPE(results[i].args[a].raw) == HYPER_TYPE_REF) {
-                        node_id_t new_participant = HYPER_GET_ID(results[i].args[a].raw);
-                        int found = 0;
-                        for (int v = 0; v < v_count; v++) {
-                            if (visited[v] == new_participant) { found = 1; break; }
-                        }
-                        if (!found && v_count < max_atoms) {
-                            visited[v_count++] = new_participant;
-                            queue[q_tail++] = new_participant;
-                            nodes_next++;
+                // Добавляем новых участников в очередь.
+                // ВАЖНО: здесь НЕ модифицируем args_json —
+                // он уже полностью сформирован выше.
+                for (int a = 0; a < HYPER_VAL_SLOTS; a++) {
+                    ko_id_t raw = results[i].args[a].raw;
+
+                    if (raw == 0)
+                        continue;
+
+                    if (HYPER_GET_TYPE(raw) != HYPER_TYPE_REF)
+                        continue;
+
+                    ko_id_t participant_id = HYPER_GET_ID(raw);
+
+                    if (participant_id == 0)
+                        continue;
+
+                    bool already_visited = false;
+
+                    for (int v = 0; v < v_count; v++) {
+                        if (visited[v] == participant_id) {
+                            already_visited = true;
+                            break;
                         }
                     }
+
+                    if (already_visited)
+                        continue;
+
+                    if (v_count >= max_atoms || q_tail >= max_atoms)
+                        break;
+
+                    visited[v_count++] = participant_id;
+                    queue[q_tail++] = participant_id;
+                    nodes_next++;
                 }
             }
             free(results);

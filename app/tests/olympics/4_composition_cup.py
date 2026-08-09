@@ -13,6 +13,16 @@ from core.sdk import djb2_hash
 
 def gen_word(): return "".join(random.choices(string.ascii_letters, k=6))
 
+IP_CONST = 10
+TARIFF_CONST = 2
+
+def has_algorithm_link(core, goal: str) -> bool:
+    resp = core.retrieve(goal)
+    for a in resp.get("atoms", []):
+        if a.get("process") == "HAS_ALGORITHM" and goal in a.get("args", []):
+            return True
+    return False
+
 def main():
     print("====================================================")
     print("     AGI OLYMPICS: COMPOSITION CUP (LEVEL 9: ZERO-SHOT)")
@@ -33,8 +43,8 @@ def main():
                 {"operator_id": "load_const", "arg": [0, 0, 0, 0, 0, 0]},
                 {"operator_id": "halt"}
             ],
-            {"int_consts": [10]},
-            out_regs=[0]
+            {"int_consts": [IP_CONST]},
+            out_regs=[0],
         )
 
         core.learn_pipeline(
@@ -46,9 +56,9 @@ def main():
                 {"operator_id": "assert", "arg": [3, 0, 0, 4, 0, 0]},
                 {"operator_id": "halt"}
             ],
-            {"int_consts": [2, str(djb2_hash("VULNERABILITY"))]},
+            {"int_consts": [TARIFF_CONST, str(djb2_hash("VULNERABILITY"))]},
             in_regs=[1],
-            out_regs=[0]
+            out_regs=[0],
         )
 
         facts = {"atoms": [
@@ -73,16 +83,25 @@ def main():
             core.think()
             time.sleep(0.5)
 
+        expected = IP_CONST * TARIFF_CONST  # семантика, а не хардкод "20"
+
         print("[Composition Cup] 4. Verifying results in HyperMemory...")
         resp = core.retrieve("VULNERABILITY")
         atoms = resp.get("atoms", [])
 
-        found_vuln = any(str(a.get("args", [])[0]) == "20" for a in atoms if a.get("process") == "VULNERABILITY")
-        assert found_vuln, "Composition failed. Core did not assert VULNERABILITY(20, 20)."
+        found_vuln = any(
+            a.get("process") == "VULNERABILITY"
+            and len(a.get("args", [])) >= 2
+            and str(a["args"][0]) == str(expected)
+            and str(a["args"][1]) == str(expected)
+            for a in atoms
+        )
+        composed = has_algorithm_link(core, GOAL)
 
-        print("\n====================================================")
-        print("     COMPOSITION CUP: PASSED (AUTONOMOUS CODE GEN)")
-        print("====================================================")
+        assert composed, f"ZeroShotComposer не связал новый алгоритм с {GOAL}"
+        assert found_vuln, f"Ожидался VULNERABILITY({expected}, {expected}), получено: {atoms}"
+
+        print(f"[Composition Cup] composed={composed} vuln_value={expected} -> OK")
     finally:
         manager.shutdown()
 

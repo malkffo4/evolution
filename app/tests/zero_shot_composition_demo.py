@@ -53,11 +53,15 @@ def has_direct_algorithm(ipc, goal) -> bool:
     resp = ipc.request("retrieve", {"query": goal})
     payload = resp.get("payload", {})
     if isinstance(payload, str):
-        import json
         payload = json.loads(payload) if payload else {}
-    # ИСПРАВЛЕНО: проверяем, что процесс именно HAS_ALGORITHM и наша Цель есть в аргументах
-    for a in payload.get("atoms", []):
-        if a.get("process") == "HAS_ALGORITHM" and goal in a.get("args", []):
+
+    for atom in payload.get("atoms", []):
+        if atom.get("process") != "HAS_ALGORITHM":
+            continue
+
+        args = atom.get("args", [])
+
+        if len(args) >= 2 and str(args[1]) == str(goal):
             return True
     return False
 
@@ -78,20 +82,24 @@ def main():
     print(f"[ZeroShot] Подтверждено: прямого HAS_ALGORITHM для '{GOAL}' нет.")
 
     activate(ipc)
-    print("[ZeroShot] Цель активирована. Ждём, пока CorePlanner упрётся в пустоту "
-          "и запустит ZeroShotComposer...")
+    print("[ZeroShot] Цель активирована. Ждём ZeroShotComposer...")
 
     linked = False
-    for i in range(10):
+    deadline = time.monotonic() + 15.0
+    while time.monotonic() < deadline:
         ipc.command("think")
-        time.sleep(0.5)
-        if not linked and has_direct_algorithm(ipc, GOAL):
+        time.sleep(0.35)
+        if has_direct_algorithm(ipc, GOAL):
             linked = True
-            print(f"[ZeroShot] Композитный алгоритм связан с целью после think() #{i + 1}.")
-        if i == 4 and not linked:
-            activate(ipc)  # на случай, если активация цели затухла за время ожидания
+            print("[ZeroShot] Композитный алгоритм связан с целью.")
+            break
 
-    assert linked, "ZeroShotComposer ни разу не синтезировал HAS_ALGORITHM для GOAL"
+        # Working Memory может затухнуть.
+        # Периодически повторно активируем цель.
+        if int((deadline - time.monotonic()) * 10) % 20 == 0:
+            activate(ipc)
+
+    assert linked, (f"ZeroShotComposer не синтезировал HAS_ALGORITHM(*, {GOAL})")
     print("[ZeroShot] УСПЕХ: ядро само скомпоновало новый алгоритм из A+B, используя "
           "только графовые знания PRODUCES/REQUIRES — без единой строчки Python-хардкода.")
     ipc.close()

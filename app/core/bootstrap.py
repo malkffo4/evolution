@@ -114,18 +114,17 @@ def inject_core_algorithms(ipc: IPCClient):
     # 2.5. ZeroShotComposer — компонует существующие алгоритмы через
     # PRODUCES/REQUIRES, когда для цели нет прямого HAS_ALGORITHM.
     learn_pipeline("ZeroShotComposer", [
-        {"operator_id": "load_const",          "arg": [10, 0, 0, 0, 0, 0]},   # 0
-        {"operator_id": "load_const",          "arg": [7, 1, 0, 0, 0, 0]},    # 1
-        {"operator_id": "move",                "arg": [1, R_GOAL_ID, 0, 0, 0, 0]},  # 2
-        {"operator_id": "find_producer_chain", "arg": [1, 2, 3, 4, 5, 6]},    # 3
-        {"operator_id": "cond_branch_gt",      "arg": [5, 7, 6, 0, 0, 0]},    # 4
-        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]},    # 5
-        {"operator_id": "spawn_ctx",           "arg": [8, 0, 0, 0, 0, 0]},    # 6
-        {"operator_id": "synthesize_sequence", "arg": [2, 3, 9, 0, 0, 0]},    # 7
-        {"operator_id": "exec_algorithm",      "arg": [9, 0, 0, 0, 0, 0]},    # 8
-        {"operator_id": "derive",              "arg": [10, 9, 1, 6, 11, 0]},  # 9
-        {"operator_id": "merge_ctx",           "arg": [float_to_uint32(0.30), 0, 0, 0, 0, 0]},  # 10
-        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]}     # 11
+        {"operator_id": "load_const",          "arg": [50, 0, 0, 0, 0, 0]},   # 0: proc_has_algo -> R50
+        {"operator_id": "load_const",          "arg": [51, 1, 0, 0, 0, 0]},   # 1: 0 -> R51
+        {"operator_id": "find_producer_chain", "arg": [R_GOAL_ID, 52, 53, 54, 55, 56]}, # 2: goal(R63)->(A:R52, B:R53, resX:R54, found:R55, cause:R56)
+        {"operator_id": "cond_branch_gt",      "arg": [55, 51, 4, 0, 0, 0]},  # 3: if found > 0 jump to 4
+        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]},    # halt
+        {"operator_id": "spawn_ctx",           "arg": [57, 0, 0, 0, 0, 0]},   # 4: sandbox -> R57
+        {"operator_id": "synthesize_sequence", "arg": [52, 53, 58, 0, 0, 0]}, # 5: new_algo -> R58
+        {"operator_id": "exec_algorithm",      "arg": [58, 0, 0, 0, 0, 0]},   # 6
+        {"operator_id": "derive",              "arg": [50, 58, R_GOAL_ID, 56, 59, 0]}, # 7: HAS_ALGO(new_algo, goal_id) cause=R56 dst=R59
+        {"operator_id": "merge_ctx",           "arg": [float_to_uint32(0.30), 0, 0, 0, 0, 0]}, # 8
+        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]}     # 9
     ], {"int_consts": [
         str(proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION)),
         0,

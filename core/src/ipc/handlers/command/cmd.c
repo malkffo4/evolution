@@ -99,8 +99,23 @@ void cmd_mark_flaw(IPCPacket *req, IPCPacket *resp) {
 static int learn_txn_fn(MDB_txn *txn, void *arg) {
     LearnJob *job = arg;
 
-    if (job->imported_pipeline)
-        return algorithm_save(txn, job->algo_id, job->imported_pipeline) == MDB_SUCCESS ? 0 : -1;
+    if (job->imported_pipeline) {
+        int rc = algorithm_save(txn, job->algo_id, job->imported_pipeline);
+        if (rc == MDB_SUCCESS) {
+            // ФИКС: Спасаем регистровые контракты, так как algorithm_save их теряет.
+            // Иначе ZeroShotComposer не сможет вставить нужный MOVE
+            if (job->imported_pipeline->in_count > 0) {
+                int64_t v = job->imported_pipeline->in_regs[0];
+                property_set(txn, job->algo_id, "input_reg", PROP_INT, &v, sizeof(v));
+            }
+            if (job->imported_pipeline->out_count > 0) {
+                int64_t v = job->imported_pipeline->out_regs[0];
+                property_set(txn, job->algo_id, "output_reg", PROP_INT, &v, sizeof(v));
+            }
+            return 0;
+        }
+        return -1;
+    }
 
     if (job->is_pattern)
         return hyper_pattern_save(txn, db.graph.hyper.patterns, &job->pattern) == MDB_SUCCESS ? 0 : -1;
