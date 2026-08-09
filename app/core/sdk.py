@@ -163,12 +163,14 @@ class CoreClient:
     def learn_atoms(self, atoms: list[dict]) -> dict:
         return self.learn({"atoms": atoms})
 
-    def learn_pipeline(self, algo_name: str, code: list[dict], constants: Optional[dict] = None) -> dict:
+    def learn_pipeline(self, algo_name: str,  code: list[dict], constants: Optional[dict] = None, in_regs: Optional[list[int]] = None, out_regs: Optional[list[int]] = None) -> dict:
         return self.learn({
             "type": "pipeline",
             "algo_name": algo_name,
             "code": code,
             "constants": constants or {},
+            "in_regs": in_regs if in_regs is not None else [1],
+            "out_regs": out_regs if out_regs is not None else [0]
         })
 
     def link_algorithm(self, algo_name: str, goal_id: str, confidence: float = 1.0) -> dict:
