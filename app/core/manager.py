@@ -152,9 +152,9 @@ class EvolutionManager:
         self.core_client.connect()
 
     def run_tests(self):
-        """Интеграция AGI Olympics: Запускает все тесты через менеджер."""
+        """ Запускает все тесты через менеджер."""
         print("\n[Manager] Запускаем тесты AGI Olympics...")
-        script_path = self.root / "app" / "tests" / "olympics" / "run_olympics.py"
+        script_path = self.root / "app" / "tests" / "run_general.py"
         try:
             subprocess.run([sys.executable, str(script_path)], check=True)
         except subprocess.CalledProcessError as e:

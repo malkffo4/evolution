@@ -55,3 +55,18 @@ def ingest_domain(ipc, llm, text: str, prompt_template: str, source_tag: str):
             a.setdefault("context", source_tag)
         if atoms:
             ipc.command("learn", json.dumps({"atoms": atoms}))
+
+
+def build_contradiction_pattern():
+    return {
+        "type": "hyper_pattern",
+        "pattern_id": 2,
+        "vars": [],
+        "conditions": [
+            {"process": "CONTRADICTS", "args": [{"const": "$A"}, {"const": "$B"}]}
+        ]
+    }
+
+# app/knowledge/domain_prompts.py — add to every atom before learn()
+# a["truth"] = {"mean": a.get("truth", {}).get("mean", 1.0), "confidence": 0.4}  # book-sourced, unverified
+# a["properties"] = {**a.get("properties", {}), "source_kind": "book_claim", "book": source_tag}

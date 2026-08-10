@@ -62,6 +62,7 @@ def main():
         )
 
         facts = {"atoms": [
+            {"process": "IS_A", "kind": "relation", "args": ["VULNERABILITY", "Concept"], "confidence": 1.0},
             {"process": "PRODUCES", "kind": "relation", "args": ["ExtractIP", "IP_Address"], "confidence": 1.0},
             {"process": "REQUIRES", "kind": "relation", "args": ["ScanIP", "IP_Address"], "confidence": 1.0},
             {"process": "PRODUCES", "kind": "relation", "args": ["ScanIP", GOAL], "confidence": 1.0},
@@ -86,7 +87,8 @@ def main():
         expected = IP_CONST * TARIFF_CONST  # семантика, а не хардкод "20"
 
         print("[Composition Cup] 4. Verifying results in HyperMemory...")
-        resp = core.retrieve("VULNERABILITY")
+        # КЛЮЧЕВOЙ ФИКС: Ищем по аргументу (числу 20), а не по имени процесса!
+        resp = core.retrieve(str(expected))
         atoms = resp.get("atoms", [])
 
         found_vuln = any(
