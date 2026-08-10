@@ -1,5 +1,20 @@
 # app/knowledge/prompts.py
 
+# маленькие модели плохо держат в голове длинный список полей (truth, attention, utility, valence, kind...) одновременно с самим NER.
+# Добавь few-shot прямо в EXTRACTION_PROMPT и вставь {FEW_SHOT_EXAMPLE} перед "Текст:\n\"\"\"{chunk}\"\"\"" в шаблоне.
+# Few-shot почти всегда даёт маленьким моделям больший прирост качества, чем инструкции.
+FEW_SHOT_EXAMPLE = """
+Пример (на другом тексте, для формата):
+Текст: "Функция strcpy не проверяет длину строки, что приводит к переполнению
+буфера. Для защиты используйте strncpy."
+Ответ:
+{{"atoms": [
+  {{"process": "IS_A", "kind": "relation", "args": ["strcpy", "Function"], "truth": {{"mean": 1.0, "confidence": 0.9}}, "attention": {{"sti": 0.6, "lti": 0.4}}, "utility": 0.5, "valence": -0.2}},
+  {{"process": "CAUSES", "kind": "relation", "args": ["strcpy", "BufferOverflow"], "truth": {{"mean": 0.95, "confidence": 0.8}}, "attention": {{"sti": 0.7, "lti": 0.4}}, "utility": 0.6, "valence": -0.5}},
+  {{"process": "MITIGATES", "kind": "relation", "args": ["strncpy", "BufferOverflow"], "truth": {{"mean": 0.9, "confidence": 0.7}}, "attention": {{"sti": 0.6, "lti": 0.4}}, "utility": 0.7, "valence": 0.4}}
+]}}
+"""
+
 EXTRACTION_PROMPT = """Ты — когнитивный экстрактор знаний NeuroCore. Читай ТОЛЬКО то, что
 явно написано или логически прямо следует из текста. Извлекай факты как атомы
 триплетов (process, args) и для КАЖДОГО факта оцени три когнитивных вектора.
@@ -47,7 +62,7 @@ EXTRACTION_PROMPT = """Ты — когнитивный экстрактор зн
 }}
 
 Если фактов нет — верни {{"atoms": []}}.
-
+""" + FEW_SHOT_EXAMPLE + """
 Текст:
 \"\"\"{chunk}\"\"\"
 """

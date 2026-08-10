@@ -12,3 +12,5 @@ void vm_pool_shutdown(void);
 
 // Воркеру больше не нужен чужой hmem, он сам создаст себе песочницу
 void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id);
+
+uint32_t vm_pool_active_count(void);

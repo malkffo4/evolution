@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <time.h>
+#include <stdatomic.h>
 
 #include "vm_context.h"
 #include "vm_pool.h"
@@ -22,6 +23,7 @@
 
 static sem_t g_pool_slots;
 static pthread_once_t g_pool_once = PTHREAD_ONCE_INIT;
+static _Atomic uint32_t g_active_jobs = 0;
 
 typedef struct {
     Pipeline    *pipeline;
@@ -29,6 +31,10 @@ typedef struct {
     node_id_t    algo_id;
     VMStatus     result;
 } VmJob;
+
+uint32_t vm_pool_active_count(void) {
+    return atomic_load_explicit(&g_active_jobs, memory_order_acquire);
+}
 
 static void vm_pool_lazy_init_once(void) {
     sem_init(&g_pool_slots, 0, VM_POOL_MAX_WORKERS);
@@ -171,7 +177,8 @@ static void *vm_worker(void *arg) {
 
     pipeline_free(job->pipeline);
     free(job);
-    sem_post(&g_pool_slots);   // release the slot LAST, after all cleanup
+    atomic_fetch_sub_explicit(&g_active_jobs, 1, memory_order_release);
+    sem_post(&g_pool_slots);
     return NULL;
 }
 
@@ -184,10 +191,6 @@ void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id) {
     }
 
     if (sem_trywait(&g_pool_slots) != 0) {
-        // Backpressure: pool saturated. Drop this submission — the goal is
-        // still in WorkingMemory and NOT on cooldown yet (cooldown is only
-        // set by the caller after this returns), so it will be reconsidered
-        // next tick without any special-case retry logic.
         LOG_WARN("vm_pool: saturated (%d/%d workers busy) — deferring goal=%lu algo=%lu",
                  VM_POOL_MAX_WORKERS, VM_POOL_MAX_WORKERS,
                  (unsigned long)goal_id, (unsigned long)algo_id);
@@ -207,9 +210,12 @@ void vm_pool_submit(Pipeline *pipeline, node_id_t goal_id, node_id_t algo_id) {
     job->algo_id  = algo_id;
     job->result   = VM_ERROR;
 
+    atomic_fetch_add_explicit(&g_active_jobs, 1, memory_order_release);   // NEW
+
     pthread_t t;
     if (pthread_create(&t, NULL, vm_worker, job) != 0) {
         LOG_ERROR("vm_pool: pthread_create failed");
+        atomic_fetch_sub_explicit(&g_active_jobs, 1, memory_order_release);   // NEW
         pipeline_free(job->pipeline);
         free(job);
         sem_post(&g_pool_slots);

@@ -301,15 +301,16 @@ def inject_core_algorithms(ipc: IPCClient):
         {"operator_id": "load_const", "arg": [30, 0, 0, 0, 0, 0]},                 #0 CAUSES
         {"operator_id": "load_const", "arg": [31, 1, 0, 0, 0, 0]},                 #1 0
         {"operator_id": "move", "arg": [32, R_GOAL_ID, 0, 0, 0, 0]},               #2 r32 = goal_id
-        {"operator_id": "branch_if_empty", "arg": [32, 11, 0, 0, 0, 0]},           #3 нет цели -> halt(11)
+        {"operator_id": "branch_if_empty", "arg": [32, 12, 0, 0, 0, 0]},           #3 нет цели -> halt(12)
         {"operator_id": "get_neighbors", "arg": [32, 30, 0, 34, 0, 0]},            #4
         {"operator_id": "read_sp", "arg": [35, 0, 0, 0, 0, 0]},                    #5
         {"operator_id": "find_similar", "arg": [35, 36, 37, 0, 0, 0]},             #6
         {"operator_id": "get_neighbors", "arg": [37, 30, 30, 34, 0, 0]},           #7
         {"operator_id": "read_sp", "arg": [38, 30, 0, 0, 0, 0]},                   #8
         {"operator_id": "concat_paths", "arg": [50, 32, 35, 37, 38, 0]},           #9
-        {"operator_id": "derive", "arg": [30, 32, 38, 39, 40, 0]},                 #10
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}                         #11
+        {"operator_id": "current_episode", "arg": [39, 0,0,0,0,0]},                #10
+        {"operator_id": "derive", "arg": [30, 32, 38, 39, 40, 0]},                 #11
+        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}                         #12
     ], {"int_consts": [str(djb2_hash("CAUSES")), 0]}) # Передаем большие хэши как строки!
 
     ipc.command("learn", json.dumps({"atoms": [

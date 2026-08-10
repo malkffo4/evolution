@@ -120,6 +120,11 @@ class LLMClient:
         return None
 
     def _get_model(self, provider):
+        '''
+        Note:
+        Для критичной задачи ingestion не используйте auto с фоллбэком на 1.5B
+        — форсируйте более сильную модель (--provider deepseek/openai/anthropic, или хотя бы qwen2.5:7b/14b в ollama).
+        '''
         if self.model: return self.model
         default_models = {
             "ollama": "qwen2.5-coder:1.5b",

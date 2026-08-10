@@ -32,6 +32,16 @@ class NeuroCoreShell(cmd.Cmd):
             pass
         atexit.register(readline.write_history_file, self.histfile)
 
+    def do_stat(self, arg):
+        """stat
+        Show core statistics."""
+        self.manager.execute_command("stat")
+
+    def do_get_stats(self, arg):
+        """get_stats
+        Show core statistics."""
+        self.manager.execute_command("get_stats")
+
     def do_retrieve(self, arg):
         """retrieve <keyword>
         Find facts in the knowledge graph by keyword."""
@@ -121,7 +131,10 @@ Examples:
     subparsers.add_parser("bootstrap", help="Initialize Meta-Core concepts")
     subparsers.add_parser("shutdown", help="Gracefully stop the C-core")
 
-    parser_test = subparsers.add_parser("test", help="Run AGI Olympic tests")
+    subparsers.add_parser("test", help="Run AGI Olympic tests")
+
+    subparsers.add_parser("stat", help="Show core statistics")
+    subparsers.add_parser("get_stats", help="Show core statistics")
 
     parser_retrieve = subparsers.add_parser("retrieve", help="Find facts in the graph")
     parser_retrieve.add_argument("query", nargs='+', help="Keyword to search for")
@@ -162,6 +175,7 @@ Examples:
             elif args.command == "chat": cmd_args = args.text
             elif args.command == "agent": cmd_args = args.text
             elif args.command == "ingest": cmd_args = [args.file]
+            elif args.command in ("stat", "get_stats"): cmd_args = []
             elif args.command == "test":
                             manager.run_tests()
                             return

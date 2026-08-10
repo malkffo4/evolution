@@ -87,15 +87,29 @@ char* hyper_retrieve_json(MDB_txn *txn, HyperMemory *hmem, node_id_t participant
                 // args (только 2 слота)
                 cJSON *args_json = cJSON_AddArrayToObject(atom_json, "args");
                 for (int a = 0; a < 2; a++) {
-                    if (results[i].args[a].raw != 0) {
-                        char label[128];
-                        if (HYPER_GET_TYPE(results[i].args[a].raw) == HYPER_TYPE_REF) {
-                            resolve_label(txn, HYPER_GET_ID(results[i].args[a].raw), label, sizeof(label));
-                        } else {
-                            snprintf(label, sizeof(label), "%lld", (long long)results[i].args[a].raw);
-                        }
-                        cJSON_AddItemToArray(args_json, cJSON_CreateString(label));
+                    ko_id_t raw = results[i].args[a].raw;
+                    if (raw == 0) continue;
+
+                    char label[128];
+                    ko_id_t vtype = HYPER_GET_TYPE(raw);
+
+                    if (vtype == HYPER_TYPE_REF) {
+                        resolve_label(txn, HYPER_GET_ID(raw), label, sizeof(label));
+                    } else if (vtype == HYPER_TYPE_INT) {
+                        // pack_reg() кладёт REG_INT как (ko_id_t)i | HYPER_TYPE_INT — снимаем
+                        // тег и отдаём значение. Для отрицательных/>62-бит чисел это всё ещё
+                        // lossy (известное ограничение 2-битной типизации, см. DATA_MODEL.md).
+                        snprintf(label, sizeof(label), "%lld", (long long)HYPER_GET_ID(raw));
+                    } else if (vtype == HYPER_TYPE_FLOAT) {
+                        // ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ: pack_reg() ORит тег в старшие 2 бита IEEE-754
+                        // double, ломая sign/exponent. Восстановить исходное значение здесь
+                        // невозможно без переработки схемы паковки float — не в рамках этого
+                        // фикса, помечаем как debt, не глушим молча.
+                        snprintf(label, sizeof(label), "~0x%llx", (unsigned long long)HYPER_GET_ID(raw));
+                    } else {
+                        snprintf(label, sizeof(label), "%lld", (long long)HYPER_GET_ID(raw));
                     }
+                    cJSON_AddItemToArray(args_json, cJSON_CreateString(label));
                 }
 
                 // context_or_time_link

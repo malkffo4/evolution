@@ -97,3 +97,5 @@ int vm_op_jge_graph(VMContext *, const Instruction *);
 
 int vm_op_find_producer_chain(VMContext *, const Instruction *);
 int vm_op_synthesize_sequence(VMContext *, const Instruction *);
+
+int vm_op_current_episode(VMContext *, const Instruction *);

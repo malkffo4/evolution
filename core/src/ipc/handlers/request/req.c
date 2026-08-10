@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <cjson/cJSON.h>
+#include <errno.h>
+#include <stdbool.h>
 
 #include "ipc/ipc.h"
 #include "runtime/logging/logging.h"
@@ -183,8 +185,31 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
         return;
     }
 
-    uint64_t participant_id = djb2_hash(query);
-    LOG_IPC("Hyper-retrieve for '%s' (hash: %lu)", query, participant_id);
+    // Числовой query = литеральное значение (как в идет OP_ASSERT/OP_DERIVE
+    // с REG_INT), а не имя сущности. idx_args хранит именно "сырое" 62-битное
+    // значение (см. hyper_assert() — оно не различает REF/INT/FLOAT/STR при
+    // индексации), поэтому participant_id для числа должен быть самим числом,
+    // а не хэшем его текстового представления.
+    bool is_numeric = true;
+    for (const char *p = query; *p; p++) {
+        if (*p < '0' || *p > '9') { is_numeric = false; break; }
+    }
+
+    uint64_t participant_id;
+    if (is_numeric) {
+        errno = 0;
+        char *end = NULL;
+        unsigned long long v = strtoull(query, &end, 10);
+        participant_id = (errno == 0 && end && *end == '\0')
+            ? ((uint64_t)v & HYPER_VALUE_MASK)
+            : djb2_hash(query);
+    } else {
+        participant_id = djb2_hash(query);
+    }
+
+    LOG_IPC("Hyper-retrieve for '%s' (participant_id: %lu, numeric=%d)",
+            query, (unsigned long)participant_id, is_numeric);
+
     MDB_txn *txn;
     if (mdb_txn_begin(db.env, NULL, MDB_RDONLY, &txn) == MDB_SUCCESS) {
         HyperMemory *hmem = hyper_memory_new(db.graph.hyper.atoms, db.graph.hyper.idx_process,
@@ -193,6 +218,7 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
             const char* err = "{\"error\": \"hyper_memory_new error\"}";
             strncpy((char *)resp->payload, err, sizeof(resp->payload)-1);
             resp->payload_size = (uint32_t)strlen(err);
+            mdb_txn_abort(txn);
             return;
         }
 
@@ -202,8 +228,6 @@ void req_retrieve(IPCPacket *req, IPCPacket *resp) {
         if (result) {
             strncpy((char *)resp->payload, result, IPC_PAYLOAD_SIZE - 1);
             resp->payload[IPC_PAYLOAD_SIZE - 1] = '\0';
-
-            // ФИКС: Берем длину уже обрезанного payload, а не потенциально гигантского result
             resp->payload_size = (uint32_t)strlen((char *)resp->payload);
             free(result);
         } else {

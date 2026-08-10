@@ -5,6 +5,7 @@
 #include <string.h>
 #include <lmdb.h>
 #include <cjson/cJSON.h>
+#include <time.h>
 
 #include "core/globals.h"
 #include "core/message_bus.h"
@@ -15,12 +16,14 @@
 #include "perception/perception.h"
 #include "memory/working.h"
 #include "memory/subconscious.h"
+#include "runtime/vm/vm_pool.h"
 #include "runtime/compiler/pipeline.h"
 #include "runtime/logging/logging.h"
 #include "storage/db/db.h"
 #include "storage/db/db_writer.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "storage/hyper_atom/hyper_pattern.h"
+#include "storage/property/property.h"
 #include "math/hash.h"
 #include "reasoning/algorithm_planner.h"
 #include "reasoning/planner.h"
@@ -34,6 +37,8 @@ typedef struct {
 } LearnJob;
 
 typedef struct { ko_id_t ids[64]; int count; } FlawJob;
+
+typedef struct { uint64_t goal_id; } ClearCooldownJob;
 
 static int mark_flaw_txn_fn(MDB_txn *txn, void *arg) {
     FlawJob *job = arg;
@@ -205,23 +210,43 @@ void cmd_think(IPCPacket *req, IPCPacket *resp) {
     (void)req;
 
     int ticks = 0;
-    // Крутим MainLoop до тех пор, пока он не вернет 0 (т.е. пока есть работа)
-    // Ограничиваем 100 итерациями для защиты от вечного зависания
     while (subconscious_force_tick() == 1 && ticks < 100) {
         ticks++;
     }
 
-    // Будим фоновый цикл на всякий случай
     extern volatile int g_think_trigger;
     g_think_trigger = 1;
+
+    // Дренаж: MainLoop мог за эти тики диспетчеризовать асинхронную работу
+    // (OP_DISPATCH_ASYNC -> vm_pool). Архитектура остаётся асинхронной —
+    // dmn_loop продолжает тикать независимо — но IPC-ответ на "think" теперь
+    // осмысленно говорит "результат этой волны уже виден в LMDB", а не
+    // "тик поставлен в очередь, но неизвестно когда выполнится".
+    int waited_ms = 0;
+    const int poll_ms = 20, max_wait_ms = 3000;
+    while (vm_pool_active_count() > 0 && waited_ms < max_wait_ms) {
+        struct timespec ts = { 0, poll_ms * 1000000L };
+        nanosleep(&ts, NULL);
+        waited_ms += poll_ms;
+    }
 
     resp->type = IPC_RESPONSE;
     strncpy(resp->name, "think", sizeof(resp->name)-1);
 
-    char ok_msg[128];
-    snprintf(ok_msg, sizeof(ok_msg), "{\"ok\": true, \"msg\": \"MainLoop executed %d ticks\"}", ticks);
+    char ok_msg[160];
+    snprintf(ok_msg, sizeof(ok_msg),
+             "{\"ok\": true, \"msg\": \"MainLoop executed %d ticks\", "
+             "\"drained\": %s, \"waited_ms\": %d}",
+             ticks, (vm_pool_active_count() == 0) ? "true" : "false", waited_ms);
     strncpy(resp->payload, ok_msg, sizeof(resp->payload)-1);
     resp->payload_size = (uint32_t)strlen(ok_msg);
+}
+
+static int clear_cooldown_txn_fn(MDB_txn *txn, void *arg) {
+    ClearCooldownJob *job = arg;
+    int64_t zero = 0;
+    return property_set(txn, job->goal_id, "cooldown_until", PROP_INT,
+                         &zero, sizeof(zero)) == MDB_SUCCESS ? 0 : -1;
 }
 
 void cmd_clear_cooldown(IPCPacket *req, IPCPacket *resp) {
@@ -237,10 +262,18 @@ void cmd_clear_cooldown(IPCPacket *req, IPCPacket *resp) {
     }
     cJSON *goal_json = cJSON_GetObjectItem(root, "goal");
     if (cJSON_IsString(goal_json)) {
-        uint64_t goal_id = djb2_hash(goal_json->valuestring);
-        clear_goal_cooldown(goal_id);
-        snprintf(resp->payload, sizeof(resp->payload),
-                 "{\"ok\": true, \"goal_id\": %llu}", (unsigned long long)goal_id);
+        ClearCooldownJob job = { .goal_id = djb2_hash(goal_json->valuestring) };
+
+        clear_goal_cooldown(job.goal_id);   // legacy-массив — на всякий случай синхронизируем тоже
+
+        int rc = db_write_sync(clear_cooldown_txn_fn, &job);
+        if (rc == 0) {
+            snprintf(resp->payload, sizeof(resp->payload),
+                     "{\"ok\": true, \"goal_id\": %llu}", (unsigned long long)job.goal_id);
+        } else {
+            snprintf(resp->payload, sizeof(resp->payload),
+                     "{\"error\": \"failed to reset cooldown_until property\"}");
+        }
     } else {
         const char *err = "{\"error\": \"missing 'goal'\"}";
         strncpy(resp->payload, err, sizeof(resp->payload) - 1);
