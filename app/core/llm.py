@@ -122,7 +122,7 @@ class LLMClient:
     def _get_model(self, provider):
         if self.model: return self.model
         default_models = {
-            "ollama": "qwen2.5:3b",
+            "ollama": "qwen2.5-coder:1.5b",
             "openai": "gpt-4o-mini",
             "deepseek": "deepseek-chat",
             "anthropic": "claude-3-5-sonnet-20241022",

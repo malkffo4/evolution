@@ -11,6 +11,60 @@ from core.ipc import IPCClient
 from knowledge.patterns import install_patterns
 from core.sdk import djb2_hash
 
+class PipelineBuilder:
+    """Symbolic-label bytecode builder. Eliminates off-by-one jump bugs
+    like the ZeroShotComposer regression (see fix above) by resolving
+    all branch targets at build() time instead of by hand."""
+    def __init__(self):
+        self.instructions = []
+        self.labels = {}
+
+    def label(self, name):
+        self.labels[name] = len(self.instructions)
+        return self
+
+    def op(self, operator_id, arg=None, flags=0):
+        arg = (list(arg or []) + [0]*6)[:6]
+        self.instructions.append({"operator_id": operator_id, "arg": arg, "flags": flags})
+        return self
+
+    def op_jump(self, operator_id, jump_slot, label_name, arg=None, flags=0):
+        arg = (list(arg or []) + [0]*6)[:6]
+        ins = {"operator_id": operator_id, "arg": arg, "flags": flags}
+        ins["_fixup"] = (jump_slot, label_name)
+        self.instructions.append(ins)
+        return self
+
+    def build(self):
+        for ins in self.instructions:
+            fixup = ins.pop("_fixup", None)
+            if fixup:
+                slot, name = fixup
+                if name not in self.labels:
+                    raise ValueError(f"PipelineBuilder: unresolved label '{name}'")
+                ins["arg"][slot] = self.labels[name]
+        return self.instructions
+
+
+def build_zero_shot_composer(const_has_algo):
+    b = PipelineBuilder()
+    (b.op("load_const", [50, 0])
+      .op("load_const", [51, 1])
+      .op("find_producer_chain", [R_GOAL_ID, 52, 53, 54, 55, 56])
+      .op_jump("cond_branch_gt", 2, "compose", [55, 51])
+      .op("halt")
+      .label("compose")
+      .op("spawn_ctx", [57])
+      .op("synthesize_sequence", [52, 53, 58])
+      .op("exec_algorithm", [58])
+      .op("derive", [50, 58, R_GOAL_ID, 56, 59])
+      .op("merge_ctx", [float_to_uint32(0.30)])
+      .op("halt"))
+    return b.build()
+
+# learn_pipeline("ZeroShotComposer", build_zero_shot_composer(0),
+#                {"int_consts": [str(proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION)), 0]})
+
 def is_already_bootstrapped(ipc: IPCClient) -> bool:
     resp = ipc.request("retrieve", {"query": "MetaType"})
     try:
@@ -114,17 +168,17 @@ def inject_core_algorithms(ipc: IPCClient):
     # 2.5. ZeroShotComposer — компонует существующие алгоритмы через
     # PRODUCES/REQUIRES, когда для цели нет прямого HAS_ALGORITHM.
     learn_pipeline("ZeroShotComposer", [
-        {"operator_id": "load_const",          "arg": [50, 0, 0, 0, 0, 0]},   # 0: proc_has_algo -> R50
-        {"operator_id": "load_const",          "arg": [51, 1, 0, 0, 0, 0]},   # 1: 0 -> R51
-        {"operator_id": "find_producer_chain", "arg": [R_GOAL_ID, 52, 53, 54, 55, 56]}, # 2: goal(R63)->(A:R52, B:R53, resX:R54, found:R55, cause:R56)
-        {"operator_id": "cond_branch_gt",      "arg": [55, 51, 4, 0, 0, 0]},  # 3: if found > 0 jump to 4
-        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]},    # halt
-        {"operator_id": "spawn_ctx",           "arg": [57, 0, 0, 0, 0, 0]},   # 4: sandbox -> R57
-        {"operator_id": "synthesize_sequence", "arg": [52, 53, 58, 0, 0, 0]}, # 5: new_algo -> R58
-        {"operator_id": "exec_algorithm",      "arg": [58, 0, 0, 0, 0, 0]},   # 6
-        {"operator_id": "derive",              "arg": [50, 58, R_GOAL_ID, 56, 59, 0]}, # 7: HAS_ALGO(new_algo, goal_id) cause=R56 dst=R59
-        {"operator_id": "merge_ctx",           "arg": [float_to_uint32(0.30), 0, 0, 0, 0, 0]}, # 8
-        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]}     # 9
+        {"operator_id": "load_const",          "arg": [50, 0, 0, 0, 0, 0]},
+        {"operator_id": "load_const",          "arg": [51, 1, 0, 0, 0, 0]},
+        {"operator_id": "find_producer_chain", "arg": [R_GOAL_ID, 52, 53, 54, 55, 56]},
+        {"operator_id": "cond_branch_gt",      "arg": [55, 51, 5, 0, 0, 0]},   # <-- 4 -> 5
+        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]},
+        {"operator_id": "spawn_ctx",           "arg": [57, 0, 0, 0, 0, 0]},
+        {"operator_id": "synthesize_sequence", "arg": [52, 53, 58, 0, 0, 0]},
+        {"operator_id": "exec_algorithm",      "arg": [58, 0, 0, 0, 0, 0]},
+        {"operator_id": "derive",              "arg": [50, 58, R_GOAL_ID, 56, 59, 0]},
+        {"operator_id": "merge_ctx",           "arg": [float_to_uint32(0.30), 0, 0, 0, 0, 0]},
+        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]}
     ], {"int_consts": [
         str(proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION)),
         0,

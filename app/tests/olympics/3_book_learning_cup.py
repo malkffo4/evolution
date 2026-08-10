@@ -5,10 +5,13 @@
 AGI OLYMPICS: BOOK LEARNING CUP
 Levels 3 & 4: Book Learning + Knowledge Transfer
 
-Проверяет именно NeuroCore, а не способность LLM отвечать на вопрос.
-Улучшено: используется семантический поллинг (ждем конкретные знания,
-а не просто первый записанный атом), убраны неиспользуемые переменные,
-устранены ложные падения на медленных LLM.
+Честный семантический тест.
+Проверяет именно NeuroCore, а не способность LLM форматировать текст.
+Мы ищем знания по графу, учитывая, что C-ядро KOSMOS использует
+строгое хеширование (djb2_hash). Вместо попыток угадать точный регистр
+аргумента ("buffer overflow" vs "Buffer Overflow"), тест запрашивает
+известные типы отношений (CAUSES, MITIGATES) и ищет нужные концепты
+внутри них.
 """
 
 import sys
@@ -60,18 +63,22 @@ def get_atoms(core, query: str):
         return response
     return []
 
-def find_atom(core, query: str, required_terms=()):
+def find_atom(core, queries: list, required_terms=()):
     required = tuple(normalize(x) for x in required_terms)
-    for atom in get_atoms(core, query):
-        text = atom_text(atom)
-        if all(term in text for term in required):
-            return atom
+    for q in queries:
+        for atom in get_atoms(core, q):
+            text = atom_text(atom)
+            if all(term in text for term in required):
+                return atom
     return None
 
 def relation_exists(core, relation: str, terms=()):
-    relation = normalize(relation)
+    relation_norm = normalize(relation)
     required = tuple(normalize(x) for x in terms)
-    queries = list(terms) if terms else [relation]
+
+    # КЛЮЧЕВОЙ ФИКС: Всегда ищем по самому названию отношения (оно стабильно, т.к. из промпта).
+    # Дополнительно запрашиваем и термины на случай, если LLM использовала другое отношение.
+    queries = [relation.upper()] + list(terms)
     checked = set()
 
     for query in queries:
@@ -82,20 +89,28 @@ def relation_exists(core, relation: str, terms=()):
 
         for atom in get_atoms(core, query):
             text = atom_text(atom)
-            if relation in text and all(term in text for term in required):
+            if relation_norm in text and all(term in text for term in required):
                 return atom
     return None
 
 def wait_for_expected_knowledge(core, timeout: float = 300.0):
     """
     Семантический поллинг: ждем появления конкретных фактов в HyperMemory.
-    Защищает от ложных падений, когда ingestion еще в процессе.
+    Ищем знания через стабильные ключи (отношения), чтобы обойти
+    проблему точного регистра в djb2_hash для сырых аргументов.
     """
     deadline = time.monotonic() + timeout
+
+    # Расширенный список поиска: отношения из промпта + возможные варианты написания
+    search_keys = [
+        "CAUSES", "MITIGATES", "PRODUCES", "REQUIRES", "IS_A", "HAS_PROPERTY",
+        "strcpy", "strncpy", "buffer overflow", "Buffer Overflow", "Buffer_Overflow"
+    ]
+
     while time.monotonic() < deadline:
-        strcpy_atom = find_atom(core, "strcpy", required_terms=("strcpy",))
-        overflow_atom = find_atom(core, "buffer overflow", required_terms=("buffer", "overflow"))
-        strncpy_atom = find_atom(core, "strncpy", required_terms=("strncpy",))
+        strcpy_atom = find_atom(core, search_keys, required_terms=("strcpy",))
+        overflow_atom = find_atom(core, search_keys, required_terms=("buffer", "overflow"))
+        strncpy_atom = find_atom(core, search_keys, required_terms=("strncpy",))
 
         if strcpy_atom and overflow_atom and strncpy_atom:
             # Даем еще пару секунд, чтобы убедиться, что транзакции с отношениями тоже доехали
@@ -154,7 +169,6 @@ def main():
 
         print("[Book Cup] Step 5: Verifying extracted knowledge details (No LLM)\n")
 
-        # Мы уже знаем, что они есть (успешно прошел поллинг), просто рапортуем
         print("[PASS] HyperMemory contains concept: strcpy")
         print("[PASS] HyperMemory contains concept: buffer overflow")
         print("[PASS] HyperMemory contains concept: strncpy\n")
@@ -164,13 +178,13 @@ def main():
         if causes_atom:
             print("[PASS] HyperMemory contains strcpy --CAUSES--> buffer overflow")
         else:
-            print("[INFO] Exact CAUSES relation was not emitted by extractor. (Model might have used another label).")
+            print("[INFO] Exact CAUSES relation was not emitted by extractor, but concepts are present.")
 
         mitigation_atom = relation_exists(core, "MITIGATES", ("strncpy", "overflow"))
         if mitigation_atom:
             print("[PASS] HyperMemory contains strncpy --MITIGATES--> buffer overflow")
         else:
-            print("[INFO] Exact MITIGATES relation was not emitted by extractor.")
+            print("[INFO] Exact MITIGATES relation was not emitted by extractor, but concepts are present.")
 
         print("\n" + "=" * 60)
         print("     BOOK LEARNING CUP: SUCCESS")

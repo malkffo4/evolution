@@ -3,9 +3,12 @@
 """Ядро само собирает B∘A из двух блоков, никогда не связанных с целью,
 используя только PRODUCES/REQUIRES в графе. Ноль Python-хардкода "как
 решить именно эту задачу"."""
+
 import json
 import sys
 import time
+import random
+import string
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -15,9 +18,11 @@ if str(APP_DIR) not in sys.path:
 from core.ipc import IPCClient
 from core.bootstrap import bootstrap_knowledge
 
-GOAL = "ComputeShippingCost"
-ALGO_A = "FetchPackageWeight"    # PRODUCES(A, PackageWeight)
-ALGO_B = "PriceByWeight"         # REQUIRES(B, PackageWeight), PRODUCES(B, GOAL)
+def gen_word(): return "".join(random.choices(string.ascii_letters, k=6))
+
+GOAL = f"ComputeShippingCost_{gen_word()}" # Делаем цель уникальной
+ALGO_A = "FetchPackageWeight"
+ALGO_B = "PriceByWeight"
 RESOURCE_X = "PackageWeight"
 
 

@@ -31,7 +31,6 @@ def main():
         core = manager.core_client
 
         print("[Memory Cup] Step 1: Initializing and getting baseline...")
-        manager.execute_command("bootstrap")
         stats_before = core.get_stats()
 
         print("[Memory Cup] Step 2: Injecting episodic memory (simulating interaction)...")
