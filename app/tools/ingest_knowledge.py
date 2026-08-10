@@ -108,6 +108,7 @@ def main():
     ap.add_argument("path", type=Path, help="Путь к текстовому файлу (.txt, .md)")
     # Добавлены web_ опции в choices
     ap.add_argument("--provider", default="auto", choices=["auto", "ollama", "openai", "gemini", "deepseek", "anthropic", "web_chatgpt", "web_deepseek"])
+    ap.add_argument("--model", default=None, help="Model LLM (по умолчанию Default)")
     ap.add_argument("--source", default=None, help="Тег источника (по умолчанию имя файла)")
     ap.add_argument("--workers", type=int, default=5, help="Количество параллельных потоков (по умолчанию 5)")
     args = ap.parse_args()
@@ -120,7 +121,7 @@ def main():
 
     # Инициализация клиентов
     core = CoreClient().connect()
-    llm = LLMClient(provider=args.provider)
+    llm = LLMClient(provider=args.provider, model=args.model)
     source_tag = args.source or args.path.name
 
     # Запуск асинхронного цикла

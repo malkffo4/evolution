@@ -262,6 +262,13 @@ class EvolutionManager:
                 print(f"\nAI: {reply}")
             except Exception as e: print(f"[ERROR] {e}")
 
+        elif cmd_name in ("get_stats", "stat"):
+            try:
+                stats = self.core_client.get_stats()
+                print(f"\n[Stats]:\n{json.dumps(stats, indent=2)}")
+            except Exception as e:
+                print(f"[ERROR] {e}")
+
         elif cmd_name == "ingest":
             file_path = args[0] if args else None
             if not file_path:

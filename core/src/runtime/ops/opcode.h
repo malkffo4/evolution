@@ -114,6 +114,8 @@ typedef enum {
     OP_FIND_PRODUCER_CHAIN,  // ищет (A,X,B): PRODUCES(A,X) ∧ REQUIRES(B,X) ∧ PRODUCES(B,goal)
     OP_SYNTHESIZE_SEQUENCE,  // строит и algorithm_save()'ит составной Pipeline A;B
 
+    OP_CURRENT_EPISODE,      // грузит ctx->current_episode_id в регистр —
+                             // provenance для DERIVE внутри чисто графовых цепочек (AnalogyPlanner и т.п.)
     /* Количество opcode */
     VM_OPCODE_COUNT
 } Opcode;
