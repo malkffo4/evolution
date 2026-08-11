@@ -77,10 +77,24 @@ static bool hyper_atom_exists(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *a
 
     NeuroAtom *existing = NULL;
     size_t count = 0;
-    if (hyper_find_by_process(txn, mem, atom->process_id, 0, atom->context_or_time_link, &existing, &count) != 0)
-        return false;
+
+    // ФИКС: Используем первый аргумент как фильтр, чтобы не загружать ВСЕ атомы этого процесса
+    ko_id_t filter = HYPER_GET_ID(atom->args[0].raw);
+
+    // ФИКС: Ищем через индекс участников (idx_args), так как субъект уникальнее,
+    // чем тип процесса (например, IS_A). Это превращает O(N^2) в O(1).
+    if (filter != 0) {
+        if (hyper_find_by_participant(txn, mem, filter, atom->context_or_time_link, &existing, &count) != 0)
+            return false;
+    } else {
+        if (hyper_find_by_process(txn, mem, atom->process_id, 0, atom->context_or_time_link, &existing, &count) != 0)
+            return false;
+    }
 
     for (size_t i = 0; i < count; i++) {
+        // Обязательно сверяем процесс, так как мы могли искать по участнику!
+        if (existing[i].process_id != atom->process_id) continue;
+
         bool match = true;
         for (int a = 0; a < HYPER_VAL_SLOTS; a++) {
             if (existing[i].args[a].raw != atom->args[a].raw) {

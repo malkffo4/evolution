@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <errno.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -29,7 +30,7 @@ static int send_all(int fd, const void *buf, size_t len) {
         if (rc < 0) {
             if (errno == EINTR)
                 continue;
-            running = 0;
+            // running = 0; <--- Из-за неё падает всё ядро при обрыве связи!
             LOG_ERROR("send() failed: %s", strerror(errno));
             return IPC_ERROR;
         }
@@ -78,9 +79,9 @@ IPCStatus transport_send_fd(int fd, const IPCPacket *packet) {
         safe_payload_size = IPC_PAYLOAD_SIZE;
     }
 
-    // 2. Отправляем payload (только фактический размер, а не все 64KB)
-    if (packet->payload_size > 0) {
-        if (send_all(fd, packet->payload, packet->payload_size) != IPC_OK)
+    // 2. Отправляем payload (ИСПРАВЛЕНО: используем безопасный размер safe_payload_size)
+    if (safe_payload_size > 0) {
+        if (send_all(fd, packet->payload, safe_payload_size) != IPC_OK)
             return IPC_DISCONNECTED;
     }
 
@@ -249,6 +250,9 @@ static void *accept_loop(void *arg) {
 }
 
 IPCStatus transport_server_start(void) {
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN); // ФИКС: Игнорируем закрытые сокеты, чтобы ядро не умирало
+#endif
     struct sockaddr_un addr;
     unlink(SOCKET_PATH);
 

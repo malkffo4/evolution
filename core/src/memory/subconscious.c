@@ -81,25 +81,17 @@ static void *decay_timer_loop(void *arg) {
         if (++induction_nudge_counter >= 6) {   // ~раз в минуту при tick=10с
             induction_nudge_counter = 0;
             wm_activate(&global_wm, djb2_hash("InductiveSynthesisGoal"), 0.8f, 0.7f);
-            for (uint32_t i = 0; i < global_wm.count; i++)
-                if (global_wm.nodes[i].node_id == djb2_hash("InductiveSynthesisGoal"))
+
+            // ФИКС: Итерация по глобальной памяти требует эксклюзивной блокировки
+            wm_wrlock(&global_wm);
+            for (uint32_t i = 0; i < global_wm.count; i++) {
+                if (global_wm.nodes[i].node_id == djb2_hash("InductiveSynthesisGoal")) {
                     global_wm.nodes[i].state.usefulness = 0.85f;
+                }
+            }
+            wm_unlock(&global_wm);
         }
 
-        // ФИКС ROOT-CAUSE #1: wm_decay() был полностью реализован в
-        // memory/working.c, но НИКОГДА не вызывался ни из одного места
-        // кодовой базы. Working Memory поэтому никогда не забывала узлы
-        // по времени — только через LRU-вытеснение при заполнении
-        // capacity=256 или через *0.4 "прижигание" в OP_DISPATCH_ASYNC.
-        // На долгоживущем core-процессе (общий для всех CLI-сессий,
-        // Olympiad-кубков через один и тот же /tmp/evolution.sock) это
-        // приводило к тому, что случайные активации из НЕСВЯЗАННЫХ
-        // предыдущих сессий навсегда оставались в global_wm с высокой
-        // активацией и могли "перехватывать" OP_WM_TOP_GOAL (см. фикс
-        // #2 в runtime/ops/planner_ops.c), полностью блокируя выбор
-        // реальной цели молча, без единой ошибки. Тикаем в том же ритме,
-        // что и decay HyperMemory (10с) — обе памяти должны стареть
-        // синхронно (docs/01_Principles.md, Principle 11).
         wm_decay(&global_wm);
 
         int rc = db_write_sync(decay_txn_fn, NULL);

@@ -64,7 +64,7 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
         return;
     }
 
-    // 1. Ищем, есть ли уже этот узел в памяти (если да - просто повышаем активацию)
+    // 1. Ищем, есть ли уже этот узел в памяти
     for (uint32_t i = 0; i < wm->count; i++) {
         if (wm->nodes[i].node_id == node_id) {
             wm->nodes[i].activation += activation;
@@ -74,7 +74,7 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
         }
     }
 
-    // Вытеснение LRU (Least Recently Used / Coldest) ---
+    // Вытеснение LRU (Least Recently Used / Coldest)
     if (wm->count >= wm->capacity) {
         uint32_t min_idx = 0;
         float min_act = wm->nodes[0].activation;
@@ -99,9 +99,8 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
         wm->nodes[min_idx] = wm->nodes[wm->count - 1];
         wm->count--;
     }
-    // ------------------------------------------------------------------
 
-    // 2. Добавляем новый узел (теперь место в wm->nodes гарантированно есть)
+    // 2. Добавляем новый узел
     wm->nodes[wm->count].node_id = node_id;
     wm->nodes[wm->count].activation = activation;
     wm->nodes[wm->count].focus_level = 0;
@@ -110,13 +109,14 @@ void wm_activate(WorkingMemory *wm, uint64_t node_id, float activation, float ba
     wm->nodes[wm->count].attention_weight = base_emotion;
     wm->count++;
 
+    // ФИКС: Освобождаем лок ПЕРЕД отправкой IPC события, чтобы избежать Deadlock
+    pthread_rwlock_unlock(&wm->lock);
+
     // Транслируем событие о том, что узел попал в фокус мозга
     char event_buf[128];
     snprintf(event_buf, sizeof(event_buf), "{\"node_id\": %llu, \"activation\": %.2f}",
              (unsigned long long)node_id, activation);
     ipc_emit_event("NodeActivated", event_buf);
-
-    pthread_rwlock_unlock(&wm->lock);
 }
 
 void wm_decay(WorkingMemory *wm) {

@@ -4,6 +4,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+APP_DIR = Path(__file__).resolve().parents[1]
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+
+from core.manager import EvolutionManager
+
 def run_pytest():
     print("=" * 60)
     print("   ФАЗА 1: АРХИТЕКТУРНЫЕ КОНТРАКТЫ (PYTEST)")
@@ -22,6 +28,13 @@ def run_pytest():
 
 def run_script(script_path: Path):
     print(f"-> Запуск {script_path.name}...")
+
+    # ФИКС: Перед каждым тестом гарантируем, что ядро живо и здорово!
+    manager = EvolutionManager()
+    if not manager.is_core_responding():
+        manager.start_core()
+        manager.wait_core()
+
     result = subprocess.run([sys.executable, str(script_path)])
     if result.returncode != 0:
         print(f"[ERROR] Скрипт {script_path.name} УПАЛ!")
