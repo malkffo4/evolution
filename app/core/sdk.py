@@ -182,13 +182,12 @@ class CoreClient:
         ]})
 
     def activate_goal(self, goal_id: str, utility: float = 0.9) -> None:
-        self.learn({"atoms": [
-            {"process": "IS_A", "kind": "relation", "args": [goal_id, "Goal"]}
-        ]})
-
-        self.learn({"nodes": [
-            {"id": goal_id, "label": goal_id, "utility": utility}
-        ]})
+        payload = {
+            "op": "activate_goal",
+            "goal": goal_id,
+            "utility": utility
+        }
+        self._command("execute_op", json.dumps(payload))
 
     def think(self) -> None:
         self._command("think")

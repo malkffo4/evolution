@@ -56,8 +56,11 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                 concept.sti = 0.5f;
                 hyper_assert_unique(txn, hmem, &concept);
 
+                // Вызываем активацию (она сама берет блокировку внутри)
                 wm_activate(wm, node_id, 1.0f, danger);
 
+                // Явно блокируем WM перед ручной итерацией
+                wm_wrlock(wm);
                 for (uint32_t i = 0; i < wm->count; i++) {
                     if (wm->nodes[i].node_id == node_id) {
                         wm->nodes[i].state.danger = danger;
@@ -65,6 +68,7 @@ int perceive_and_activate(const char *json_str, WorkingMemory *wm, MDB_txn *txn,
                         break;
                     }
                 }
+                wm_unlock(wm);
 
                 int64_t zero_cooldown = 0;
                 property_set(txn, node_id, "cooldown_until", PROP_INT, &zero_cooldown, sizeof(zero_cooldown));

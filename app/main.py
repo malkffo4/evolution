@@ -4,21 +4,20 @@ import argparse
 import sys
 import io
 import cmd
+import readline
+import atexit
+from pathlib import Path
 
-# Принудительно выставляем UTF-8 для консоли (решает проблему с 'ascii codec can't encode characters' в toolbx)
+# Принудительно выставляем UTF-8 для консоли
 if sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
 if sys.stderr.encoding.lower() not in ('utf-8', 'utf8'):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
-import readline
-import atexit
-from pathlib import Path
-
 from core.manager import EvolutionManager
 
 class NeuroCoreShell(cmd.Cmd):
-    intro = "\n" + "="*60 + "\n  NeuroCore Interactive Shell\n  Type 'help' or '?' to list commands.\n" + "="*60 + "\n"
+    intro = "\n" + "="*60 + "\n  NeuroCore Interactive Shell\n  Введите '?' или 'help' для списка команд.\n  ВНИМАНИЕ: Сначала введите 'start' для запуска C-ядра.\n" + "="*60 + "\n"
     prompt = '(neuro) > '
 
     def __init__(self, manager):
@@ -31,6 +30,19 @@ class NeuroCoreShell(cmd.Cmd):
         except FileNotFoundError:
             pass
         atexit.register(readline.write_history_file, self.histfile)
+
+    def do_start(self, arg):
+        """start\nЗапустить C-ядро в фоне и подключиться к нему по IPC."""
+        was_running = self.manager.is_core_responding()
+
+        # Метод initialize() сам разберется: если ядро живое - подключится,
+        # если мертвое - запустит и дождется ответа, а также проверит воркеры.
+        self.manager.initialize()
+
+        if was_running:
+            print("[System] Ядро уже запущено. Подключение восстановлено.")
+        else:
+            print("[System] Ядро успешно запущено. Можно отправлять команды.")
 
     def do_stat(self, arg):
         """stat
@@ -96,8 +108,9 @@ class NeuroCoreShell(cmd.Cmd):
     def do_shutdown(self, arg):
         """shutdown
         Gracefully stop the C-core and background workers."""
+        print("[System] Остановка системы...")
         self.manager.execute_command("shutdown")
-        return True # Exit shell
+        return True
 
     def do_exit(self, arg):
         """exit
@@ -106,6 +119,7 @@ class NeuroCoreShell(cmd.Cmd):
         return True
 
     def do_EOF(self, arg):
+        """Выйти из оболочки (Ctrl+D)."""
         print()
         return True
 
@@ -113,59 +127,48 @@ class NeuroCoreShell(cmd.Cmd):
         """If command is not recognized, treat it as a chat message for MindAgent."""
         self.manager.execute_command("agent", line)
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="NeuroCore CLI and System Manager",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py                # Start interactive shell
-  python main.py agent "Hello"  # Send a message to the agent
-  python main.py think          # Trigger the cognitive loop
-  python main.py shutdown       # Stop the system
-        """
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    subparsers = parser.add_subparsers(dest="command", help="Commands (leave empty for interactive shell)")
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
 
+    subparsers.add_parser("start", help="Start the C-core")
     subparsers.add_parser("think", help="Force a single MainLoop cycle")
     subparsers.add_parser("bootstrap", help="Initialize Meta-Core concepts")
     subparsers.add_parser("shutdown", help="Gracefully stop the C-core")
-
     subparsers.add_parser("test", help="Run AGI Olympic tests")
-
     subparsers.add_parser("stat", help="Show core statistics")
     subparsers.add_parser("get_stats", help="Show core statistics")
 
-    parser_retrieve = subparsers.add_parser("retrieve", help="Find facts in the graph")
-    parser_retrieve.add_argument("query", nargs='+', help="Keyword to search for")
+    parser_retrieve = subparsers.add_parser("retrieve")
+    parser_retrieve.add_argument("query", nargs='+')
 
-    parser_learn = subparsers.add_parser("learn", help="Extract knowledge from text")
-    parser_learn.add_argument("text", nargs='+', help="Text to learn from")
+    parser_learn = subparsers.add_parser("learn")
+    parser_learn.add_argument("text", nargs='+')
 
-    parser_ask = subparsers.add_parser("ask", help="Ask a question using MVP Agent")
-    parser_ask.add_argument("query", nargs='+', help="Question")
+    parser_ask = subparsers.add_parser("ask")
+    parser_ask.add_argument("query", nargs='+')
 
-    parser_chat = subparsers.add_parser("chat", help="Talk to the conversational ChatService")
-    parser_chat.add_argument("text", nargs='+', help="Message text")
+    parser_chat = subparsers.add_parser("chat")
+    parser_chat.add_argument("text", nargs='+')
 
-    parser_agent = subparsers.add_parser("agent", help="Talk to the Zero-Hardcode Mind Agent")
-    parser_agent.add_argument("text", nargs='+', help="Message text")
+    parser_agent = subparsers.add_parser("agent")
+    parser_agent.add_argument("text", nargs='+')
 
-    parser_ingest = subparsers.add_parser("ingest", help="Parse a large text file")
-    parser_ingest.add_argument("file", help="Path to the file")
+    parser_ingest = subparsers.add_parser("ingest")
+    parser_ingest.add_argument("file")
 
     args = parser.parse_args()
     manager = EvolutionManager()
 
     try:
         if args.command is None:
-            manager.initialize()
-            try:
-                NeuroCoreShell(manager).cmdloop()
-            except KeyboardInterrupt:
-                print("\n[System] Interrupted by user. Exiting...")
+            # Оболочка без автоматического старта ядра
+            NeuroCoreShell(manager).cmdloop()
         else:
-            print(f"Executing: {args.command}")
             manager.initialize()
 
             cmd_args = []
@@ -175,18 +178,27 @@ Examples:
             elif args.command == "chat": cmd_args = args.text
             elif args.command == "agent": cmd_args = args.text
             elif args.command == "ingest": cmd_args = [args.file]
-            elif args.command in ("stat", "get_stats"): cmd_args = []
-            elif args.command == "test":
-                            manager.run_tests()
-                            return
-            manager.execute_command(args.command, *cmd_args)
 
+            if args.command == "test":
+                manager.run_tests()
+            elif args.command == "start":
+                # Ядро уже было проинициализировано и запущено/подключено выше
+                print("[System] Ядро запущено и готово к работе.")
+            else:
+                manager.execute_command(args.command, *cmd_args)
+
+    except KeyboardInterrupt:
+        print("\n[System] Interrupted by user.")
     except Exception as e:
         print(f"\n[FATAL] {e}", file=sys.stderr)
         sys.exit(1)
     finally:
-        if args.command == "shutdown" or args.command is None:
+        if args.command == "shutdown":
             manager.shutdown()
+        else:
+            # При exit просто отключаем IPC, не трогая само ядро
+            try: manager.core_client.close()
+            except Exception: pass
 
 if __name__ == "__main__":
     main()

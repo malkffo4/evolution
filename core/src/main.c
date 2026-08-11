@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <getopt.h>
 
 #include "memory/working.h"
 #include "memory/subconscious.h"
@@ -88,7 +89,7 @@ static void shutdown_everything(void) {
 }
 
 // Инициализация всех систем ядра
-static int init_everything(void) {
+static int init_everything(const char *db_path) {
     // Регистрируем обработчики сигналов для мягкого выхода
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
@@ -118,7 +119,7 @@ static int init_everything(void) {
         return EXIT_FAILURE;
     }
 
-    if (init_lmdb("./data") != MDB_SUCCESS) {
+    if (init_lmdb(db_path) != MDB_SUCCESS) {
         LOG_ERROR("Cannot initialize database.");
         return -1;
     }
@@ -158,8 +159,31 @@ static int init_everything(void) {
     return 0;
 }
 
-int main(void) {
-    if (init_everything() != 0) {
+int main(int argc, char *argv[]) {
+    const char *db_path = "./data";
+
+    static struct option long_options[] = {
+        {"db-path", required_argument, 0, 'd'},
+        {"help",    no_argument,       0, 'h'},
+        {0, 0, 0, 0}
+    };
+
+    int opt;
+    while ((opt = getopt_long(argc, argv, "d:h", long_options, NULL)) != -1) {
+        switch (opt) {
+            case 'd':
+                db_path = optarg;
+                break;
+            case 'h':
+                printf("Usage: evolution_core [--db-path <path>]\n");
+                return 0;
+            default:
+                fprintf(stderr, "Unknown option. Use --help\n");
+                return 1;
+            }
+        }
+
+    if (init_everything(db_path) != 0) {
         shutdown_everything();
         return EXIT_FAILURE;
     }

@@ -326,12 +326,82 @@ def bootstrap_knowledge(ipc: IPCClient, force=False):
 
     print("[Bootstrap] Loading Meta-Core...")
     meta_atoms = [
-        {"process": "IS_A", "kind": "relation", "args": ["Goal", "MetaType"], "confidence": 1.0},
-        {"process": "IS_A", "kind": "relation", "args": ["Algorithm", "MetaType"], "confidence": 1.0},
-        {"process": "IS_A", "kind": "relation", "args": ["Relation", "MetaType"], "confidence": 1.0},
-        {"process": "SOLVES", "kind": "relation", "args": ["Algorithm", "Goal"], "confidence": 1.0},
-        {"process": "IS_A", "kind": "relation", "args": ["HAS_ALGORITHM", "GoalAlgorithmRelation"], "confidence": 1.0},
+        # --- БАЗОВЫЕ КАТЕГОРИИ (TOP-LEVEL) ---
+        {"process": "IS_A", "args": ["Entity", "MetaType"]},
+        {"process": "IS_A", "args": ["Relation", "MetaType"]},
+        {"process": "IS_A", "args": ["Process", "MetaType"]},
+        {"process": "IS_A", "args": ["ExecutableKnowledge", "MetaType"]},
+
+        # --- EXECUTABLE KNOWLEDGE (То, что можно исполнить) ---
+        {"process": "IS_A", "args": ["Algorithm", "ExecutableKnowledge"]},
+        {"process": "IS_A", "args": ["Skill", "ExecutableKnowledge"]},
+        {"process": "IS_A", "args": ["Capability", "ExecutableKnowledge"]},
+        {"process": "IS_A", "args": ["Policy", "ExecutableKnowledge"]},
+        {"process": "IS_A", "args": ["SelectionPolicy", "Policy"]},
+        {"process": "IS_A", "args": ["PlanningPolicy", "Policy"]},
+
+        # --- TASK MODEL (Модель задач и состояний) ---
+        {"process": "IS_A", "args": ["Goal", "Entity"]},
+        {"process": "IS_A", "args": ["State", "Entity"]},
+        {"process": "IS_A", "args": ["Observation", "Entity"]},
+        {"process": "IS_A", "args": ["Action", "Entity"]},
+
+        # --- EPISTEMIC MODEL (Опыт и убеждения) ---
+        {"process": "IS_A", "args": ["Evidence", "Entity"]},
+        {"process": "IS_A", "args": ["Belief", "Entity"]},
+        {"process": "IS_A", "args": ["Prediction", "Entity"]},
+        {"process": "IS_A", "args": ["Error", "Entity"]},
+
+        # --- ENVIRONMENT & SELF MODEL (Модель мира и себя) ---
+        {"process": "IS_A", "args": ["Environment", "Entity"]},
+        {"process": "IS_A", "args": ["Implementation", "Entity"]},
+        {"process": "IS_A", "args": ["Affordance", "Entity"]},
+        {"process": "IS_A", "args": ["Profile", "Entity"]},
+
+        # --- ФУНДАМЕНТАЛЬНЫЕ ОТНОШЕНИЯ (RELATIONS) ---
+        {"process": "IS_A", "args": ["IMPLEMENTS", "Relation"]},     # Implementation -> Capability
+        {"process": "IS_A", "args": ["PROVIDES", "Relation"]},       # Environment -> Capability
+        {"process": "IS_A", "args": ["REQUIRES", "Relation"]},       # Goal/Algorithm -> Capability/State
+        {"process": "IS_A", "args": ["USES", "Relation"]},           # Algorithm -> Tool/Policy
+        {"process": "IS_A", "args": ["SELECTS", "Relation"]},        # Policy -> Candidate
+        {"process": "IS_A", "args": ["PRODUCES", "Relation"]},       # Action/Capability -> Observation/State
+        {"process": "IS_A", "args": ["PREDICTS", "Relation"]},       # Hypothesis -> State
+        {"process": "IS_A", "args": ["VERIFIED_BY", "Relation"]},    # Belief/Prediction -> Evidence
+        {"process": "IS_A", "args": ["HAS_BELIEF", "Relation"]},     # Entity/Algorithm -> Belief
+        {"process": "IS_A", "args": ["SUPPORTED_BY", "Relation"]},   # Belief -> Evidence
+        {"process": "IS_A", "args": ["FAILS_WITH", "Relation"]},     # Action/Algorithm -> Error
+        {"process": "IS_A", "args": ["HAS_AFFORDANCE", "Relation"]}, # Environment/Entity -> Affordance
+        {"process": "IS_A", "args": ["HAS_COMPONENT", "Relation"]},
+
+        # --- SELF MODEL (KOSMOS) ---
+        {"process": "IS_A", "args": ["CognitiveSystem", "Entity"]},
+        {"process": "IS_A", "args": ["KOSMOS", "CognitiveSystem"]},
+
+        {"process": "IS_A", "args": ["Component", "Entity"]},
+        {"process": "IS_A", "args": ["CognitiveVM", "Component"]},
+        {"process": "IS_A", "args": ["KnowledgeStore", "Component"]},
+        # Записываем только то, что реально существует в коде на данный момент.
+        # Planner добавим позже, когда он станет отдельным Knowledge Object.
+
+        {"process": "HAS_COMPONENT", "args": ["KOSMOS", "CognitiveVM"]},
+        {"process": "HAS_COMPONENT", "args": ["KOSMOS", "KnowledgeStore"]},
+
+        # --- INVOCATION MODEL (Эпистемика и Опыт) ---
+        {"process": "IS_A", "args": ["Invocation", "Entity"]},
+        {"process": "IS_A", "args": ["Episode", "Entity"]},
+
+        # Отношения для фиксации опыта
+        {"process": "IS_A", "args": ["TARGETS", "Relation"]},       # Invocation -> Environment
+        {"process": "IS_A", "args": ["PART_OF", "Relation"]},       # Invocation -> Episode
+        {"process": "IS_A", "args": ["RESULTS_IN", "Relation"]},    # Invocation -> Observation/Error
+
+        # Контракт вызова
+        {"process": "USES", "args": ["Invocation", "Implementation"]},
+        {"process": "TARGETS", "args": ["Invocation", "Environment"]},
+        {"process": "RESULTS_IN", "args": ["Invocation", "Observation"]},
+        {"process": "SUPPORTED_BY", "args": ["Belief", "Invocation"]}
     ]
+
     resp = ipc.command("learn", json.dumps({"atoms": meta_atoms}))
     if resp.get("name") == "error":
         print(f"[Bootstrap] Ошибка загрузки meta_atoms: {resp.get('payload')}")
