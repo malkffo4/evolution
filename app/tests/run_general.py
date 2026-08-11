@@ -23,6 +23,7 @@ def main():
 
     cups = [
         "exam_test.py",
+        "test_semantic_fallback.py",
         "learning_demo_book.py",
         "learning_demo_arithmetic.py",
         "zero_shot_composition_demo.py",

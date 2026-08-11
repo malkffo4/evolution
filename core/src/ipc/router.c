@@ -22,6 +22,7 @@ static const Route request_routes[] = {
     { "audit_atoms",    req_audit_atoms },
     { "get_property",   req_get_property },
     { "get_stats",      req_get_stats },
+    { "find_similar",   req_find_similar },
     { NULL, NULL }
 };
 

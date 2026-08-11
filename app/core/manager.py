@@ -114,8 +114,9 @@ class EvolutionManager:
             try:
                 self.connect_ipc()
                 return
-            except Exception:
-                pass
+            except Exception as err:
+                print(f"[manager] wait_core has error {err}")
+
             time.sleep(interval)
         raise RuntimeError(f"IPC timeout. Core might be stuck.")
 
@@ -134,7 +135,9 @@ class EvolutionManager:
         try:
             subprocess.run(["pkill", "-9", "-f", self.core_bin.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(0.5)
-        except Exception: pass
+        except Exception as err:
+            raise err
+
         for stale_file in [DEFAULT_SOCKET, LOCK_FILE]:
             if os.path.exists(stale_file):
                 try: os.unlink(stale_file)
@@ -218,7 +221,9 @@ class EvolutionManager:
         elif cmd_name == "retrieve":
             keyword = " ".join(args)
             try:
-                resp = self.ipc.request("retrieve", {"query": keyword})
+                from knowledge.retrieval import retrieve
+                res_text = retrieve(self.ipc, keyword)
+                print(f"\n{res_text}" if res_text else "\n[Retrieval] Фактов не найдено.")
                 self.format_and_print_response(resp)
             except Exception as e: print(f"[ERROR] {e}")
 

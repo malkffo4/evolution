@@ -41,6 +41,9 @@
     
 
 # TODO.md
+# Must
+NeuroCore должен научиться на 20 sandbox-пентестах, а затем превзойти baseline LLM-agent на 80 совершенно новых targets без retraining.
+
 ## Priority 1
 Credit Assignment
 Сейчас Planner знает

@@ -190,7 +190,7 @@ run: debug
 
 clean:
 	rm -rf $(BUILD)
-	rm -rf ./test_*_db
+	rm -rf ./test_*_db ./data ./logs
 	@echo "[CLEAN]"
 
 # ==========================================================
