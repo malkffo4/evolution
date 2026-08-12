@@ -20,6 +20,8 @@ GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 
 LLM_CACHE_FILE = ".working_llm_cache.json"
 
+LOG_TRUNCATED = 500
+
 def _is_retryable_error(e):
     if isinstance(e, httpx.HTTPStatusError):
         status = e.response.status_code
@@ -76,8 +78,6 @@ class LLMClient:
                 except requests.RequestException:
                     pass
 
-            # Всегда добавляем веб-провайдеры как последний рубеж на случай
-            # исчерпания лимитов API.
             self.providers.append("web_deepseek")
             self.providers.append("web_chatgpt")
 
@@ -95,7 +95,6 @@ class LLMClient:
         self.model_to_use = None
         self.key_to_use = None
 
-        # 1. Читаем кэш прямо при инициализации, чтобы сразу подхватить рабочий LLM
         if os.path.exists(LLM_CACHE_FILE):
             try:
                 with open(LLM_CACHE_FILE, "r") as f:
@@ -107,9 +106,33 @@ class LLMClient:
             except Exception:
                 pass
 
-        # 2. Сразу инициализируем переменные, иначе прямые вызовы aquery() упадут
         self.model_to_use = self._get_model(self.provider)
         self.key_to_use = self._get_api_key(self.provider)
+
+    @staticmethod
+    def get_available_gemini_models(api_key: str = None) -> list:
+        """
+        Динамически запрашивает актуальный список моделей напрямую у Google.
+        Возвращает только те модели, которые поддерживают текстовую генерацию.
+        """
+        key = api_key or os.getenv("GEMINI_API_KEY")
+        if not key:
+            return []
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        try:
+            resp = requests.get(url, timeout=5)
+            resp.raise_for_status()
+            models = resp.json().get("models", [])
+            # Оставляем только те, что умеют генерировать контент, и сразу отрезаем префикс "models/"
+            return [
+                m["name"].replace("models/", "")
+                for m in models
+                if "generateContent" in m.get("supportedGenerationMethods", [])
+            ]
+        except Exception as e:
+            print(f"[LLM] Не удалось получить список моделей Gemini: {e}", file=sys.stderr)
+            return []
 
     def _get_api_key(self, provider):
         if self.api_key: return self.api_key
@@ -120,18 +143,17 @@ class LLMClient:
         return None
 
     def _get_model(self, provider):
-        '''
-        Note:
-        Для критичной задачи ingestion не используйте auto с фоллбэком на 1.5B
-        — форсируйте более сильную модель (--provider deepseek/openai/anthropic, или хотя бы qwen2.5:7b/14b в ollama).
-        '''
-        if self.model: return self.model
+        if self.model:
+            # Защита от дурака: если передали 'models/gemini-...', отрезаем префикс
+            return self.model.replace("models/", "")
+
         default_models = {
             "ollama": "qwen2.5-coder:1.5b",
             "openai": "gpt-4o-mini",
             "deepseek": "deepseek-chat",
             "anthropic": "claude-3-5-sonnet-20241022",
-            "gemini": "gemini-2.0-flash",
+            # Ставим свежую модель как дефолт, префикс 'models/' писать НЕ нужно
+            "gemini": "gemini-3.6-flash",
             "web_deepseek": "deepseek",
             "web_chatgpt": "chatgpt",
             "web_gemini": "gemini"
@@ -173,7 +195,7 @@ class LLMClient:
                     return res
                 except Exception as e:
                     err_msg = str(e)
-                    short_err = err_msg[:120] + ("... [TRUNCATED]" if len(err_msg) > 120 else "")
+                    short_err = err_msg[:LOG_TRUNCATED] + ("... [TRUNCATED]" if len(err_msg) > LOG_TRUNCATED else "")
                     print(f"\n[LLM] Ошибка web-генерации ({provider}): {short_err}", file=sys.stderr)
                     if os.path.exists(LLM_CACHE_FILE): os.remove(LLM_CACHE_FILE)
                     if i < len(self.providers) - 1:
@@ -217,7 +239,7 @@ class LLMClient:
                     err_msg = f"HTTP {e.response.status_code} - {e.response.text}"
 
                 # 2. ГАСИМ ПРОСТЫНЮ ЗДЕСЬ
-                short_err = err_msg[:120] + ("... [TRUNCATED]" if len(err_msg) > 120 else "")
+                short_err = err_msg[:LOG_TRUNCATED] + ("... [TRUNCATED]" if len(err_msg) > LOG_TRUNCATED else "")
                 print(f"\n[LLM] Ошибка генерации ({provider}): {short_err}", file=sys.stderr)
                 if os.path.exists(LLM_CACHE_FILE): os.remove(LLM_CACHE_FILE)
 
@@ -327,11 +349,11 @@ class LLMClient:
 
     async def _aquery_gemini(self, client: httpx.AsyncClient, prompt: str, system: str, json_mode: bool, image_path: str) -> str:
         if not self.key_to_use: raise ValueError("GEMINI_API_KEY is missing")
+
+        # Теперь .format(model=...) будет работать корректно
         url = GEMINI_API.format(model=self.model_to_use) + f"?key={self.key_to_use}"
 
         parts = []
-        if system: parts.append({"text": f"System: {system}\n\n"})
-        parts.append({"text": f"User: {prompt}"})
 
         if image_path:
             parts.append({
@@ -341,14 +363,25 @@ class LLMClient:
                 }
             })
 
+        parts.append({"text": prompt})
+
         payload = {
-            "contents": [{"parts": parts}],
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {"temperature": 0.1}
         }
-        if json_mode: payload["generationConfig"]["responseMimeType"] = "application/json"
+
+        # Используем официальное поле для системного промпта
+        if system:
+            payload["systemInstruction"] = {
+                "parts": [{"text": system}]
+            }
+
+        if json_mode:
+            payload["generationConfig"]["responseMimeType"] = "application/json"
 
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
+
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
     def _query_web(self, prompt: str, system: str, json_mode: bool, image_path: str) -> str:
