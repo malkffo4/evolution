@@ -21,7 +21,7 @@ FLAGS_SIZE = struct.calcsize(FLAGS_FMT)
 
 LOCK_FILE = "/tmp/evolution.lock"
 DEFAULT_SOCKET = "/tmp/evolution.sock"
-DEFAULT_TIMEOUT = 1.0
+DEFAULT_TIMEOUT = 15.0  # Увеличенный таймаут для работы под высокой нагрузкой (например, 10,000 WM целей)
 
 TYPE_REQUEST = 0
 TYPE_RESPONSE = 1
@@ -32,7 +32,7 @@ class IPCError(Exception):
     pass
 
 class IPCClient:
-    def __init__(self, socket_path=DEFAULT_SOCKET, timeout=2.0):
+    def __init__(self, socket_path=DEFAULT_SOCKET, timeout=DEFAULT_TIMEOUT):
         self.socket_path = socket_path
         self.timeout = timeout
         self.sock = None
@@ -78,23 +78,11 @@ class IPCClient:
         parent_id = packet.get("parent_id", 0)
         timestamp = packet.get("timestamp", 0)
         ptype = packet.get("type", 0)
+
+        # Обрезаем строки и гарантируем нуль-терминирование
         source = packet.get("source", "\\").encode('utf-8')[:32]
         destination = packet.get("destination", "").encode('utf-8')[:32]
-        name_enc = name.encode('utf-8')[:64] # Если payload – строка, кодируем в байты
-        if isinstance(payload, str):
-            payload_bytes = payload.encode()
-        elif isinstance(payload, bytes):
-            payload_bytes = payload
-        else:
-            payload_bytes = b''
-
-        id = packet.get("id", 0)
-        parent_id = packet.get("parent_id", 0)
-        timestamp = packet.get("timestamp", 0)
-        ptype = packet.get("type", 0)
-        source = packet.get("source", "").encode()[:32]
-        destination = packet.get("destination", "").encode()[:32]
-        name_enc = name.encode()[:64]
+        name_enc = name.encode('utf-8')[:64]
 
         payload_size = len(payload_bytes)
         if payload_size > IPC_PAYLOAD_SIZE:
@@ -108,6 +96,7 @@ class IPCClient:
             payload_size)
 
         self.file.write(header)
+
         if payload_size > 0:
             self.file.write(payload_bytes)
 
@@ -161,7 +150,7 @@ class IPCClient:
             "parent_id": parent_id,
             "timestamp": timestamp,
             "type": ptype,
-            "name": name_enc.rstrip(b'\0').decode(),
+            "name": name_enc.rstrip(b'\0').decode('utf-8', errors='replace'),
             "payload": payload,
             "flags": flags
         }
@@ -183,7 +172,6 @@ class IPCClient:
     def ping(self):
         try:
             r = self.request("ping")
-            # payload уже распарсен в _recv, если это был JSON
             payload = r.get("payload", {})
             if isinstance(payload, str):
                 payload = json.loads(payload)

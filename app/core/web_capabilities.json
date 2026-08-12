@@ -1,0 +1,9 @@
+{
+  "atoms": [
+    {"process": "IS_A", "args": ["WebRuntime", "Environment"]},
+    {"process": "IS_A", "args": ["ObserveVisualWebState", "Capability"]},
+    {"process": "IS_A", "args": ["NativeBrowserBackend", "Implementation"]},
+    {"process": "PROVIDES", "args": ["WebRuntime", "ObserveVisualWebState"]},
+    {"process": "IMPLEMENTS", "args": ["NativeBrowserBackend", "ObserveVisualWebState"]}
+  ]
+}

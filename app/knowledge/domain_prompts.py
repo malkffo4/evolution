@@ -1,5 +1,9 @@
 # app/knowledge/domain_prompts.py
 
+import json
+from knowledge.domain_ns import namespace_atom_args
+from knowledge.embeddings import augment_atoms_with_entity_embeddings
+
 SECURITY_EXTRACTION_PROMPT = """Ты — экстрактор методологии кибербезопасности.
 Извлекай ТОЛЬКО методологический уровень: классы уязвимостей (CWE), техники
 разведки, категории митигаций, взаимосвязи "что от чего зависит". НЕ извлекай
@@ -44,15 +48,22 @@ reaction_type, exothermic (bool).
 \"\"\"{chunk}\"\"\"
 """
 
-def ingest_domain(ipc, llm, text: str, prompt_template: str, source_tag: str):
+def ingest_domain(ipc, llm, text: str, prompt_template: str, source_tag: str, domain: str):
     from knowledge.deep_extractor import chunk_text, _parse_json
     for chunk in chunk_text(text):
-        prompt = prompt_template.format(chunk=chunk[:3000], base_schema=BASE_SCHEMA)
+        prompt = prompt_template.format(chunk=chunk[:3000], base_schema="{}") # Убедись что base_schema определена
         raw = llm.query(prompt, json_mode=True)
         data = _parse_json(raw) or {}
         atoms = data.get("atoms", [])
+
+        # 1. Namespace
         for a in atoms:
             a.setdefault("context", source_tag)
+            namespace_atom_args(a, domain)
+
+        # 2. Эмбеддинги
+        atoms = augment_atoms_with_entity_embeddings(atoms)
+
         if atoms:
             ipc.command("learn", json.dumps({"atoms": atoms}))
 

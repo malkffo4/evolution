@@ -96,6 +96,10 @@ def main():
     link_algorithm(ipc, BAD_ALGO, GOAL_ID)
 
     for i in range(5):
+        # Сбрасываем кулдаун ВНУТРИ цикла, чтобы планировщик брал цель каждый раз
+        ipc.command("clear_cooldown", json.dumps({"goal": GOAL_ID}))
+        activate_goal(ipc, GOAL_ID)
+
         think(ipc)
         print(f"  iter {i+1}: score({BAD_ALGO}) = {get_score(ipc, BAD_ALGO):.4f}")
 
@@ -110,14 +114,11 @@ def main():
     print(f"\n=== Phase 2: {GOOD_ALGO} joins as a second candidate ===")
     link_algorithm(ipc, GOOD_ALGO, GOAL_ID)
 
-    # Сбросим кулдаун, чтобы планировщик мог немедленно взять цель снова
-    ipc.command("clear_cooldown", json.dumps({"goal": GOAL_ID}))
-
-    # ИСПРАВЛЕНИЕ: Восстанавливаем уровень активации цели в рабочей памяти,
-    # так как за время Phase 1 он деградировал (Decay) ниже порога активации.
-    activate_goal(ipc, GOAL_ID)
-
     for i in range(5):
+        # Аналогично поддерживаем цель активной и доступной на каждом шаге
+        ipc.command("clear_cooldown", json.dumps({"goal": GOAL_ID}))
+        activate_goal(ipc, GOAL_ID)
+
         think(ipc)
         s_good = get_score(ipc, GOOD_ALGO)
         s_bad = get_score(ipc, BAD_ALGO)

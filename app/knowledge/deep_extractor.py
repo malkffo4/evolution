@@ -22,6 +22,9 @@ APP_DIR = Path(__file__).resolve().parents[1]
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
+from knowledge.domain_ns import namespace_atom_args, DEFAULT_DOMAIN
+from knowledge.embeddings import augment_atoms_with_entity_embeddings
+
 DEEP_EXTRACTION_PROMPT = """Ты — когнитивный экстрактор знаний NeuroCore.
 Читай ТОЛЬКО то, что явно написано или логически прямо следует из текста.
 
@@ -102,20 +105,25 @@ def extract_deep(llm, chunk: str) -> list:
     return data.get("atoms", [])
 
 
-def ingest_text(ipc, llm, text: str, source_tag: str = "unknown", verbose: bool = True) -> dict:
-    """Текст -> LLM -> IPC "learn" -> LMDB. Тот же путь "learn"/{"atoms":[...]},
-    что и research_worker.py — новых IPC-команд для приёма знаний не нужно."""
+def ingest_text(ipc, llm, text: str, source_tag: str = "unknown", verbose: bool = True, domain: str = DEFAULT_DOMAIN) -> dict:
+    """Текст -> LLM -> Навешивание Namespace и Эмбеддингов -> IPC "learn" -> LMDB."""
     chunks = chunk_text(text)
     total_atoms = 0
     if verbose:
-        print(f"[deep_extractor] '{source_tag}': {len(chunks)} chunk(s)")
+        print(f"[deep_extractor] '{source_tag}' (domain: {domain}): {len(chunks)} chunk(s)")
 
     for i, chunk in enumerate(chunks, 1):
         atoms = extract_deep(llm, chunk)
         if not atoms:
             continue
+
+        # 1. Применяем namespace к аргументам фактов
         for a in atoms:
             a.setdefault("context", source_tag)
+            namespace_atom_args(a, domain)
+
+        # 2. Генерируем атомы эмбеддингов для новых сущностей
+        atoms = augment_atoms_with_entity_embeddings(atoms)
 
         resp = ipc.command("learn", json.dumps({"atoms": atoms}))
         if resp.get("name") == "error":
@@ -132,6 +140,6 @@ def ingest_text(ipc, llm, text: str, source_tag: str = "unknown", verbose: bool 
     return {"source": source_tag, "chunks": len(chunks), "atoms": total_atoms}
 
 
-def ingest_file(ipc, llm, path: Path, verbose: bool = True) -> dict:
+def ingest_file(ipc, llm, path: Path, verbose: bool = True, domain: str = DEFAULT_DOMAIN) -> dict:
     text = path.read_text(encoding="utf-8", errors="replace")
-    return ingest_text(ipc, llm, text, source_tag=path.name, verbose=verbose)
+    return ingest_text(ipc, llm, text, source_tag=path.name, verbose=verbose, domain=domain)

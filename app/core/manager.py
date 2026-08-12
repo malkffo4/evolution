@@ -1,6 +1,5 @@
 # app/core/manager.py
 import signal, subprocess, time, os, sys, json
-import atexit
 from pathlib import Path
 
 from core.ipc import DEFAULT_SOCKET, LOCK_FILE
@@ -12,25 +11,27 @@ from services.chat_service import ChatService
 from services.mvp_agent import MvpAgent
 from services.mind_agent import MindAgent
 
+BUILD_MODE = "debug"
+
 class EvolutionManager:
-    def __init__(self):
+    def __init__(self, db_path=None):
         self.root = Path(__file__).resolve().parents[2]
         self.core_dir = self.root / "core"
-        self.core_bin = self.core_dir / "build" / "debug" / "bin" / "evolution_core"
+        self.core_bin = self.core_dir / "build" / BUILD_MODE / "bin" / "evolution_core"
         self.makefile = self.core_dir / "Makefile"
+
         self.core_process = None
+        self.db_path = db_path  # Путь для LMDB (если передан)
 
         self.core_client = CoreClient(timeout=2.0)
         self.llm_client = LLMClient()
-        self.ipc = self.core_client._ipc # Legacy compatibility
+        self.ipc = self.core_client._ipc
 
-        self.running = True
-        self.core_started_by_manager = False
+        self.running = False
 
         self.research_worker = self.root / "app" / "services" / "research_worker.py"
         self.research_worker_process = None
 
-        # Интегрированные сервисы (используют единый LLM и Core SDK)
         self.chat = ChatService(self.ipc, self.llm_client)
         self.mvp = MvpAgent(self.ipc, self.llm_client)
         self.mind = MindAgent(self.core_client, self.llm_client)
@@ -42,19 +43,67 @@ class EvolutionManager:
 
     def initialize(self):
         self.check_project()
-        self.build_core_if_needed()
         if self.is_core_responding():
-            self.core_started_by_manager = False
             self.connect_ipc()
         else:
             self.start_core()
-            self.core_started_by_manager = True
             self.wait_core()
         try:
             self.start_research_worker()
         except Exception:
             self.shutdown()
             raise
+
+    def check_project(self):
+        if not self.makefile.exists(): raise RuntimeError("core/Makefile not found.")
+        if not self.core_dir.exists(): raise RuntimeError("core directory not found.")
+
+    def is_core_responding(self):
+        if not os.path.exists(DEFAULT_SOCKET): return False
+        try:
+            test = CoreClient(timeout=2.0)
+            test.connect()
+            test.close()
+            return True
+        except Exception:
+            return False
+
+    def wait_core(self, attempts=30, interval=0.5):
+        for _ in range(attempts):
+            if self.core_process and self.core_process.poll() is not None:
+                raise RuntimeError(f"Core died! Check {self.core_log_path}")
+            try:
+                self.connect_ipc()
+                return
+            except Exception:
+                time.sleep(interval)
+        raise RuntimeError("IPC timeout. Core might be stuck.")
+
+    def start_core(self):
+        self._cleanup_orphans()
+
+        # УБИРАЕМ ЗОМБИ: заставляем Python прочитать статус
+        if self.core_process:
+            try: self.core_process.wait(timeout=0.1)
+            except Exception: pass
+
+        for stale_file in [DEFAULT_SOCKET, LOCK_FILE]:
+            if os.path.exists(stale_file):
+                try: os.unlink(stale_file)
+                except OSError: pass
+
+        cmd = [str(self.core_bin)]
+        if self.db_path:
+            cmd.extend(["--db-path", str(self.db_path)])
+
+        self.core_log_fd = open(self.core_log_path, "w+")
+        self.core_process = subprocess.Popen(
+            cmd,
+            cwd=self.core_dir,
+            stdout=self.core_log_fd,
+            stderr=subprocess.STDOUT,
+        )
+        time.sleep(1.5)
 
     def start_research_worker(self):
         try:
@@ -72,8 +121,6 @@ class EvolutionManager:
                 start_new_session=True,
             )
             time.sleep(0.3)
-            if self.research_worker_process.poll() is not None:
-                raise RuntimeError("ResearchWorker exited during startup.")
         except Exception as e:
             self._stop_research_worker(force=True)
             raise RuntimeError(f"Failed to start ResearchWorker: {e}") from e
@@ -90,71 +137,18 @@ class EvolutionManager:
                     if force:
                         proc.kill()
                         proc.wait(timeout=3)
-                    else: raise
         finally:
             if self.research_worker_log_fd:
                 try: self.research_worker_log_fd.close()
                 except Exception: pass
                 self.research_worker_log_fd = None
 
-    def is_core_responding(self):
-        if not os.path.exists(DEFAULT_SOCKET): return False
-        try:
-            test = CoreClient(timeout=1.0)
-            test.connect()
-            test.close()
-            return True
-        except Exception:
-            return False
-
-    def wait_core(self, attempts=30, interval=0.5):
-        for _ in range(attempts):
-            if self.core_process and self.core_process.poll() is not None:
-                raise RuntimeError(f"Core died! Check {self.core_log_path}")
-            try:
-                self.connect_ipc()
-                return
-            except Exception:
-                pass
-            time.sleep(interval)
-        raise RuntimeError(f"IPC timeout. Core might be stuck.")
-
-    def check_project(self):
-        if not self.makefile.exists(): raise RuntimeError("core/Makefile not found.")
-        if not self.core_dir.exists(): raise RuntimeError("core directory not found.")
-
-    def build_core_if_needed(self):
-        if self.core_bin.exists(): return
-        print("[Manager] Building C core (release mode)...")
-        result = subprocess.run(["make", "release"], cwd=self.core_dir)
-        if result.returncode != 0: raise RuntimeError("Core build failed.")
-        if not self.core_bin.exists(): raise RuntimeError("Compiled binary not found.")
-
-    def start_core(self):
-        try:
-            subprocess.run(["pkill", "-9", "-f", self.core_bin.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.5)
-        except Exception: pass
-        for stale_file in [DEFAULT_SOCKET, LOCK_FILE]:
-            if os.path.exists(stale_file):
-                try: os.unlink(stale_file)
-                except OSError: pass
-        self.core_log_fd = open(self.core_log_path, "w+")
-        self.core_process = subprocess.Popen(
-            [str(self.core_bin)], cwd=self.core_dir, stdout=self.core_log_fd, stderr=subprocess.STDOUT,
-        )
-        time.sleep(1.5)
-
-    def is_core_running(self):
-        return self.is_core_responding()
-
     def connect_ipc(self):
         self.core_client.connect()
 
     def run_tests(self):
-        """ Запускает все тесты через менеджер."""
-        print("\n[Manager] Запускаем тесты AGI Olympics...")
-        script_path = self.root / "app" / "tests" / "run_general.py"
+        print("\n[Manager] Запускаем полный набор тестов (E2E + Olympics)...")
+        script_path = self.root / "app" / "tests" / "run_all.py"
         try:
             subprocess.run([sys.executable, str(script_path)], check=True)
         except subprocess.CalledProcessError as e:
@@ -164,37 +158,20 @@ class EvolutionManager:
         if not response:
             print("[System] No response received.")
             return
-
         payload_raw = response.get("payload", "")
 
-        # Если payload уже распарсен в словарь (благодаря ipc.py)
         if isinstance(payload_raw, dict):
-            if "reply" in payload_raw:
-                print(f"\nAI: {payload_raw['reply']}")
-                return
-            if payload_raw.get("ok") is True:
-                msg = payload_raw.get("msg", "Command completed successfully.")
-                print(f"\n[OK] {msg}")
-                return
-            if "error" in payload_raw:
-                print(f"\n[ERROR] {payload_raw['error']}")
-                return
+            if "reply" in payload_raw: print(f"\nAI: {payload_raw['reply']}"); return
+            if payload_raw.get("ok") is True: print(f"\n[OK] {payload_raw.get('msg', 'Command completed successfully.')}"); return
+            if "error" in payload_raw: print(f"\n[ERROR] {payload_raw['error']}"); return
 
-        # Если payload остался строкой
         if isinstance(payload_raw, str) and payload_raw.strip():
             try:
                 payload = json.loads(payload_raw)
                 if isinstance(payload, dict):
-                    if "reply" in payload:
-                        print(f"\nAI: {payload['reply']}")
-                        return
-                    if payload.get("ok") is True:
-                        msg = payload.get("msg", "Command completed successfully.")
-                        print(f"\n[OK] {msg}")
-                        return
-                    if "error" in payload:
-                        print(f"\n[ERROR] {payload['error']}")
-                        return
+                    if "reply" in payload: print(f"\nAI: {payload['reply']}"); return
+                    if payload.get("ok") is True: print(f"\n[OK] {payload.get('msg', 'Command completed successfully.')}"); return
+                    if "error" in payload: print(f"\n[ERROR] {payload['error']}"); return
             except json.JSONDecodeError:
                 pass
             print(f"\nAI: {payload_raw}")
@@ -204,22 +181,17 @@ class EvolutionManager:
             print(response)
 
     def execute_command(self, cmd_name: str, *args):
-        """Метод для выполнения разовых команд (из CLI или REPL)."""
         cmd_name = cmd_name.lower()
         if cmd_name == "shutdown":
-            try:
-                resp = self.ipc.command("shutdown")
-                self.format_and_print_response(resp)
-                time.sleep(0.5)
-            except Exception as e:
-                print(f"[ERROR] {e}")
+            self.shutdown()
             return False
 
         elif cmd_name == "retrieve":
             keyword = " ".join(args)
             try:
-                resp = self.ipc.request("retrieve", {"query": keyword})
-                self.format_and_print_response(resp)
+                from knowledge.retrieval import retrieve
+                res_text = retrieve(self.ipc, keyword)
+                print(f"\n{res_text}" if res_text else "\n[Retrieval] Фактов не найдено.")
             except Exception as e: print(f"[ERROR] {e}")
 
         elif cmd_name == "learn":
@@ -274,11 +246,8 @@ class EvolutionManager:
             if not file_path:
                 print("Usage: ingest <file_path> [--provider ollama]")
             else:
-                file_path = args[0]
-                print(f"[Manager] Starting parallel ingestion for {file_path}...")
                 from tools.ingest_knowledge import main as run_ingest
-                # Пробрасываем все аргументы скрипту!
-                sys.argv = ["ingest_knowledge.py", file_path] + list(args[1:])
+                sys.argv = ["ingest_knowledge.py", args[0]] + list(args[1:])
                 run_ingest()
         else:
             print(f"Unknown command: {cmd_name}")
@@ -288,22 +257,62 @@ class EvolutionManager:
         if getattr(self, "_shutdown_done", False): return
         self._shutdown_done = True
         self.running = False
+
+        if self.is_core_responding():
+            try:
+                self.core_client._command("shutdown")
+            except Exception:
+                pass
+
         try: self.core_client.close()
         except Exception: pass
         self._stop_research_worker(force=True)
 
-        if self.core_started_by_manager:
-            if self.core_process and self.core_process.poll() is None:
+        # Даем ядру 2 секунды на сохранение после отправки IPC команды "shutdown"
+        if self.core_process:
+            try:
+                self.core_process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                # Если не вышло само - шлем мягкий сигнал (SIGTERM)
+                self.core_process.terminate()
                 try:
-                    self.core_process.send_signal(signal.SIGTERM)
-                    self.core_process.wait(timeout=3)
+                    self.core_process.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
+                    # Если наглухо висит - убиваем жестко (SIGKILL)
                     self.core_process.kill()
-                    self.core_process.wait()
-            if os.path.exists(DEFAULT_SOCKET):
-                try: os.unlink(DEFAULT_SOCKET)
-                except Exception: pass
+                    self.core_process.wait(timeout=1.0)
+            self.core_process = None
+        else:
+            # Если мы не владеем процессом, но он висит в ОС
+            self._cleanup_orphans()
+
+        # УБИРАЕМ ЗОМБИ при завершении
+        if self.core_process:
+            try: self.core_process.wait(timeout=1)
+            except Exception: pass
+
+        if os.path.exists(DEFAULT_SOCKET):
+            try: os.unlink(DEFAULT_SOCKET)
+            except Exception: pass
 
         if getattr(self, 'core_log_fd', None):
             try: self.core_log_fd.close()
             except: pass
+
+    def _cleanup_orphans(self):
+        """Интеллектуальная зачистка: убиваем только если есть кого, не тратя время впустую."""
+        # Проверяем, есть ли вообще такой процесс (returncode == 0 значит найден)
+        if subprocess.run(["pgrep", "-f", self.core_bin.name], stdout=subprocess.DEVNULL).returncode != 0:
+            return # Никого нет, уходим моментально!
+
+        # Процесс есть. Посылаем SIGTERM (мягко)
+        subprocess.run(["pkill", "-15", "-f", self.core_bin.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Ждем максимум 2 секунды, проверяя статус каждые 0.1с
+        for _ in range(20):
+            if subprocess.run(["pgrep", "-f", self.core_bin.name], stdout=subprocess.DEVNULL).returncode != 0:
+                return # Умер сам, отлично
+            time.sleep(0.1)
+
+        # Если за 2 секунды не сдался - добиваем SIGKILL
+        subprocess.run(["pkill", "-9", "-f", self.core_bin.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
