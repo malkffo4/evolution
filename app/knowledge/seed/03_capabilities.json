@@ -1,0 +1,17 @@
+{
+  "atoms": [
+    {"process": "IS_A", "kind": "relation", "args": ["WebEnvironment", "Environment"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["NavigateWeb", "Capability"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["ObserveWeb", "Capability"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["InteractWeb", "Capability"], "confidence": 1.0},
+
+    {"process": "PROVIDES", "kind": "relation", "args": ["WebEnvironment", "NavigateWeb"], "confidence": 1.0},
+    {"process": "PROVIDES", "kind": "relation", "args": ["WebEnvironment", "ObserveWeb"], "confidence": 1.0},
+    {"process": "PROVIDES", "kind": "relation", "args": ["WebEnvironment", "InteractWeb"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["PlaywrightWebRuntime", "Implementation"], "confidence": 1.0},
+    {"process": "IMPLEMENTS", "kind": "relation", "args": ["PlaywrightWebRuntime", "NavigateWeb"], "confidence": 1.0},
+    {"process": "IMPLEMENTS", "kind": "relation", "args": ["PlaywrightWebRuntime", "ObserveWeb"], "confidence": 1.0},
+    {"process": "IMPLEMENTS", "kind": "relation", "args": ["PlaywrightWebRuntime", "InteractWeb"], "confidence": 1.0}
+  ]
+}

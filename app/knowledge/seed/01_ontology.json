@@ -1,0 +1,46 @@
+{
+  "atoms": [
+    {"process": "IS_A", "kind": "relation", "args": ["Entity", "MetaType"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Relation", "MetaType"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Process", "MetaType"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["ExecutableKnowledge", "MetaType"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Algorithm", "ExecutableKnowledge"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Skill", "ExecutableKnowledge"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Capability", "ExecutableKnowledge"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Policy", "ExecutableKnowledge"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["SelectionPolicy", "Policy"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["PlanningPolicy", "Policy"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Goal", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["State", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Observation", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Action", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Evidence", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Belief", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Prediction", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Error", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Environment", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Implementation", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Affordance", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Profile", "Entity"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["IMPLEMENTS", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["PROVIDES", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["REQUIRES", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["USES", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["SELECTS", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["PRODUCES", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["PREDICTS", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["VERIFIED_BY", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["HAS_BELIEF", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["SUPPORTED_BY", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["FAILS_WITH", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["HAS_AFFORDANCE", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["HAS_COMPONENT", "Relation"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["SOLVES", "Relation"], "confidence": 1.0},
+    {"process": "SOLVES", "kind": "relation", "args": ["Algorithm", "Goal"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["HAS_ALGORITHM", "GoalAlgorithmRelation"], "confidence": 1.0}
+  ]
+}

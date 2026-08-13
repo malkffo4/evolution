@@ -1,0 +1,8 @@
+{
+  "atoms": [
+    {"process": "IS_A", "kind": "relation", "args": ["FindVulnerability", "Goal"], "confidence": 1.0},
+    {"process": "HAS_ALGORITHM", "kind": "relation", "args": ["CheckEdgeAlgo", "FindVulnerability"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["InductiveSynthesisGoal", "Goal"], "confidence": 1.0},
+    {"process": "HAS_ALGORITHM", "kind": "relation", "args": ["InductiveExtractor", "InductiveSynthesisGoal"], "confidence": 1.0}
+  ]
+}

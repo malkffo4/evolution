@@ -11,101 +11,31 @@ from core.ipc import IPCClient
 from knowledge.patterns import install_patterns
 from core.sdk import djb2_hash
 
-class PipelineBuilder:
-    """Symbolic-label bytecode builder. Eliminates off-by-one jump bugs
-    like the ZeroShotComposer regression (see fix above) by resolving
-    all branch targets at build() time instead of by hand."""
-    def __init__(self):
-        self.instructions = []
-        self.labels = {}
-
-    def label(self, name):
-        self.labels[name] = len(self.instructions)
-        return self
-
-    def op(self, operator_id, arg=None, flags=0):
-        arg = (list(arg or []) + [0]*6)[:6]
-        self.instructions.append({"operator_id": operator_id, "arg": arg, "flags": flags})
-        return self
-
-    def op_jump(self, operator_id, jump_slot, label_name, arg=None, flags=0):
-        arg = (list(arg or []) + [0]*6)[:6]
-        ins = {"operator_id": operator_id, "arg": arg, "flags": flags}
-        ins["_fixup"] = (jump_slot, label_name)
-        self.instructions.append(ins)
-        return self
-
-    def build(self):
-        for ins in self.instructions:
-            fixup = ins.pop("_fixup", None)
-            if fixup:
-                slot, name = fixup
-                if name not in self.labels:
-                    raise ValueError(f"PipelineBuilder: unresolved label '{name}'")
-                ins["arg"][slot] = self.labels[name]
-        return self.instructions
-
-
-def build_zero_shot_composer(const_has_algo):
-    b = PipelineBuilder()
-    (b.op("load_const", [50, 0])
-      .op("load_const", [51, 1])
-      .op("find_producer_chain", [R_GOAL_ID, 52, 53, 54, 55, 56])
-      .op_jump("cond_branch_gt", 2, "compose", [55, 51])
-      .op("halt")
-      .label("compose")
-      .op("spawn_ctx", [57])
-      .op("synthesize_sequence", [52, 53, 58])
-      .op("exec_algorithm", [58])
-      .op("derive", [50, 58, R_GOAL_ID, 56, 59])
-      .op("merge_ctx", [float_to_uint32(0.30)])
-      .op("halt"))
-    return b.build()
-
-# learn_pipeline("ZeroShotComposer", build_zero_shot_composer(0),
-#                {"int_consts": [str(proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION)), 0]})
-
-def is_already_bootstrapped(ipc: IPCClient) -> bool:
-    resp = ipc.request("retrieve", {"query": "MetaType"})
-    try:
-        payload = json.loads(resp.get("payload", "{}"))
-        return len(payload.get("nodes", [])) > 0 or len(payload.get("atoms", [])) > 0
-    except Exception:
-        return False
-
-def float_to_uint32(f: float) -> int:
-    """Конвертирует float в битовое представление uint32 для передачи в C-ядро"""
-    return struct.unpack('<I', struct.pack('<f', f))[0]
-
 PROC_KIND_RELATION = 0
 PROC_TYPE_SHIFT = 56
 PROC_ID_MASK = (~(0xFF << PROC_TYPE_SHIFT)) & 0xFFFFFFFFFFFFFFFF
 
 def proc_make(base_id: int, kind: int) -> int:
-    """Побитово совпадает с core/src/storage/hyper_atom/hyper_atom.h::proc_make()"""
     return (base_id & PROC_ID_MASK) | ((kind & 0xFF) << PROC_TYPE_SHIFT)
 
+def float_to_uint32(f: float) -> int:
+    return struct.unpack('<I', struct.pack('<f', f))[0]
+
 def get_opcodes_map():
-    """Парсит opcode.h, чтобы динамически получить правильные ID инструкций."""
     opcode_path = Path(__file__).resolve().parents[2] / "core" / "src" / "runtime" / "ops" / "opcode.h"
     op_map = {}
     if not opcode_path.exists():
-        print(f"[WARN] Не найден {opcode_path}, используем хардкод.", file=sys.stderr)
-        return {"OP_GLOAD_CONST": 79, "OP_ASSERT": 46} # fallback на актуальные номера
+        return {"OP_GLOAD_CONST": 79, "OP_ASSERT": 46}
 
     try:
         content = opcode_path.read_text(encoding="utf-8")
-
-        # 1. Вычищаем ВСЕ комментарии (строчные и блочные)
         content = re.sub(r'//.*', '', content)
         content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
 
-        # 2. Ищем строго блок typedef enum { ... }
         match = re.search(r'typedef\s+enum\s*\{(.*?)\}', content, re.DOTALL)
         if match:
             enum_body = match.group(1)
             counter = 0
-            # 3. Разбиваем по запятым и перебираем элементы
             for line in enum_body.split(','):
                 part = line.strip()
                 if not part: continue
@@ -117,322 +47,69 @@ def get_opcodes_map():
                 else:
                     op_map[part] = counter
                 counter += 1
-    except Exception as e:
-        print(f"[WARN] Ошибка парсинга opcode.h: {e}", file=sys.stderr)
-        return {"OP_GLOAD_CONST": 79, "OP_ASSERT": 46} # fallback
+    except Exception:
+        return {"OP_GLOAD_CONST": 79, "OP_ASSERT": 46}
 
     return op_map
 
-# Регистр, в который vm_pool кладёт goal_id перед запуском диспетчеризованного
-# алгоритма (см. core/src/runtime/vm/vm_param.h::VM_REG_GOAL_ID и
-# core/src/runtime/vm/vm_pool.c::vm_worker_txn_fn). Все алгоритмы, которым
-# нужно знать "для какой цели меня запустили", ДОЛЖНЫ читать этот регистр
-# напрямую вместо повторного OP_WM_TOP_GOAL — WorkingMemory воркера
-# изолирована и пуста, а cooldown_until на саму цель уже выставлен.
-R_GOAL_ID = 63
+OPCODES = get_opcodes_map()
 
-def inject_core_algorithms(ipc: IPCClient):
-    print("[Bootstrap] Заливаем системные алгоритмы в LMDB...")
+def resolve_macros(obj):
+    """Рекурсивно обходит JSON и заменяет макросы на вычисленные значения."""
+    if isinstance(obj, dict):
+        return {k: resolve_macros(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [resolve_macros(v) for v in obj]
+    elif isinstance(obj, str):
+        if obj.startswith("@hash:"):
+            return str(djb2_hash(obj.split(":", 1)[1]))
+        elif obj.startswith("@proc_rel:"):
+            base_hash = djb2_hash(obj.split(":", 1)[1])
+            return str(proc_make(base_hash, PROC_KIND_RELATION))
+        elif obj.startswith("@float:"):
+            return float_to_uint32(float(obj.split(":", 1)[1]))
+        elif obj.startswith("@opcode:"):
+            op_name = obj.split(":", 1)[1].upper()
+            if not op_name.startswith("OP_"):
+                op_name = "OP_" + op_name
+            return OPCODES.get(op_name, 0)
+    return obj
 
-    def learn_pipeline(name, code, consts=None):
-        payload = {
-            "type": "pipeline",
-            "algo_name": name,
-            "code": code,
-            "constants": consts or {}
-        }
-        resp = ipc.command("learn", json.dumps(payload))
-        if resp.get("name") == "error":
-            print(f"[Bootstrap] Ошибка загрузки {name}: {resp.get('payload')}")
-        return resp
-
-    ops = get_opcodes_map()
-    OP_GLOAD_CONST = ops.get("OP_GLOAD_CONST", 11)
-    OP_ASSERT = ops.get("OP_ASSERT", 4)
-
-    # 1. MainLoop
-    learn_pipeline("MainLoop", [
-        {"operator_id": "load_const", "arg": [10, 0, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [11, 1, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [12, 2, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [13, 3, 0, 0, 0, 0]},
-        {"operator_id": "load_context", "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "evaluate_goals", "flags": 1, "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "spread_activation", "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "sub", "arg": [10, 10, 12, 0, 0, 0]},
-        {"operator_id": "cond_branch_gt", "arg": [10, 11, 4, 0, 0, 0]},
-        {"operator_id": "exec_algorithm", "arg": [13, 0, 0, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
-    ], {"int_consts": [16, 0, 1, str(djb2_hash("CriticMain"))]}) # Передаем большие хэши как строки!
-
-    # 2.5. ZeroShotComposer — компонует существующие алгоритмы через
-    # PRODUCES/REQUIRES, когда для цели нет прямого HAS_ALGORITHM.
-    learn_pipeline("ZeroShotComposer", [
-        {"operator_id": "load_const",          "arg": [50, 0, 0, 0, 0, 0]},
-        {"operator_id": "load_const",          "arg": [51, 1, 0, 0, 0, 0]},
-        {"operator_id": "find_producer_chain", "arg": [R_GOAL_ID, 52, 53, 54, 55, 56]},
-        {"operator_id": "cond_branch_gt",      "arg": [55, 51, 5, 0, 0, 0]},   # <-- 4 -> 5
-        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "spawn_ctx",           "arg": [57, 0, 0, 0, 0, 0]},
-        {"operator_id": "synthesize_sequence", "arg": [52, 53, 58, 0, 0, 0]},
-        {"operator_id": "exec_algorithm",      "arg": [58, 0, 0, 0, 0, 0]},
-        {"operator_id": "derive",              "arg": [50, 58, R_GOAL_ID, 56, 59, 0]},
-        {"operator_id": "merge_ctx",           "arg": [float_to_uint32(0.30), 0, 0, 0, 0, 0]},
-        {"operator_id": "halt",                "arg": [0, 0, 0, 0, 0, 0]}
-    ], {"int_consts": [
-        str(proc_make(djb2_hash("HAS_ALGORITHM"), PROC_KIND_RELATION)),
-        0,
-    ]})
-
-    # 3. CorePlanner — теперь с fallback на ZeroShotComposer при пустом HAS_ALGORITHM
-    learn_pipeline("CorePlanner", [
-        {"operator_id": "load_const",       "arg": [6, 0, 0, 0, 0, 0]},    # 0
-        {"operator_id": "load_const",       "arg": [7, 1, 0, 0, 0, 0]},    # 1
-        {"operator_id": "wm_top_goal",      "arg": [1, 2, 0, 0, 0, 0]},    # 2
-        {"operator_id": "branch_if_empty",  "arg": [1, 10, 0, 0, 0, 0]},   # 3
-        {"operator_id": "select_algorithm", "arg": [1, 0, 3, 0, 0, 0]},    # 4
-        {"operator_id": "cond_branch_gt",   "arg": [3, 6, 8, 0, 0, 0]},    # 5
-        {"operator_id": "dispatch_async",   "arg": [1, 7, 0, 0, 0, 0]},    # 6
-        {"operator_id": "branch",           "arg": [10, 0, 0, 0, 0, 0]},   # 7
-        {"operator_id": "read_sp",          "arg": [4, 0, 0, 0, 0, 0]},    # 8
-        {"operator_id": "dispatch_async",   "arg": [1, 4, 0, 0, 0, 0]},    # 9
-        {"operator_id": "halt",             "arg": [0, 0, 0, 0, 0, 0]}     # 10
-    ], {"int_consts": [0, str(djb2_hash("ZeroShotComposer"))]})
-
-    # 3. CriticMain
-    learn_pipeline("CriticMain", [
-        {"operator_id": "critic_apply", "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
-    ])
-
-    # 4. MetaCriticGraph
-    learn_pipeline("MetaCriticGraph", [
-        {"operator_id": "load_const", "arg": [16, 0, 0, 0, 0, 0]},
-        {"operator_id": "load_const", "arg": [18, 1, 0, 0, 0, 0]},
-        {"operator_id": "cond_branch_gt", "arg": [14, 18, 6, 0, 0, 0]},
-        {"operator_id": "load_fconst", "arg": [17, 0, 0, 0, 0, 0]},
-        {"operator_id": "atom_reinforce", "arg": [12, 17, 0, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
-        {"operator_id": "load_fconst", "arg": [17, 1, 0, 0, 0, 0]},
-        {"operator_id": "atom_reinforce", "arg": [12, 17, 0, 0, 0, 0]},
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
-    ], {"int_consts": [0, 1], "float_consts": [0.40, -0.30]})
-
-    # 5. InductiveExtractor
-    #
-    # ИСПРАВЛЕНО (Root-Cause Fix): раньше алгоритм начинался с собственного
-    # OP_WM_TOP_GOAL, чтобы узнать "для какой цели меня диспетчеризовали".
-    # Это НИКОГДА не срабатывало, потому что:
-    #   1) vm_pool исполняет каждый диспетчеризованный алгоритм в СВОЕЙ,
-    #      изолированной и ПУСТОЙ WorkingMemory (нужно для потокобезопасности);
-    #   2) даже не будь она пуста — OP_DISPATCH_ASYNC уже выставил
-    #      cooldown_until на этот goal_id в породившей транзакции, а
-    #      OP_WM_TOP_GOAL цели на cooldown отбрасывает.
-    # Итог: алгоритм мгновенно проваливался в HALT ничего не сделав, но
-    # возвращал VM_OK (это же штатный halt) — отсюда полное отсутствие
-    # сгенерализованного правила в 2_reasoning_cup.py и exam_test.py.
-    #
-    # Теперь goal_id читается напрямую из R_GOAL_ID (=63), который
-    # vm_pool.c кладёт в регистр ПЕРЕД запуском любого диспетчеризованного
-    # алгоритма — настоящий syscall ABI вместо хрупкого обхода через WM.
-    learn_pipeline("InductiveExtractor", [
-        {"operator_id": "load_const", "arg": [50, 0, 0, 0, 0, 0]},                 #0
-        {"operator_id": "load_const", "arg": [46, 1, 0, 0, 0, 0]},                 #1
-        {"operator_id": "load_const", "arg": [58, 2, 0, 0, 0, 0]},                 #2
-        {"operator_id": "move", "arg": [44, R_GOAL_ID, 0, 0, 0, 0]},               #3  r44 = goal_id
-        {"operator_id": "branch_if_empty", "arg": [44, 7, 0, 0, 0, 0]},            #4  нет цели -> halt(7)
-
-        {"operator_id": "mine_causal_pattern", "arg": [44, 46, 47, 48, 53, 49]},   #5
-        {"operator_id": "cond_branch_gt", "arg": [49, 50, 8, 0, 0, 0]},            #6  паттерн найден -> 8
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},                        #7
-
-        {"operator_id": "spawn_ctx", "arg": [51, 0, 0, 0, 0, 0]},                  #8
-        {"operator_id": "move", "arg": [52, 50, 0, 0, 0, 0]},                      #9  cause-chain = 0
-
-        {"operator_id": "write_sp", "arg": [0, 60, 0, 0, 0, 0]},                   #10
-        {"operator_id": "write_sp", "arg": [1, 0, 0, 0, 0, 0]},                    #11
-        {"operator_id": "write_sp", "arg": [2, 0, 0, 0, 0, 0]},                    #12
-        {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},                    #13
-        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},                    #14
-        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},                    #15
-        {"operator_id": "assert_instruction", "arg": [OP_GLOAD_CONST, 0, 52, 60, 44, 1]}, #16
-        {"operator_id": "move", "arg": [52, 60, 0, 0, 0, 0]},                      #17
-        {"operator_id": "move", "arg": [12, 60, 0, 0, 0, 0]},                      #18
-
-        {"operator_id": "write_sp", "arg": [0, 61, 0, 0, 0, 0]},                   #19
-        {"operator_id": "write_sp", "arg": [1, 0, 0, 0, 0, 0]},                    #20
-        {"operator_id": "write_sp", "arg": [2, 0, 0, 0, 0, 0]},                    #21
-        {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},                    #22
-        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},                    #23
-        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},                    #24
-        {"operator_id": "assert_instruction", "arg": [OP_GLOAD_CONST, 0, 52, 61, 44, 1]}, #25
-        {"operator_id": "move", "arg": [52, 61, 0, 0, 0, 0]},                      #26
-
-        {"operator_id": "write_sp", "arg": [0, 47, 0, 0, 0, 0]},                   #27
-        {"operator_id": "write_sp", "arg": [1, 60, 0, 0, 0, 0]},                   #28
-        {"operator_id": "write_sp", "arg": [2, 61, 0, 0, 0, 0]},                   #29
-        {"operator_id": "write_sp", "arg": [3, 62, 0, 0, 0, 0]},                   #30
-        {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},                    #31
-        {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},                    #32
-        {"operator_id": "assert_instruction", "arg": [OP_ASSERT, 0, 52, 62, 0, 0]},#33
-
-        {"operator_id": "eval_graph", "arg": [12, 58, 14, 0, 0, 0]},               #34
-        {"operator_id": "cond_branch_gt", "arg": [14, 50, 40, 0, 0, 0]},           #35 ошибка -> 40
-
-        {"operator_id": "load_fconst", "arg": [17, 0, 0, 0, 0, 0]},                #36 успех: +0.80
-        {"operator_id": "atom_reinforce", "arg": [62, 17, 0, 0, 0, 0]},            #37
-        {"operator_id": "merge_ctx", "arg": [float_to_uint32(0.10), 0, 0, 0, 0, 0]}, #38
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},                        #39
-
-        {"operator_id": "load_fconst", "arg": [17, 1, 0, 0, 0, 0]},                #40 провал: -0.30
-        {"operator_id": "atom_reinforce", "arg": [62, 17, 0, 0, 0, 0]},            #41
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}                         #42
-    ], {
-        "int_consts": [0, 2, 16],
-        "float_consts": [0.80, -0.30]
-    })
-
-    # 6. AnalogyPlanner
-    #
-    # Тот же класс бага (собственный OP_WM_TOP_GOAL никогда не срабатывал
-    # в изолированном воркере) плюс отдельная логическая ошибка сравнения
-    # (found(0/1) > 1 — условие никогда не истинно). Оба исправлены.
-    learn_pipeline("AnalogyPlanner", [
-        {"operator_id": "load_const", "arg": [30, 0, 0, 0, 0, 0]},                 #0 CAUSES
-        {"operator_id": "load_const", "arg": [31, 1, 0, 0, 0, 0]},                 #1 0
-        {"operator_id": "move", "arg": [32, R_GOAL_ID, 0, 0, 0, 0]},               #2 r32 = goal_id
-        {"operator_id": "branch_if_empty", "arg": [32, 12, 0, 0, 0, 0]},           #3 нет цели -> halt(12)
-        {"operator_id": "get_neighbors", "arg": [32, 30, 0, 34, 0, 0]},            #4
-        {"operator_id": "read_sp", "arg": [35, 0, 0, 0, 0, 0]},                    #5
-        {"operator_id": "find_similar", "arg": [35, 36, 37, 0, 0, 0]},             #6
-        {"operator_id": "get_neighbors", "arg": [37, 30, 30, 34, 0, 0]},           #7
-        {"operator_id": "read_sp", "arg": [38, 30, 0, 0, 0, 0]},                   #8
-        {"operator_id": "concat_paths", "arg": [50, 32, 35, 37, 38, 0]},           #9
-        {"operator_id": "current_episode", "arg": [39, 0,0,0,0,0]},                #10
-        {"operator_id": "derive", "arg": [30, 32, 38, 39, 40, 0]},                 #11
-        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}                         #12
-    ], {"int_consts": [str(djb2_hash("CAUSES")), 0]}) # Передаем большие хэши как строки!
-
-    ipc.command("learn", json.dumps({"atoms": [
-        {"process": "IS_A", "kind": "relation", "args": ["InductiveSynthesisGoal", "Goal"], "confidence": 1.0},
-        {"process": "HAS_ALGORITHM", "kind": "relation", "args": ["InductiveExtractor", "InductiveSynthesisGoal"], "confidence": 1.0}
-    ]}))
-
+def is_already_bootstrapped(ipc: IPCClient) -> bool:
+    resp = ipc.request("retrieve", {"query": "MetaType"})
+    try:
+        payload = json.loads(resp.get("payload", "{}"))
+        return len(payload.get("nodes", [])) > 0 or len(payload.get("atoms", [])) > 0
+    except Exception:
+        return False
 
 def bootstrap_knowledge(ipc: IPCClient, force=False):
     if not force and is_already_bootstrapped(ipc):
         print("[Bootstrap] Knowledge already loaded, skipping.")
         return
 
-    print("[Bootstrap] Loading Meta-Core...")
-    meta_atoms = [
-        # --- БАЗОВЫЕ КАТЕГОРИИ (TOP-LEVEL) ---
-        {"process": "IS_A", "args": ["Entity", "MetaType"]},
-        {"process": "IS_A", "args": ["Relation", "MetaType"]},
-        {"process": "IS_A", "args": ["Process", "MetaType"]},
-        {"process": "IS_A", "args": ["ExecutableKnowledge", "MetaType"]},
+    seed_dir = Path(__file__).resolve().parents[1] / "knowledge" / "seed"
+    if not seed_dir.exists():
+        print(f"[Bootstrap] WARN: Seed directory not found at {seed_dir}")
+        return
 
-        # --- EXECUTABLE KNOWLEDGE (То, что можно исполнить) ---
-        {"process": "IS_A", "args": ["Algorithm", "ExecutableKnowledge"]},
-        {"process": "IS_A", "args": ["Skill", "ExecutableKnowledge"]},
-        {"process": "IS_A", "args": ["Capability", "ExecutableKnowledge"]},
-        {"process": "IS_A", "args": ["Policy", "ExecutableKnowledge"]},
-        {"process": "IS_A", "args": ["SelectionPolicy", "Policy"]},
-        {"process": "IS_A", "args": ["PlanningPolicy", "Policy"]},
+    print("[Bootstrap] Loading initial knowledge base from JSON seeds...")
 
-        # --- TASK MODEL (Модель задач и состояний) ---
-        {"process": "IS_A", "args": ["Goal", "Entity"]},
-        {"process": "IS_A", "args": ["State", "Entity"]},
-        {"process": "IS_A", "args": ["Observation", "Entity"]},
-        {"process": "IS_A", "args": ["Action", "Entity"]},
+    for filepath in sorted(seed_dir.glob("*.json")):
+        print(f"  -> {filepath.name}")
+        try:
+            raw_data = json.loads(filepath.read_text(encoding="utf-8"))
 
-        # --- EPISTEMIC MODEL (Опыт и убеждения) ---
-        {"process": "IS_A", "args": ["Evidence", "Entity"]},
-        {"process": "IS_A", "args": ["Belief", "Entity"]},
-        {"process": "IS_A", "args": ["Prediction", "Entity"]},
-        {"process": "IS_A", "args": ["Error", "Entity"]},
+            if isinstance(raw_data, list):
+                for item in raw_data:
+                    processed = resolve_macros(item)
+                    ipc.command("learn", json.dumps(processed))
+            else:
+                processed = resolve_macros(raw_data)
+                ipc.command("learn", json.dumps(processed))
 
-        # --- ENVIRONMENT & SELF MODEL (Модель мира и себя) ---
-        {"process": "IS_A", "args": ["Environment", "Entity"]},
-        {"process": "IS_A", "args": ["Implementation", "Entity"]},
-        {"process": "IS_A", "args": ["Affordance", "Entity"]},
-        {"process": "IS_A", "args": ["Profile", "Entity"]},
-
-        # --- ФУНДАМЕНТАЛЬНЫЕ ОТНОШЕНИЯ (RELATIONS) ---
-        {"process": "IS_A", "args": ["IMPLEMENTS", "Relation"]},     # Implementation -> Capability
-        {"process": "IS_A", "args": ["PROVIDES", "Relation"]},       # Environment -> Capability
-        {"process": "IS_A", "args": ["REQUIRES", "Relation"]},       # Goal/Algorithm -> Capability/State
-        {"process": "IS_A", "args": ["USES", "Relation"]},           # Algorithm -> Tool/Policy
-        {"process": "IS_A", "args": ["SELECTS", "Relation"]},        # Policy -> Candidate
-        {"process": "IS_A", "args": ["PRODUCES", "Relation"]},       # Action/Capability -> Observation/State
-        {"process": "IS_A", "args": ["PREDICTS", "Relation"]},       # Hypothesis -> State
-        {"process": "IS_A", "args": ["VERIFIED_BY", "Relation"]},    # Belief/Prediction -> Evidence
-        {"process": "IS_A", "args": ["HAS_BELIEF", "Relation"]},     # Entity/Algorithm -> Belief
-        {"process": "IS_A", "args": ["SUPPORTED_BY", "Relation"]},   # Belief -> Evidence
-        {"process": "IS_A", "args": ["FAILS_WITH", "Relation"]},     # Action/Algorithm -> Error
-        {"process": "IS_A", "args": ["HAS_AFFORDANCE", "Relation"]}, # Environment/Entity -> Affordance
-        {"process": "IS_A", "args": ["HAS_COMPONENT", "Relation"]},
-
-        # --- SELF MODEL (KOSMOS) ---
-        {"process": "IS_A", "args": ["CognitiveSystem", "Entity"]},
-        {"process": "IS_A", "args": ["KOSMOS", "CognitiveSystem"]},
-
-        {"process": "IS_A", "args": ["Component", "Entity"]},
-        {"process": "IS_A", "args": ["CognitiveVM", "Component"]},
-        {"process": "IS_A", "args": ["KnowledgeStore", "Component"]},
-        # Записываем только то, что реально существует в коде на данный момент.
-        # Planner добавим позже, когда он станет отдельным Knowledge Object.
-
-        {"process": "HAS_COMPONENT", "args": ["KOSMOS", "CognitiveVM"]},
-        {"process": "HAS_COMPONENT", "args": ["KOSMOS", "KnowledgeStore"]},
-
-        # --- INVOCATION MODEL (Эпистемика и Опыт) ---
-        {"process": "IS_A", "args": ["Invocation", "Entity"]},
-        {"process": "IS_A", "args": ["Episode", "Entity"]},
-
-        # Отношения для фиксации опыта
-        {"process": "IS_A", "args": ["TARGETS", "Relation"]},       # Invocation -> Environment
-        {"process": "IS_A", "args": ["PART_OF", "Relation"]},       # Invocation -> Episode
-        {"process": "IS_A", "args": ["RESULTS_IN", "Relation"]},    # Invocation -> Observation/Error
-
-        # Контракт вызова
-        {"process": "USES", "args": ["Invocation", "Implementation"]},
-        {"process": "TARGETS", "args": ["Invocation", "Environment"]},
-        {"process": "RESULTS_IN", "args": ["Invocation", "Observation"]},
-        {"process": "SUPPORTED_BY", "args": ["Belief", "Invocation"]}
-    ]
-
-    resp = ipc.command("learn", json.dumps({"atoms": meta_atoms}))
-    if resp.get("name") == "error":
-        print(f"[Bootstrap] Ошибка загрузки meta_atoms: {resp.get('payload')}")
-
-    inject_core_algorithms(ipc)
-
-    goal_atoms = [
-        {"process": "IS_A", "kind": "relation", "args": ["FindVulnerability", "Goal"], "confidence": 1.0},
-        {"process": "HAS_ALGORITHM", "kind": "relation", "args": ["CheckEdgeAlgo", "FindVulnerability"], "confidence": 1.0},
-    ]
-    resp = ipc.command("learn", json.dumps({"atoms": goal_atoms}))
-    if resp.get("name") == "error":
-        print(f"[Bootstrap] Ошибка загрузки goal_atoms: {resp.get('payload')}")
-
-    pipeline_payload = {
-        "type": "pipeline",
-        "algo_name": "CheckEdgeAlgo",
-        "code": [
-            {"operator_id": "load_const", "arg": [0, 0, 0, 0, 0, 0]},
-            {"operator_id": "load_const", "arg": [1, 1, 0, 0, 0, 0]},
-            {"operator_id": "load_const", "arg": [2, 2, 0, 0, 0, 0]},
-            {"operator_id": "check_cached_edge", "arg": [3, 0, 2, 1]},
-            {"operator_id": "halt"}
-        ],
-        "constants": {
-            "str_consts": ["A", "B", "CAUSES"]
-        }
-    }
-    resp = ipc.command("learn", json.dumps(pipeline_payload))
-    if resp.get("name") == "error":
-        print(f"[Bootstrap] Ошибка загрузки pipeline_payload: {resp.get('payload')}")
+        except Exception as e:
+            print(f"[Bootstrap] ERROR loading {filepath.name}: {e}")
 
     install_patterns(ipc)
     print("[Bootstrap] Complete.")
