@@ -1,0 +1,25 @@
+{
+  "atoms": [
+    {"process": "IS_A", "kind": "relation", "args": ["CognitiveSystem", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["KOSMOS", "CognitiveSystem"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Component", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["CognitiveVM", "Component"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["KnowledgeStore", "Component"], "confidence": 1.0},
+
+    {"process": "HAS_COMPONENT", "kind": "relation", "args": ["KOSMOS", "CognitiveVM"], "confidence": 1.0},
+    {"process": "HAS_COMPONENT", "kind": "relation", "args": ["KOSMOS", "KnowledgeStore"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Invocation", "Entity"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Episode", "Entity"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["TARGETS", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["PART_OF", "Relation"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["RESULTS_IN", "Relation"], "confidence": 1.0},
+
+    {"process": "USES", "kind": "relation", "args": ["Invocation", "Implementation"], "confidence": 1.0},
+    {"process": "TARGETS", "kind": "relation", "args": ["Invocation", "Environment"], "confidence": 1.0},
+    {"process": "RESULTS_IN", "kind": "relation", "args": ["Invocation", "Observation"], "confidence": 1.0},
+    {"process": "SUPPORTED_BY", "kind": "relation", "args": ["Belief", "Invocation"], "confidence": 1.0}
+  ]
+}

@@ -1,0 +1,178 @@
+[
+  {
+    "type": "pipeline",
+    "algo_name": "MainLoop",
+    "code": [
+      {"operator_id": "load_const", "arg": [10, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [11, 1, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [12, 2, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [13, 3, 0, 0, 0, 0]},
+      {"operator_id": "load_context", "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "evaluate_goals", "flags": 1, "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "spread_activation", "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "sub", "arg": [10, 10, 12, 0, 0, 0]},
+      {"operator_id": "cond_branch_gt", "arg": [10, 11, 4, 0, 0, 0]},
+      {"operator_id": "exec_algorithm", "arg": [13, 0, 0, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+    ],
+    "constants": {
+      "int_consts": [16, 0, 1, "@hash:CriticMain"]
+    }
+  },
+  {
+    "type": "pipeline",
+    "algo_name": "ZeroShotComposer",
+    "code": [
+      {"operator_id": "load_const", "arg": [50, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [51, 1, 0, 0, 0, 0]},
+      {"operator_id": "find_producer_chain", "arg": [63, 52, 53, 54, 55, 56]},
+      {"operator_id": "cond_branch_gt", "arg": [55, 51, 5, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "spawn_ctx", "arg": [57, 0, 0, 0, 0, 0]},
+      {"operator_id": "synthesize_sequence", "arg": [52, 53, 58, 0, 0, 0]},
+      {"operator_id": "exec_algorithm", "arg": [58, 0, 0, 0, 0, 0]},
+      {"operator_id": "derive", "arg": [50, 58, 63, 56, 59, 0]},
+      {"operator_id": "merge_ctx", "arg": ["@float:0.30", 0, 0, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+    ],
+    "constants": {
+      "int_consts": ["@proc_rel:HAS_ALGORITHM", 0]
+    }
+  },
+  {
+    "type": "pipeline",
+    "algo_name": "CorePlanner",
+    "code": [
+      {"operator_id": "load_const", "arg": [6, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [7, 1, 0, 0, 0, 0]},
+      {"operator_id": "wm_top_goal", "arg": [1, 2, 0, 0, 0, 0]},
+      {"operator_id": "branch_if_empty", "arg": [1, 10, 0, 0, 0, 0]},
+      {"operator_id": "select_algorithm", "arg": [1, 0, 3, 0, 0, 0]},
+      {"operator_id": "cond_branch_gt", "arg": [3, 6, 8, 0, 0, 0]},
+      {"operator_id": "dispatch_async", "arg": [1, 7, 0, 0, 0, 0]},
+      {"operator_id": "branch", "arg": [10, 0, 0, 0, 0, 0]},
+      {"operator_id": "read_sp", "arg": [4, 0, 0, 0, 0, 0]},
+      {"operator_id": "dispatch_async", "arg": [1, 4, 0, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+    ],
+    "constants": {
+      "int_consts": [0, "@hash:ZeroShotComposer"]
+    }
+  },
+  {
+    "type": "pipeline",
+    "algo_name": "CriticMain",
+    "code": [
+      {"operator_id": "critic_apply", "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+    ]
+  },
+  {
+    "type": "pipeline",
+    "algo_name": "MetaCriticGraph",
+    "code": [
+      {"operator_id": "load_const", "arg": [16, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [18, 1, 0, 0, 0, 0]},
+      {"operator_id": "cond_branch_gt", "arg": [14, 18, 6, 0, 0, 0]},
+      {"operator_id": "load_fconst", "arg": [17, 0, 0, 0, 0, 0]},
+      {"operator_id": "atom_reinforce", "arg": [12, 17, 0, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_fconst", "arg": [17, 1, 0, 0, 0, 0]},
+      {"operator_id": "atom_reinforce", "arg": [12, 17, 0, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+    ],
+    "constants": {
+      "int_consts": [0, 1],
+      "float_consts": [0.40, -0.30]
+    }
+  },
+  {
+    "type": "pipeline",
+    "algo_name": "InductiveExtractor",
+    "code": [
+      {"operator_id": "load_const", "arg": [50, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [46, 1, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [58, 2, 0, 0, 0, 0]},
+      {"operator_id": "move", "arg": [44, 63, 0, 0, 0, 0]},
+      {"operator_id": "branch_if_empty", "arg": [44, 7, 0, 0, 0, 0]},
+      {"operator_id": "mine_causal_pattern", "arg": [44, 46, 47, 48, 53, 49]},
+      {"operator_id": "cond_branch_gt", "arg": [49, 50, 8, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "spawn_ctx", "arg": [51, 0, 0, 0, 0, 0]},
+      {"operator_id": "move", "arg": [52, 50, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [0, 60, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [1, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [2, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},
+      {"operator_id": "assert_instruction", "arg": ["@opcode:gload_const", 0, 52, 60, 44, 1]},
+      {"operator_id": "move", "arg": [52, 60, 0, 0, 0, 0]},
+      {"operator_id": "move", "arg": [12, 60, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [0, 61, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [1, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [2, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [3, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},
+      {"operator_id": "assert_instruction", "arg": ["@opcode:gload_const", 0, 52, 61, 44, 1]},
+      {"operator_id": "move", "arg": [52, 61, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [0, 47, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [1, 60, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [2, 61, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [3, 62, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [4, 0, 0, 0, 0, 0]},
+      {"operator_id": "write_sp", "arg": [5, 0, 0, 0, 0, 0]},
+      {"operator_id": "assert_instruction", "arg": ["@opcode:assert", 0, 52, 62, 0, 0]},
+      {"operator_id": "eval_graph", "arg": [12, 58, 14, 0, 0, 0]},
+      {"operator_id": "cond_branch_gt", "arg": [14, 50, 40, 0, 0, 0]},
+      {"operator_id": "load_fconst", "arg": [17, 0, 0, 0, 0, 0]},
+      {"operator_id": "atom_reinforce", "arg": [62, 17, 0, 0, 0, 0]},
+      {"operator_id": "merge_ctx", "arg": ["@float:0.10", 0, 0, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_fconst", "arg": [17, 1, 0, 0, 0, 0]},
+      {"operator_id": "atom_reinforce", "arg": [62, 17, 0, 0, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+    ],
+    "constants": {
+      "int_consts": [0, 2, 16],
+      "float_consts": [0.80, -0.30]
+    }
+  },
+  {
+    "type": "pipeline",
+    "algo_name": "AnalogyPlanner",
+    "code": [
+      {"operator_id": "load_const", "arg": [30, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [31, 1, 0, 0, 0, 0]},
+      {"operator_id": "move", "arg": [32, 63, 0, 0, 0, 0]},
+      {"operator_id": "branch_if_empty", "arg": [32, 12, 0, 0, 0, 0]},
+      {"operator_id": "get_neighbors", "arg": [32, 30, 0, 34, 0, 0]},
+      {"operator_id": "read_sp", "arg": [35, 0, 0, 0, 0, 0]},
+      {"operator_id": "find_similar", "arg": [35, 36, 37, 0, 0, 0]},
+      {"operator_id": "get_neighbors", "arg": [37, 30, 30, 34, 0, 0]},
+      {"operator_id": "read_sp", "arg": [38, 30, 0, 0, 0, 0]},
+      {"operator_id": "concat_paths", "arg": [50, 32, 35, 37, 38, 0]},
+      {"operator_id": "current_episode", "arg": [39, 0, 0, 0, 0, 0]},
+      {"operator_id": "derive", "arg": [30, 32, 38, 39, 40, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+    ],
+    "constants": {
+      "int_consts": ["@hash:CAUSES", 0]
+    }
+  },
+  {
+    "type": "pipeline",
+    "algo_name": "CheckEdgeAlgo",
+    "code": [
+      {"operator_id": "load_const", "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [1, 1, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [2, 2, 0, 0, 0, 0]},
+      {"operator_id": "check_cached_edge", "arg": [3, 0, 2, 1, 0, 0]},
+      {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+    ],
+    "constants": {
+      "str_consts": ["A", "B", "CAUSES"]
+    }
+  }
+]
