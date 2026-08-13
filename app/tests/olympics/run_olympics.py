@@ -25,7 +25,8 @@ def main():
         "1_memory_cup.py",
         "2_reasoning_cup.py",
         "3_book_learning_cup.py",
-        "4_composition_cup.py"
+        "4_composition_cup.py",
+        "5_killchain_cup.py"
     ]
 
     for cup in cups:

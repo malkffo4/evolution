@@ -153,7 +153,7 @@ class LLMClient:
             "deepseek": "deepseek-chat",
             "anthropic": "claude-3-5-sonnet-20241022",
             # Ставим свежую модель как дефолт, префикс 'models/' писать НЕ нужно
-            "gemini": "gemini-3.6-flash",
+            "gemini": "gemini-3.7-flash",
             "web_deepseek": "deepseek",
             "web_chatgpt": "chatgpt",
             "web_gemini": "gemini"
