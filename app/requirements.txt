@@ -6,3 +6,6 @@ httpx
 tenacity
 tqdm
 pytest
+undetected-chromedriver
+beautifulsoup4
+selenium

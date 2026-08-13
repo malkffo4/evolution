@@ -11,6 +11,8 @@ from services.chat_service import ChatService
 from services.mvp_agent import MvpAgent
 from services.mind_agent import MindAgent
 
+from execution.runtime_dispatcher import CapabilityDispatcher
+
 BUILD_MODE = "debug"
 
 class EvolutionManager:
@@ -40,6 +42,8 @@ class EvolutionManager:
         self.core_log_fd = None
         self.research_worker_log_path = "/tmp/evolution_research_worker.log"
         self.research_worker_log_fd = None
+
+        self.dispatcher = CapabilityDispatcher()
 
     def initialize(self):
         self.check_project()
@@ -180,7 +184,7 @@ class EvolutionManager:
         else:
             print(response)
 
-    def execute_command(self, cmd_name: str, *args):
+    def execute_command(self, cmd_name: str, *args, payload: dict = None):
         cmd_name = cmd_name.lower()
         if cmd_name == "shutdown":
             self.shutdown()
@@ -249,6 +253,18 @@ class EvolutionManager:
                 from tools.ingest_knowledge import main as run_ingest
                 sys.argv = ["ingest_knowledge.py", args[0]] + list(args[1:])
                 run_ingest()
+
+        elif cmd_name == "env_invoke":
+            if not payload:
+                print("[ERROR] env_invoke requires a payload")
+                return True
+            try:
+                response = self.dispatcher.invoke(payload)
+                print(f"\n[Environment] Response: {response}")
+                # Если нужно, пробрасываем ответ обратно в C-ядро через IPC
+                # self.core_client._command("env_response", json.dumps(response))
+            except Exception as e:
+                print(f"[ERROR] Environment invocation failed: {e}")
         else:
             print(f"Unknown command: {cmd_name}")
         return True
@@ -257,6 +273,9 @@ class EvolutionManager:
         if getattr(self, "_shutdown_done", False): return
         self._shutdown_done = True
         self.running = False
+
+        if hasattr(self, 'dispatcher'):
+            self.dispatcher.shutdown_all()
 
         if self.is_core_responding():
             try:
