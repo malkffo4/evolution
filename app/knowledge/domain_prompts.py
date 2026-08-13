@@ -48,6 +48,30 @@ reaction_type, exothermic (bool).
 \"\"\"{chunk}\"\"\"
 """
 
+KILLCHAIN_STAGES = (
+    "Reconnaissance", "Weaponization", "Delivery", "Exploitation",
+    "Installation", "Command_and_Control", "Actions_on_Objectives",
+)
+KILLCHAIN_RELATIONS = ("PRECEDES", "ENABLES", "HAS_TECHNIQUE", "MITIGATED_BY", "DETECTED_BY")
+
+KILLCHAIN_EXTRACTION_PROMPT = """Ты — экстрактор модели Cyber Kill Chain.
+
+СТРОГОЕ ОГРАНИЧЕНИЕ СЛОВАРЯ (критично):
+- args[0]/args[1] для отношения PRECEDES/ENABLES ДОЛЖНЫ быть ТОЛЬКО
+  одним из семи канонических значений: {stages}
+- process ДОЛЖЕН быть ТОЛЬКО одним из: {relations}
+- Если текст описывает что-то, не укладывающееся в этот словарь (конкретная
+  техника, инструмент, CVE) — используй HAS_TECHNIQUE(stage, technique_name),
+  НЕ придумывай новый stage и НЕ придумывай новое отношение.
+- Если не уверен, что текст явно это утверждает — не извлекай атом вообще.
+  Лучше пропустить факт, чем сгенерировать несуществующий.
+
+{base_schema}
+Текст:
+\"\"\"{{chunk}}\"\"\"
+""".format(stages=", ".join(KILLCHAIN_STAGES), relations=", ".join(KILLCHAIN_RELATIONS),
+           base_schema="{}")
+
 def ingest_domain(ipc, llm, text: str, prompt_template: str, source_tag: str, domain: str):
     from knowledge.deep_extractor import chunk_text, _parse_json
     for chunk in chunk_text(text):

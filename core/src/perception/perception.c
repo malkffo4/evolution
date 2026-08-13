@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <cjson/cJSON.h>
 
 #include "core/globals.h"
 #include "memory/working.h"
@@ -11,10 +12,10 @@
 #include "storage/string_pool/string_pool.h"
 #include "storage/hyper_atom/hyper_atom.h"
 #include "storage/property/property.h"
-#include <cjson/cJSON.h>
 #include "math/hash.h"
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
+#include "knowledge/claim_validator.h"
 
 static float clampf(float v, float lo, float hi) {
     if (v < lo) return lo;
@@ -139,6 +140,12 @@ static ko_id_t resolve_arg(MDB_txn *txn, cJSON *arg_item) {
     return 0;
 }
 
+static bool is_ordering_relation(ko_id_t process_id) {
+    static ko_id_t precedes_full = 0;
+    if (!precedes_full) precedes_full = proc_make(djb2_hash("PRECEDES"), PROC_KIND_RELATION);
+    return process_id == precedes_full;
+}
+
 int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
     if (!json_str || !hmem) return -1;
 
@@ -219,7 +226,18 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
             atom.id = hyper_memory_new_id(hmem);
         }
 
-        int result = hyper_assert_unique(txn, hmem, &atom);
+        int result;
+        if (is_ordering_relation(atom.process_id)) {
+            ko_id_t cause = 0; /* из cause_json, уже распарсенного ниже — см. существующий блок */
+            node_id_t conflict = 0;
+            ClaimVerdict v = claim_validate_and_assert(txn, hmem, &atom, cause,
+                                                        proc_make(djb2_hash("PRECEDES"), PROC_KIND_RELATION),
+                                                        0, &conflict);
+            if (v == CLAIM_REJECTED_CYCLE) continue; // атом НЕ попадает в граф
+            result = 0;
+        } else {
+            result = hyper_assert_unique(txn, hmem, &atom);
+        }
         if (result != 0 && result != 1) continue;
 
         cJSON *props_json = cJSON_GetObjectItem(atom_item, "properties");

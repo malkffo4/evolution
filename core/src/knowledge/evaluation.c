@@ -15,13 +15,15 @@
 static const char *kOBSERVED_OUTCOME = "OBSERVED_OUTCOME";
 static const char *kHAS_SCORE        = "HAS_SCORE";
 
-static const float kDomainKappa[6] = {
-    [0]                           = 10.0f, // fallback / неизвестный домен
-    [COGNITIVE_DOMAIN_ALGORITHM]  = 8.0f,  // дёшево перепроверить
+static const float kDomainKappa[7] = {
+    [0]                           = 10.0f,  // fallback / неизвестный домен
+    [COGNITIVE_DOMAIN_ALGORITHM]  = 8.0f,   // дёшево перепроверить
     [COGNITIVE_DOMAIN_SKILL]      = 12.0f,
-    [COGNITIVE_DOMAIN_RULE]       = 20.0f, // ошибка в правиле дорога
-    [COGNITIVE_DOMAIN_HYPOTHESIS] = 6.0f,  // нужна быстрая разведка
+    [COGNITIVE_DOMAIN_RULE]       = 20.0f,  // ошибка в правиле дорога
+    [COGNITIVE_DOMAIN_HYPOTHESIS] = 6.0f,   // нужна быстрая разведка
     [COGNITIVE_DOMAIN_PREDICTION] = 10.0f,
+    [COGNITIVE_DOMAIN_CLAIM]      = 15.0f,  // книжный факт должен «созреть» на
+                                            // нескольких независимых наблюдениях
 };
 
 // ----- Вспомогательные функции поиска Score --------------------------------

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # app/main.py
 import argparse
-import sys
 import io
 import cmd
 import readline
 import atexit
-from pathlib import Path
+import sys
 
 # Принудительно выставляем UTF-8 для консоли
 if sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):

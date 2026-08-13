@@ -1,5 +1,10 @@
 # app/core/manager.py
-import signal, subprocess, time, os, sys, json
+import signal
+import subprocess
+import time
+import os
+import json
+import sys
 from pathlib import Path
 
 from core.ipc import DEFAULT_SOCKET, LOCK_FILE

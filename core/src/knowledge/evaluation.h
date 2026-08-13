@@ -58,16 +58,17 @@
 // storage/graph/graph.c::upsert_edge — единая константа на кодобазу.
 #define SCORE_LEARNING_RATE   0.2f
 
+// Новый домен = новое значение тега в args[1], без изменения схемы
+// хранения. Следующий естественный потребитель — runtime/planner.c
+// (выбор Native-реализации Capability), как только там появится
+// вторая конкурирующая реализация: TRUST_DOMAIN_OPERATOR.
 typedef enum {
     COGNITIVE_DOMAIN_ALGORITHM  = 1,
     COGNITIVE_DOMAIN_SKILL      = 2,
     COGNITIVE_DOMAIN_RULE       = 3,
     COGNITIVE_DOMAIN_HYPOTHESIS = 4,
     COGNITIVE_DOMAIN_PREDICTION = 5,
-    // Новый домен = новое значение тега в args[1], без изменения схемы
-    // хранения. Следующий естественный потребитель — runtime/planner.c
-    // (выбор Native-реализации Capability), как только там появится
-    // вторая конкурирующая реализация: TRUST_DOMAIN_OPERATOR.
+    COGNITIVE_DOMAIN_CLAIM      = 6,  // достоверность извлечённого факта/связи
 } CognitiveDomain;
 
 // Записывает одно неизменяемое наблюдение. outcome в [0..1] — не только
