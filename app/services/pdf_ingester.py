@@ -70,10 +70,18 @@ class PdfIngester(BaseService):
 
     @staticmethod
     def _extract_images(page) -> list:
-        """Извлекает все изображения со страницы и возвращает их байты."""
-        images = []
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            base_image = page.parent.extract_image(xref)
-            images.append(base_image["image"])  # байты PNG/JPEG
-        return images
+        """
+        Вместо извлечения внутренних объектов (которые часто нарезаны на полосы),
+        рендерим всю страницу целиком как единое изображение, если на ней есть визуал.
+        """
+        # Если картинок на странице нет вообще, пропускаем (чтобы не гонять текст через Vision)
+        if not page.get_images(full=True):
+            return []
+
+        # Рендерим страницу целиком.
+        # Масштаб 2.0 (matrix) дает высокое разрешение для нейросети
+        zoom_matrix = fitz.Matrix(2.0, 2.0)
+        pix = page.get_pixmap(matrix=zoom_matrix, alpha=False)
+
+        # Возвращаем байты одного цельного изображения страницы
+        return [pix.tobytes("png")]

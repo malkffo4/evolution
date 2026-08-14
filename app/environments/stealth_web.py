@@ -41,8 +41,22 @@ class StealthChromiumEnvironment(EnvironmentRuntime):
 
         elements = self.tab.eles('tag:a, tag:button, tag:input, tag:textarea, @role=button')
         for idx, el in enumerate(elements):
-            if not el.is_displayed:
+            if not el:
                 continue
+
+            # Безопасная проверка видимости
+            is_visible = True
+            try:
+                if hasattr(el, 'states'):
+                    is_visible = el.states.is_displayed
+                elif hasattr(el, 'is_displayed'):
+                    is_visible = el.is_displayed() if callable(el.is_displayed) else el.is_displayed
+            except Exception:
+                pass
+
+            if not is_visible:
+                continue
+
             tag = el.tag
             el_id = self._generate_element_id(tag, idx)
             self._affordance_map[el_id] = el
