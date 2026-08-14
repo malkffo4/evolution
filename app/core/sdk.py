@@ -154,6 +154,10 @@ class CoreClient:
             return json.loads(p) if p.strip() else {}
         return p or {}
 
+    def find_similar(self, embedding: list[float], top_k: int = 5) -> list[dict]:
+        resp = self._request("find_similar", {"embedding": embedding, "top_k": top_k})
+        return self._payload_of(resp).get("results", [])
+
     def learn(self, payload: dict) -> dict:
         resp = self._command("learn", json.dumps(payload))
         if resp.get("name") == "error":
