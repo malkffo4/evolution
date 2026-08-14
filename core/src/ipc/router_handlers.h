@@ -20,6 +20,7 @@ void req_audit_atoms(IPCPacket *req, IPCPacket *resp);
 void req_get_property(IPCPacket *req, IPCPacket *resp);
 void req_get_stats(IPCPacket *req, IPCPacket *resp);
 void req_find_similar(IPCPacket *req, IPCPacket *resp);
+void req_advise(IPCPacket *req, IPCPacket *resp);
 
 /* responses */
 void resp_generate_reply(IPCPacket *req, IPCPacket *resp);

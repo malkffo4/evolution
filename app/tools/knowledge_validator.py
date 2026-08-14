@@ -53,6 +53,10 @@ def scan_cold_atoms(ipc: IPCClient, sti_th: float, lti_th: float) -> list:
 def classify(atom: dict) -> str:
     if not atom.get("has_ref_args", True):
         return "orphan"
+
+    if atom.get("process") == "STAGE_HYPOTHESIS" and atom.get("truth_confidence", 0) < 0.5:
+        return "needs_human_review"
+
     if atom["sti"] < 0.02 and atom["lti"] < 0.02 and atom["truth_confidence"] < 0.2:
         return "stale_low_confidence"
     return "cold"

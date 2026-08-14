@@ -72,24 +72,52 @@ KILLCHAIN_EXTRACTION_PROMPT = """Ты — экстрактор модели Cybe
 """.format(stages=", ".join(KILLCHAIN_STAGES), relations=", ".join(KILLCHAIN_RELATIONS),
            base_schema="{}")
 
-def ingest_domain(ipc, llm, text: str, prompt_template: str, source_tag: str, domain: str):
+def validate_killchain_atoms(atoms: list) -> tuple[list, list]:
+    """Детерминированная пост-фильтрация вместо доверия только промпту —
+    LLM стохастична, валидатор — нет (Principle 10: "любое знание может
+    быть пересмотрено", но в граф должно попадать только то, что прошло
+    проверку схемы). Возвращает (valid, rejected)."""
+    valid, rejected = [], []
+    for a in atoms:
+        proc = a.get("process")
+        args = a.get("args", [])
+        if proc in ("PRECEDES", "ENABLES"):
+            ok = len(args) == 2 and args[0] in KILLCHAIN_STAGES and args[1] in KILLCHAIN_STAGES
+        elif proc == "HAS_TECHNIQUE":
+            ok = len(args) == 2 and args[0] in KILLCHAIN_STAGES
+        elif proc in ("MITIGATED_BY", "DETECTED_BY"):
+            ok = len(args) == 2   # техника-специфичные, словарь стадий не применим к обоим args
+        else:
+            ok = False            # процесс вне объявленного словаря — по умолчанию отклоняем
+        (valid if ok else rejected).append(a)
+    return valid, rejected
+
+
+def ingest_domain(ipc, llm, text: str, prompt_template: str, source_tag: str, domain: str,
+                   validator=None):
     from knowledge.deep_extractor import chunk_text, _parse_json
+    total_valid, total_rejected = 0, 0
     for chunk in chunk_text(text):
-        prompt = prompt_template.format(chunk=chunk[:3000], base_schema="{}") # Убедись что base_schema определена
-        raw = llm.query(prompt, json_mode=True)
+        raw = llm.query(prompt_template.format(chunk=chunk[:3000], base_schema="{}"), json_mode=True)
         data = _parse_json(raw) or {}
         atoms = data.get("atoms", [])
 
-        # 1. Namespace
+        if validator:
+            atoms, rejected = validator(atoms)
+            total_rejected += len(rejected)
+            if rejected:
+                print(f"[Critic/ingest] отклонено {len(rejected)} атом(ов) вне словаря: "
+                      f"{[r.get('process') for r in rejected]}", file=sys.stderr)
+
         for a in atoms:
             a.setdefault("context", source_tag)
             namespace_atom_args(a, domain)
-
-        # 2. Эмбеддинги
         atoms = augment_atoms_with_entity_embeddings(atoms)
 
         if atoms:
             ipc.command("learn", json.dumps({"atoms": atoms}))
+            total_valid += len(atoms)
+    return {"source": source_tag, "atoms_accepted": total_valid, "atoms_rejected": total_rejected}
 
 
 def build_contradiction_pattern():

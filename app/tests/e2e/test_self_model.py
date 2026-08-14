@@ -60,16 +60,11 @@ EXPECTED_RELATIONS = {
 
 
 @pytest.fixture
-def core():
-    client = CoreClient()
-    client.connect()
-
-    bootstrap_knowledge(client._ipc, force=True)
-
-    try:
-        yield client
-    finally:
-        client.close()
+def core(isolated_core):
+    # Используем изолированное ядро из conftest.py,
+    # чтобы боевая база (со своими RAG-фактами) не ломала проверки
+    bootstrap_knowledge(isolated_core._ipc, force=True)
+    return isolated_core
 
 
 def atom_matches(atom, process, args):
