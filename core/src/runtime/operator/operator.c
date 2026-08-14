@@ -182,6 +182,11 @@ void operator_registry_init(void) {
     operator_register_native(OP_SYNTHESIZE_SEQUENCE, "synthesize_sequence", 0, vm_op_synthesize_sequence, NULL, 0, 0);
 
     operator_register_native(OP_CURRENT_EPISODE, "current_episode", 0, vm_op_current_episode, NULL, 0, 0);
+
+    operator_register_native(OP_QUEUE_PUSH,  "queue_push",  0, vm_op_queue_push,  NULL, 0, 0);
+    operator_register_native(OP_QUEUE_POP,   "queue_pop",   0, vm_op_queue_pop,   NULL, 0, 0);
+    operator_register_native(OP_ATOM_ARG,    "atom_arg",    0, vm_op_atom_arg,    NULL, 0, 0);
+    operator_register_native(OP_SCORE_UPDATE,"score_update",0, vm_op_score_update,NULL, 0, 0);
     // 2. Операторы с возможностями
     // ObjectType in_node[] = { REG_NODE };
     // operator_register_native(OP_GET_OUT_EDGES, "get_out_edges", CAP_GET_OUT_EDGES, vm_op_get_out_edges, in_node, 1, REG_EDGESET);

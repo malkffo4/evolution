@@ -99,3 +99,8 @@ int vm_op_find_producer_chain(VMContext *, const Instruction *);
 int vm_op_synthesize_sequence(VMContext *, const Instruction *);
 
 int vm_op_current_episode(VMContext *, const Instruction *);
+
+int vm_op_queue_push(VMContext *, const Instruction *);
+int vm_op_queue_pop(VMContext *, const Instruction *);
+int vm_op_score_update(VMContext *, const Instruction *);
+int vm_op_atom_arg(VMContext *, const Instruction *);

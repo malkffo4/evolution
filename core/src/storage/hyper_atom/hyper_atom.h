@@ -121,6 +121,7 @@ typedef struct HyperMemory {
     MDB_dbi dbi_idx_causal;   // child_id -> cause_id (DUPSORT)
     MDB_dbi dbi_archive;      // холодное хранилище архивных атомов
     MDB_dbi dbi_idx_vectors;
+    MDB_dbi dbi_idx_pending;
 
     HyperIdGenerator *idgen;
 } HyperMemory;
@@ -133,6 +134,7 @@ void hyper_memory_free(HyperMemory *mem);
 void hyper_memory_set_db_archive(HyperMemory *mem, MDB_dbi archive);
 void hyper_memory_set_db_causal(HyperMemory *mem, MDB_dbi causal);
 void hyper_memory_set_db_vectors(HyperMemory *mem, MDB_dbi vectors);
+void hyper_memory_set_db_pending(HyperMemory *mem, MDB_dbi pending);
 
 // --- Транзакции теперь передаются явно ---
 int hyper_assert(MDB_txn *txn, HyperMemory *mem, const NeuroAtom *atom);

@@ -124,9 +124,24 @@ class CoreClient:
 
     def connect(self) -> "CoreClient":
         with self._lock:
+            # Пингуем старый сокет. Если он жив - ничего не делаем.
+            if self._ipc.sock:
+                try:
+                    if self._ipc.ping():
+                        return self
+                except Exception:
+                    pass
+
+            # Сокет мертв или его нет - сбрасываем и переподключаемся
+            self._ipc.close()
             self._ipc.connect()
-            if not self._ipc.ping():
-                raise CoreError("NeuroCore core did not respond to ping()")
+            try:
+                if not self._ipc.ping():
+                    self._ipc.close()
+                    raise CoreError("NeuroCore core did not respond to ping()")
+            except Exception:
+                self._ipc.close()
+                raise CoreError("Failed to communicate with NeuroCore")
         return self
 
     def close(self) -> None:
@@ -141,11 +156,23 @@ class CoreClient:
 
     def _request(self, name: str, payload: Any = None) -> dict:
         with self._lock:
-            return self._ipc.request(name, payload)
+            try:
+                return self._ipc.request(name, payload)
+            except Exception:
+                # Молчаливый авто-реконнект при обрыве трубы
+                self._ipc.close()
+                self._ipc.connect()
+                return self._ipc.request(name, payload)
 
     def _command(self, name: str, payload: Any = None) -> dict:
         with self._lock:
-            return self._ipc.command(name, payload)
+            try:
+                return self._ipc.command(name, payload)
+            except Exception:
+                # Молчаливый авто-реконнект при обрыве трубы
+                self._ipc.close()
+                self._ipc.connect()
+                return self._ipc.command(name, payload)
 
     @staticmethod
     def _payload_of(resp: dict) -> dict:
@@ -157,6 +184,10 @@ class CoreClient:
     def find_similar(self, embedding: list[float], top_k: int = 5) -> list[dict]:
         resp = self._request("find_similar", {"embedding": embedding, "top_k": top_k})
         return self._payload_of(resp).get("results", [])
+
+    def advise(self, query: str) -> dict:
+        resp = self._request("advise", {"query": query})
+        return self._payload_of(resp)
 
     def learn(self, payload: dict) -> dict:
         resp = self._command("learn", json.dumps(payload))

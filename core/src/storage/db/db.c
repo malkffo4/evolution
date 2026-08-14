@@ -116,6 +116,9 @@ int init_lmdb(const char *db_path) {
     rc = mdb_dbi_open(txn, "hyper_idx_vectors", MDB_CREATE, &db.graph.hyper.idx_vectors);
     if (rc != MDB_SUCCESS) goto fail;
 
+    rc = mdb_dbi_open(txn, "hyper_idx_pending", MDB_CREATE | MDB_DUPSORT, &db.graph.hyper.idx_pending);
+    if (rc != MDB_SUCCESS) goto fail;
+
     // Initialize SimHash projection matrix
     rc = init_simhash(txn);
     if (rc != 0) {

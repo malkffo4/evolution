@@ -7,16 +7,18 @@
       {"operator_id": "load_const", "arg": [11, 1, 0, 0, 0, 0]},
       {"operator_id": "load_const", "arg": [12, 2, 0, 0, 0, 0]},
       {"operator_id": "load_const", "arg": [13, 3, 0, 0, 0, 0]},
+      {"operator_id": "load_const", "arg": [14, 4, 0, 0, 0, 0]},
       {"operator_id": "load_context", "arg": [0, 0, 0, 0, 0, 0]},
       {"operator_id": "evaluate_goals", "flags": 1, "arg": [0, 0, 0, 0, 0, 0]},
       {"operator_id": "spread_activation", "arg": [0, 0, 0, 0, 0, 0]},
       {"operator_id": "sub", "arg": [10, 10, 12, 0, 0, 0]},
-      {"operator_id": "cond_branch_gt", "arg": [10, 11, 4, 0, 0, 0]},
+      {"operator_id": "cond_branch_gt", "arg": [10, 11, 5, 0, 0, 0]},
       {"operator_id": "exec_algorithm", "arg": [13, 0, 0, 0, 0, 0]},
+      {"operator_id": "exec_algorithm", "arg": [14, 0, 0, 0, 0, 0]},
       {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
     ],
     "constants": {
-      "int_consts": [16, 0, 1, "@hash:CriticMain"]
+      "int_consts": [16, 0, 1, "@hash:CriticMain", "@hash:EventClassifier"]
     }
   },
   {
@@ -173,6 +175,40 @@
     ],
     "constants": {
       "str_consts": ["A", "B", "CAUSES"]
+    }
+  },
+  {
+    "type": "pipeline",
+    "algo_name": "EventClassifier",
+    "code": [
+      {"operator_id": "load_const",     "arg": [21, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const",     "arg": [22, 1, 0, 0, 0, 0]},
+      {"operator_id": "load_const",     "arg": [23, 2, 0, 0, 0, 0]},
+      {"operator_id": "load_fconst",    "arg": [24, 0, 0, 0, 0, 0]},
+      {"operator_id": "load_const",     "arg": [25, 3, 0, 0, 0, 0]},
+      {"operator_id": "load_const",     "arg": [26, 4, 0, 0, 0, 0]},
+      {"operator_id": "load_const",     "arg": [27, 3, 0, 0, 0, 0]},
+      {"operator_id": "load_const",     "arg": [28, 5, 0, 0, 0, 0]},
+      {"operator_id": "queue_pop",      "arg": [21, 0, 1, 29, 0, 0]},
+      {"operator_id": "cond_branch_gt", "arg": [29, 27, 11, 0, 0, 0]},
+      {"operator_id": "halt",           "arg": [0, 0, 0, 0, 0, 0]},
+      {"operator_id": "read_sp",        "arg": [30, 0, 0, 0, 0, 0]},
+      {"operator_id": "atom_arg",       "arg": [30, 1, 31, 0, 0, 0]},
+      {"operator_id": "atom_arg",       "arg": [30, 2, 32, 0, 0, 0]},
+      {"operator_id": "query",          "arg": [22, 31, 25, 10, 33, 0]},
+      {"operator_id": "cond_branch_gt", "arg": [33, 27, 17, 0, 0, 0]},
+      {"operator_id": "branch",         "arg": [21, 0, 0, 0, 0, 0]},
+      {"operator_id": "read_sp",        "arg": [34, 10, 0, 0, 0, 0]},
+      {"operator_id": "atom_arg",       "arg": [34, 0, 35, 0, 0, 0]},
+      {"operator_id": "assert",         "arg": [23, 32, 35, 36, 0, 0]},
+      {"operator_id": "score_update",   "arg": [4, 36, 24, 30, 0, 0]},
+      {"operator_id": "sub",            "arg": [26, 26, 28, 0, 0, 0]},
+      {"operator_id": "cond_branch_gt", "arg": [26, 27, 8, 0, 0, 0]},
+      {"operator_id": "halt",           "arg": [0, 0, 0, 0, 0, 0]}
+    ],
+    "constants": {
+      "int_consts": ["@hash:cybersec::log_classify", "@proc_rel:HAS_TECHNIQUE", "@proc_rel:ATTACK_PROGRESS", 0, 32, 1],
+      "float_consts": [1.0]
     }
   }
 ]

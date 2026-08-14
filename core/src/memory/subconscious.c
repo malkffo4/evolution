@@ -10,11 +10,12 @@
 #include <pthread.h>
 
 #include "core/globals.h"
-#include "subconscious.h"
-#include "critic_state.h"
 #include "storage/db/db.h"
 #include "storage/string_pool/string_pool.h"
 #include "storage/db/db_writer.h"
+#include "memory/subconscious.h"
+#include "memory/critic_state.h"
+#include "memory/archive_gc.h"
 #include "memory/working.h"
 #include "memory/decay.h"
 #include "reasoning/planner.h"
@@ -70,6 +71,11 @@ static int decay_txn_fn(MDB_txn *txn, void *arg) {
     return subconscious_decay_cycle(txn, global_hyper_mem, &g_homeostasis.policy, &stats);
 }
 
+static int archive_gc_txn_fn(MDB_txn *txn, void *arg) {
+    uint32_t *out = arg;
+    return archive_purge_cycle(txn, global_hyper_mem, 30u * 24u * 3600u, out) == 0 ? 0 : -1;
+}
+
 static void *decay_timer_loop(void *arg) {
     (void)arg;
     while (decay_timer_running && g_running) {
@@ -77,6 +83,13 @@ static void *decay_timer_loop(void *arg) {
         nanosleep(&ts, NULL);
         if (!decay_timer_running || !g_running) break;
 
+        static int archive_gc_counter = 0;
+        if (++archive_gc_counter >= 360) {   // ~раз в час при tick=10с
+            archive_gc_counter = 0;
+            uint32_t purged = 0;
+            if (db_write_sync(archive_gc_txn_fn, &purged) == 0 && purged > 0)
+                LOG_MEMORY("[SUBCONSCIOUS] Archive GC purged %u stale record(s)", purged);
+        }
         static int induction_nudge_counter = 0;
         if (++induction_nudge_counter >= 6) {   // ~раз в минуту при tick=10с
             induction_nudge_counter = 0;
