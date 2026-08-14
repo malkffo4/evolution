@@ -290,6 +290,11 @@ class EvolutionManager:
 
         try: self.core_client.close()
         except Exception: pass
+
+        if hasattr(self, 'llm_client'):
+            try: self.llm_client.close()
+            except Exception: pass
+
         self._stop_research_worker(force=True)
 
         # Даем ядру 2 секунды на сохранение после отправки IPC команды "shutdown"
@@ -325,18 +330,27 @@ class EvolutionManager:
 
     def _cleanup_orphans(self):
         """Интеллектуальная зачистка: убиваем только если есть кого, не тратя время впустую."""
-        # Проверяем, есть ли вообще такой процесс (returncode == 0 значит найден)
-        if subprocess.run(["pgrep", "-f", self.core_bin.name], stdout=subprocess.DEVNULL).returncode != 0:
-            return # Никого нет, уходим моментально!
 
-        # Процесс есть. Посылаем SIGTERM (мягко)
+        # МЯГКО закрываем браузеры, чтобы они успели сбросить куки на диск
+        subprocess.run(["pkill", "-15", "-f", "chromium"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["pkill", "-15", "-f", "chrome"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        if subprocess.run(["pgrep", "-f", self.core_bin.name], stdout=subprocess.DEVNULL).returncode != 0:
+            # Ядра нет. Даем браузерам секунду на сохранение профиля и добиваем, если зависли
+            time.sleep(1.0)
+            subprocess.run(["pkill", "-9", "-f", "chromium"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["pkill", "-9", "-f", "chrome"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+
         subprocess.run(["pkill", "-15", "-f", self.core_bin.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # Ждем максимум 2 секунды, проверяя статус каждые 0.1с
         for _ in range(20):
             if subprocess.run(["pgrep", "-f", self.core_bin.name], stdout=subprocess.DEVNULL).returncode != 0:
-                return # Умер сам, отлично
+                break # Умер сам, отлично
             time.sleep(0.1)
 
-        # Если за 2 секунды не сдался - добиваем SIGKILL
         subprocess.run(["pkill", "-9", "-f", self.core_bin.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Контрольное добивание браузеров
+        subprocess.run(["pkill", "-9", "-f", "chromium"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["pkill", "-9", "-f", "chrome"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

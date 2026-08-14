@@ -105,12 +105,11 @@ async def ingest_file_async(core: CoreClient, llm: LLMClient, path: Path, source
 
 def main():
     ap = argparse.ArgumentParser(description="Parallel NeuroCore Knowledge Ingestion")
-    ap.add_argument("path", type=Path, help="Путь к текстовому файлу (.txt, .md)")
-    # Добавлены web_ опции в choices
-    ap.add_argument("--provider", default="auto", choices=["auto", "ollama", "openai", "gemini", "deepseek", "anthropic", "web_chatgpt", "web_deepseek"])
-    ap.add_argument("--model", default=None, help="Model LLM (по умолчанию Default)")
-    ap.add_argument("--source", default=None, help="Тег источника (по умолчанию имя файла)")
-    ap.add_argument("--workers", type=int, default=5, help="Количество параллельных потоков (по умолчанию 5)")
+    ap.add_argument("path", type=Path, help="Путь к файлу (.txt, .md, .pdf)")
+    ap.add_argument("--provider", default="ollama", help="Использовать локальную LLM, чтобы не платить API")
+    ap.add_argument("--model", default=None, help="Model LLM")
+    ap.add_argument("--source", default=None, help="Тег источника")
+    ap.add_argument("--workers", type=int, default=5, help="Потоки")
     args = ap.parse_args()
 
     if not args.path.exists():
@@ -119,12 +118,22 @@ def main():
     global MAX_CONCURRENT_TASKS
     MAX_CONCURRENT_TASKS = args.workers
 
-    # Инициализация клиентов
     core = CoreClient().connect()
+    # Принудительно используем локальную Ollama по умолчанию!
     llm = LLMClient(provider=args.provider, model=args.model)
     source_tag = args.source or args.path.name
 
-    # Запуск асинхронного цикла
+    # АВТООПРЕДЕЛЕНИЕ ФОРМАТА
+    if args.path.suffix.lower() == '.pdf':
+        print(f"\n[ingest] 📄 Обнаружен PDF. Запуск PdfIngester с поддержкой Vision...")
+        from services.pdf_ingester import PdfIngester
+        # Указываем ингестеру использовать IPC и LLM
+        ingester = PdfIngester(core._ipc, llm)
+        ingester.run(str(args.path))
+        print(f"\n[ingest] ГОТОВО! PDF '{args.path.name}' успешно загружен в HyperMemory.")
+        core.close()
+        return
+
     try:
         result = asyncio.run(ingest_file_async(core, llm, args.path, source_tag))
         print(f"\n[ingest] ГОТОВО! Успешно загружено {result['atoms']} атомов из {result['chunks']} чанков в HyperMemory.")
@@ -132,6 +141,7 @@ def main():
         print("\n[ingest] Прервано пользователем.")
     finally:
         core.close()
+        llm.close()
 
 if __name__ == "__main__":
     main()

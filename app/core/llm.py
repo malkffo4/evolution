@@ -1,4 +1,3 @@
-# app/core/llm.py
 import os
 import json
 import sys
@@ -43,6 +42,15 @@ def _is_retryable_error(e):
     if isinstance(e, httpx.RequestError):
         return True
     return False
+
+def log_llm_call(provider, prompt, response=None, is_error=False):
+    with open("llm_debug.log", "a", encoding="utf-8") as f:
+        if response is None and not is_error:
+            f.write(f"\n{'='*40}\n[REQUEST -> {provider}]\n{prompt}\n{'-'*40}\n")
+        elif is_error:
+            f.write(f"\n[ERROR <- {provider}]\n{prompt}\n{'='*40}\n")
+        else:
+            f.write(f"\n[RESPONSE <- {provider}]\n{response}\n{'='*40}\n")
 
 class LLMClient:
     def __init__(self, provider="auto", model=None, api_key=None):
@@ -153,7 +161,7 @@ class LLMClient:
             "deepseek": "deepseek-chat",
             "anthropic": "claude-3-5-sonnet-20241022",
             # Ставим свежую модель как дефолт, префикс 'models/' писать НЕ нужно
-            "gemini": "gemini-3.7-flash",
+            # "gemini": "gemini-3.6-flash",
             "web_deepseek": "deepseek",
             "web_chatgpt": "chatgpt",
             "web_gemini": "gemini"
@@ -189,12 +197,15 @@ class LLMClient:
 
             if provider.startswith("web_"):
                 try:
+                    log_llm_call(self.provider, prompt)
                     res = self._query_web(prompt, system, json_mode, image_path)
+                    log_llm_call(self.provider, prompt, response=res)
                     # Фиксируем успех
                     with open(LLM_CACHE_FILE, "w") as f: json.dump({"provider": provider}, f)
                     return res
                 except Exception as e:
                     err_msg = str(e)
+                    log_llm_call(self.provider, prompt, is_error=True)
                     short_err = err_msg[:LOG_TRUNCATED] + ("... [TRUNCATED]" if len(err_msg) > LOG_TRUNCATED else "")
                     print(f"\n[LLM] Ошибка web-генерации ({provider}): {short_err}", file=sys.stderr)
                     if os.path.exists(LLM_CACHE_FILE): os.remove(LLM_CACHE_FILE)
@@ -274,6 +285,7 @@ class LLMClient:
         if system: payload["system"] = system
         if json_mode: payload["format"] = "json"
         if image_path: payload["images"] = [self._encode_image(image_path)]
+        log_llm_call("ollama", prompt)
         resp = await client.post(OLLAMA_API, json=payload)
         resp.raise_for_status()
         return resp.json().get("response", "")
@@ -313,6 +325,7 @@ class LLMClient:
 
         payload = {"model": self.model_to_use, "messages": messages, "temperature": 0.1}
         if json_mode: payload["response_format"] = {"type": "json_object"}
+        log_llm_call("ollama", prompt)
         resp = await client.post(DEEPSEEK_API, headers=headers, json=payload)
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
@@ -341,7 +354,7 @@ class LLMClient:
         }
         if system: payload["system"] = system
         if json_mode: payload["messages"].append({"role": "assistant", "content": "{"})
-
+        log_llm_call("ollama", prompt)
         resp = await client.post(ANTHROPIC_API, headers=headers, json=payload)
         resp.raise_for_status()
         content = resp.json()["content"][0]["text"]
@@ -378,7 +391,7 @@ class LLMClient:
 
         if json_mode:
             payload["generationConfig"]["responseMimeType"] = "application/json"
-
+        log_llm_call("ollama", prompt)
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
 
@@ -389,7 +402,18 @@ class LLMClient:
             from core.web_llm import WebLLMClient
             self._web_client = WebLLMClient(provider=self.provider, headless=False)
 
-        if json_mode: prompt += "\n\nОтветь СТРОГО в формате валидного JSON без markdown-обрамления."
-        if system: prompt = f"Системные инструкции: {system}\n\nЗапрос: {prompt}"
+        # WebLLMClient is responsible for the single browser-visible prompt
+        # composition. Do not prepend system/JSON instructions here as well;
+        # doing so previously duplicated the instructions sent to DeepSeek.
+        return self._web_client.query(
+            prompt,
+            system=system,
+            json_mode=json_mode,
+            image_path=image_path,
+        )
 
-        return self._web_client.query(prompt, image_path)
+    def close(self):
+        """Штатно закрываем браузер, чтобы Chromium сбросил куки на диск."""
+        if self._web_client is not None:
+            self._web_client.close()
+            self._web_client = None

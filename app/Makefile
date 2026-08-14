@@ -12,3 +12,9 @@ install: venv
 
 run:
 	$(VENV)/bin/python main.py
+
+clean:
+	find . -name __pycache__ -type d -exec rm -rf {} +
+	rm .neurocore_history
+	rm llm_debug.log
+	rm -r .pytest_cache

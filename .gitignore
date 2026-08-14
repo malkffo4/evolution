@@ -83,4 +83,9 @@ test_vm_env-lock
 .neurocore_history
 .working_llm_cache.json
 build.sh
+.browser_profiles
+.browser_sessions
 .browser_session
+.browser_session_llm
+.pytest_cache
+llm_debug.log

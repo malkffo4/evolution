@@ -15,6 +15,7 @@
 #include "math/hash.h"
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
+#include "runtime/ops/graph_encoding.h"   // graph_pack_args()
 #include "knowledge/claim_validator.h"
 #include "knowledge/event_queue.h"
 
@@ -159,6 +160,80 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
     cJSON *atom_item;
 
     cJSON_ArrayForEach(atom_item, atoms) {
+        cJSON *kind_probe = cJSON_GetObjectItem(atom_item, "kind");
+        if (cJSON_IsString(kind_probe) && strcmp(kind_probe->valuestring, "instruction") == 0) {
+            // Graph-native Code-as-Data atom (см. TODO.md Шаг B, docs/10_VM.md).
+            // Не имеет "process" в человекочитаемом смысле: process_id
+            // напрямую кодирует OperatorID, точно как OP_ASSERT_INSTRUCTION
+            // строит его в runtime/ops/graph_ops.c. Это единственный путь,
+            // которым Python (knowledge_compiler.py) может синтезировать
+            // исполняемые графовые программы, минуя VM целиком — VM их
+            // только ИНТЕРПРЕТИРУЕТ позже через OP_EVAL_GRAPH.
+            cJSON *opcode_json = cJSON_GetObjectItem(atom_item, "opcode");
+            cJSON *fields_json = cJSON_GetObjectItem(atom_item, "fields");
+            if (!cJSON_IsNumber(opcode_json) || !cJSON_IsArray(fields_json)) {
+                LOG_WARN("perceive_hyper_json: instruction atom missing 'opcode'/'fields', skipped");
+                continue;
+            }
+
+            uint32_t fields[6] = {0};
+            int fcount = cJSON_GetArraySize(fields_json);
+            for (int fi = 0; fi < fcount && fi < 6; fi++) {
+                cJSON *fe = cJSON_GetArrayItem(fields_json, fi);
+                uint32_t v = cJSON_IsNumber(fe) ? (uint32_t)fe->valuedouble : 0;
+                fields[fi] = v & GRAPH_INSTR_FIELD_MASK;   // жёсткий клэмп до 10 бит, входу не доверяем
+            }
+            uint64_t packed = graph_pack_args(fields);
+
+            NeuroAtom instr = {0};
+            instr.process_id  = proc_make((ko_id_t)opcode_json->valuedouble, PROC_KIND_INSTRUCTION);
+            instr.args[0].raw = (ko_id_t)(packed & HYPER_VALUE_MASK) | HYPER_TYPE_INT;
+
+            cJSON *wide_json = cJSON_GetObjectItem(atom_item, "wide");
+            if (wide_json) instr.args[1].raw = resolve_arg(txn, wide_json);
+
+            cJSON *truth_json2 = cJSON_GetObjectItem(atom_item, "truth");
+            if (cJSON_IsObject(truth_json2)) {
+                cJSON *m = cJSON_GetObjectItem(truth_json2, "mean");
+                cJSON *c = cJSON_GetObjectItem(truth_json2, "confidence");
+                instr.truth_mean       = cJSON_IsNumber(m) ? clampf((float)m->valuedouble, 0.f, 1.f) : 1.0f;
+                instr.truth_confidence = cJSON_IsNumber(c) ? clampf((float)c->valuedouble, 0.f, 1.f) : 0.5f;
+            } else {
+                instr.truth_mean = 1.0f;
+                instr.truth_confidence = 0.5f;   // свежая гипотеза кода, ещё не проверена исполнением
+            }
+            instr.sti = 0.4f;
+            instr.lti = 0.05f;   // синтезированный код дёшево забывается, если ни разу не исполнен (Principle 11)
+
+            cJSON *ctx_json2 = cJSON_GetObjectItem(atom_item, "context");
+            instr.context_or_time_link = ctx_json2 ? (ko_id_t)cJSON_GetNumberValue(ctx_json2) : 0;
+
+            cJSON *id_json2 = cJSON_GetObjectItem(atom_item, "id");
+            if (cJSON_IsString(id_json2)) {
+                instr.id = djb2_hash(id_json2->valuestring);
+                add_string_to_pool(txn, id_json2->valuestring);
+            } else {
+                instr.id = hyper_memory_new_id(hmem);
+            }
+
+            ko_id_t cause_id2 = 0;
+            cJSON *cause_json2 = cJSON_GetObjectItem(atom_item, "cause");
+            if (cJSON_IsString(cause_json2)) {
+                cause_id2 = djb2_hash(cause_json2->valuestring);
+                add_string_to_pool(txn, cause_json2->valuestring);
+            } else if (cJSON_IsNumber(cause_json2)) {
+                cause_id2 = (ko_id_t)cJSON_GetNumberValue(cause_json2);
+            }
+
+            // PROC_KIND_INSTRUCTION уже исключён из дедупликации в
+            // hyper_atom_exists() (storage/hyper_atom/hyper_atom.c) — каждая
+            // инструкция уникальна по построению, как и у OP_ASSERT_INSTRUCTION.
+            if (hyper_assert_with_cause(txn, hmem, &instr, cause_id2) < 0) {
+                LOG_ERROR("perceive_hyper_json: failed to assert instruction atom (opcode=%.0f)",
+                          opcode_json->valuedouble);
+            }
+            continue;   // инструкции не проходят через общую ветку relation/entity ниже
+        }
         cJSON *process_json = cJSON_GetObjectItem(atom_item, "process");
         if (!cJSON_IsString(process_json)) continue;
 

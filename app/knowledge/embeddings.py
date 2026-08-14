@@ -29,29 +29,37 @@ sklearn.HashingVectorizer / Vowpal Wabbit): каждый токен
 
 import math
 import re
-
+import requests
 from core.sdk import djb2_hash
 from knowledge.domain_ns import strip_namespace, NAMESPACE_SEPARATOR
 
-VECTOR_DIM = 128  # ДОЛЖНО совпадать с core/src/math/vector_math.h::VECTOR_DIM
+VECTOR_DIM = 128  # ДОЛЖНО совпадать с C-ядром
 
 _TOKEN_RE = re.compile(r"[a-zA-Zа-яА-Я0-9_]{2,}")
 
-
 def embed_text(text: str, dim: int = VECTOR_DIM) -> list[float]:
-    """Bag-of-tokens hashing trick с подписанными коллизиями.
-
-    Для каждого токена:
-      - индекс координаты = djb2_hash(token) % dim
-      - знак = ±1, определяется отдельным хэшем того же токена
-        (чтобы столкновения в одну координату не складывались
-        систематически в одну сторону — стандартный приём против
-        hash-коллизионного смещения в feature hashing).
-    Вектор в конце L2-нормализуется (cosine similarity в C-ядре,
-    vm_op_vector_sim/vector_cosine_similarity, и так нормализует
-    внутри, но нормализация на входе даёт более предсказуемый масштаб
-    для simhash-проекции в compute_simhash256).
     """
+    Универсальный мультиязычный эмбеддинг через локальную Ollama (nomic-embed-text).
+    Использует свойство Matryoshka Representation для сжатия до 128 измерений.
+    Фоллбэк на Hashing Trick, если Ollama выключена.
+    """
+    try:
+        # Дергаем локальную Ollama. Убедись, что выполнил `ollama run nomic-embed-text`
+        resp = requests.post("http://localhost:11434/api/embeddings",
+                             json={"model": "nomic-embed-text", "prompt": text},
+                             timeout=2.0)
+        if resp.status_code == 200:
+            vec = resp.json().get("embedding", [])
+            if vec and len(vec) >= dim:
+                # Обрезаем до 128 (Matryoshka) и нормализуем
+                sub_vec = vec[:dim]
+                norm = math.sqrt(sum(v * v for v in sub_vec))
+                if norm > 1e-9:
+                    return [v / norm for v in sub_vec]
+    except Exception:
+        pass # Ollama недоступна, падаем в фоллбэк
+
+    # Фоллбэк: Hashing trick (старый детерминированный алгоритм)
     vec = [0.0] * dim
     for tok in _TOKEN_RE.findall(text.lower()):
         idx = djb2_hash(tok) % dim
@@ -63,14 +71,7 @@ def embed_text(text: str, dim: int = VECTOR_DIM) -> list[float]:
         vec = [v / norm for v in vec]
     return vec
 
-
 def entity_embedding_atom(namespaced_label: str) -> dict:
-    """Готовый atom-словарь для learn(): эмбеддинг сущности, ключом
-    служит id = сам namespace'нутый label (та же строка, что и в args
-    остальных атомов), поэтому perceive_hyper_json посадит вектор
-    ИМЕННО на node_id этой сущности, а не на автогенерируемый id
-    факта-отношения — иначе OP_FIND_SIMILAR искал бы соседей у
-    случайного relation-атома, а не у entity."""
     domain, plain_label = strip_namespace(namespaced_label)
     return {
         "id": namespaced_label,
@@ -78,17 +79,11 @@ def entity_embedding_atom(namespaced_label: str) -> dict:
         "kind": "entity",
         "args": [namespaced_label, domain],
         "truth": {"mean": 1.0, "confidence": 1.0},
-        # Тихая по вниманию: не должна доминировать в activation spread,
-        # это инфраструктурный атом, а не факт для рассуждения.
         "attention": {"sti": 0.1, "lti": 0.1},
         "embedding": embed_text(f"{domain} {plain_label}"),
     }
 
-
 def augment_atoms_with_entity_embeddings(atoms: list) -> list:
-    """Добавляет по одному ENTITY_EMBEDDING атому на каждую уникальную
-    namespace'нутую сущность, встреченную в args уже построенных
-    атомов. Вызывать ПОСЛЕ namespace_atom_args() на каждом атоме."""
     seen: set[str] = set()
     extra = []
     for a in atoms:

@@ -102,7 +102,11 @@ class NeuroCoreShell(cmd.Cmd):
         """ingest <file.txt>
         Parse a large text file in parallel and store in DB."""
         if not arg: print("Usage: ingest <file.txt>")
-        else: self.manager.execute_command("ingest", arg)
+        else:
+            import shlex
+            # shlex.split правильно снимет кавычки с пути
+            parsed_args = shlex.split(arg)
+            self.manager.execute_command("ingest", *parsed_args)
 
     def do_shutdown(self, arg):
         """shutdown

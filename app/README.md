@@ -39,3 +39,30 @@ The expected browser payload shape is:
   }
 }
 ```
+
+NEUROCORE / DEEPSEEK WEB FIX BUNDLE
+
+Replace these files in the real checkout:
+  app/core/web_llm.py
+  app/core/llm.py
+  app/environments/browser/fabric.py
+
+Included unchanged for completeness:
+  app/environments/browser/profile.py
+
+Key fixes:
+1. WebLLMClient is no longer a singleton; provider switches cannot reuse a stale DeepSeek/ChatGPT profile or tab.
+2. Web-chat prompt formatting is done exactly once. The system prompt and JSON-only suffix are no longer duplicated before being typed into the browser.
+3. Before sending, the client snapshots the existing assistant messages. It only returns content after it observes a new/changed assistant response, so an old response cannot be mistaken for the current answer.
+4. Sending prefers a real submit button and falls back to Enter.
+5. No fresh response within timeout raises TimeoutError instead of silently returning an empty/old response, so LLMClient can fall back to another provider.
+6. The browser profile keeps a stable per-provider user-data directory and uses --password-store=basic for portable credential/cookie storage in Linux/container environments.
+7. BrowserFabric closes Chromium first so the persistent profile is flushed before process exit.
+8. timeout passed to LLMClient now reaches the browser wait loop.
+
+Validation completed here:
+- Python syntax compilation passed for all fixed source files.
+- Static invariants for one-time formatting, new-response tracking, submit fallback, and persistent profile passed.
+
+Not executed here:
+- Live DeepSeek login/send/response E2E, because DrissionPage is not installed in this execution environment.

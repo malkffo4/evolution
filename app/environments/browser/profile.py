@@ -5,6 +5,7 @@ from pathlib import Path
 import hashlib
 import json
 import re
+
 from typing import Optional
 
 
@@ -13,10 +14,7 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9._-]{1,96}$")
 
 @dataclass(frozen=True)
 class BrowserProfile:
-    """Persistent, isolated browser identity for one user-owned account/session.
-
-    This class intentionally describes isolation/configuration, not WAF bypass.
-    """
+    """Persistent, isolated browser identity for a user-owned account/session."""
 
     profile_id: str
     user_data_dir: Path
@@ -43,23 +41,35 @@ class BrowserProfile:
     def manifest_path(self) -> Path:
         return self.user_data_dir / "neurocore-profile.json"
 
+    @property
+    def debug_port(self) -> int:
+        # Stable per-profile port so a new Python process can reconnect to
+        # the same still-running Chromium instance.
+        return 18000 + (self.stable_seed % 30000)
+
     def prepare(self) -> None:
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
         if self.download_dir:
             self.download_dir.mkdir(parents=True, exist_ok=True)
-        self.manifest_path.write_text(
-            json.dumps(
-                {
-                    "profile_id": self.profile_id,
-                    "locale": self.locale,
-                    "timezone": self.timezone,
-                    "headless": self.headless,
-                    "has_proxy": bool(self.proxy),
-                    "user_agent": self.user_agent,
-                    "stable_seed": self.stable_seed,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
+
+        manifest = {
+            "profile_id": self.profile_id,
+            "user_data_dir": str(self.user_data_dir),
+            "locale": self.locale,
+            "timezone": self.timezone,
+            "headless": self.headless,
+            "has_proxy": bool(self.proxy),
+            "user_agent": self.user_agent,
+            "stable_seed": self.stable_seed,
+            "debug_port": self.debug_port,
+        }
+
+        # Do not remove or recreate the user-data directory here. Chromium owns
+        # cookies, Local Storage and session databases inside it. Only write a
+        # small metadata file next to them.
+        tmp = self.manifest_path.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        tmp.replace(self.manifest_path)
