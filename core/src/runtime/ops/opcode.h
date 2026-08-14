@@ -114,8 +114,12 @@ typedef enum {
     OP_FIND_PRODUCER_CHAIN,  // ищет (A,X,B): PRODUCES(A,X) ∧ REQUIRES(B,X) ∧ PRODUCES(B,goal)
     OP_SYNTHESIZE_SEQUENCE,  // строит и algorithm_save()'ит составной Pipeline A;B
 
-    OP_CURRENT_EPISODE,      // грузит ctx->current_episode_id в регистр —
-                             // provenance для DERIVE внутри чисто графовых цепочек (AnalogyPlanner и т.п.)
-    /* Количество opcode */
-    VM_OPCODE_COUNT
+    OP_CURRENT_EPISODE,      // грузит ctx->current_episode_id в регистр — provenance для DERIVE внутри чисто графовых цепочек (AnalogyPlanner и т.п.)
+
+    OP_QUEUE_PUSH,     // Кладёт атом в именованную очередь отложенной обработки
+    OP_QUEUE_POP,      // Извлекает пакет атомов из очереди (bounded, at-most-once)
+    OP_ATOM_ARG,       // Читает args[0]/args[1]/context_or_time_link атома по его id
+    OP_SCORE_UPDATE,   // Инкрементальное Beta-Bayesian обновление Score(domain, subject)
+
+    VM_OPCODE_COUNT /* Количество opcode */
 } Opcode;

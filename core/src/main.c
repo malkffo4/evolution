@@ -141,6 +141,10 @@ static int init_everything(const char *db_path) {
         LOG_ERROR("Failed to begin transaction for HyperMemory init");
         return -1;
     }
+    hyper_memory_set_db_causal(global_hyper_mem, db.graph.hyper.idx_causal);
+    hyper_memory_set_db_archive(global_hyper_mem, db.graph.hyper.archive);
+    hyper_memory_set_db_vectors(global_hyper_mem, db.graph.hyper.idx_vectors);
+    hyper_memory_set_db_pending(global_hyper_mem, db.graph.hyper.idx_pending);
 
     // Реестр операторов виртуальной машины
     operator_registry_init();

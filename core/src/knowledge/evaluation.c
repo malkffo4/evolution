@@ -347,11 +347,26 @@ int score_propagate_credit(MDB_txn *txn, HyperMemory *hmem, CognitiveDomain doma
     return propagated;
 }
 
+// (старый статический массив kDomainKappa[7] ломался бы на значениях
+// 101+, но благодаря защите `(size_t)domain >= n` в старом коде это было
+// не крашем, а просто неверным default — теперь честный switch)
 float score_domain_kappa(CognitiveDomain domain) {
-    size_t n = sizeof(kDomainKappa) / sizeof(kDomainKappa[0]);
+    switch (domain) {
+        case COGNITIVE_DOMAIN_ALGORITHM:  return 8.0f;
+        case COGNITIVE_DOMAIN_SKILL:      return 12.0f;
+        case COGNITIVE_DOMAIN_RULE:       return 20.0f;
+        case COGNITIVE_DOMAIN_HYPOTHESIS: return 6.0f;
+        case COGNITIVE_DOMAIN_PREDICTION: return 10.0f;
+        case COGNITIVE_DOMAIN_CLAIM:      return 15.0f;
 
-    if ((int)domain < 0 || (size_t)domain >= n)
-        return kDomainKappa[0];
-
-    return kDomainKappa[domain];
+        case COGNITIVE_AXIS_EXEC_SUCCESS:       return 5.0f;
+        case COGNITIVE_AXIS_RESULT_VALIDITY:    return 8.0f;
+        case COGNITIVE_AXIS_VERIFIER_AGREEMENT: return 4.0f;  // мало независимых верификаторов — не завышаем
+        case COGNITIVE_AXIS_INVARIANT_SCORE:    return 8.0f;
+        case COGNITIVE_AXIS_REPRODUCIBILITY:    return 10.0f;
+        case COGNITIVE_AXIS_NOVELTY:            return 6.0f;
+        case COGNITIVE_AXIS_USEFULNESS:         return 8.0f;
+        case COGNITIVE_AXIS_SAFETY:             return 3.0f;  // осторожность важнее скорости "созревания"
+        default: return 10.0f;
+    }
 }

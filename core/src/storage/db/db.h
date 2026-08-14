@@ -23,6 +23,7 @@ typedef struct {
             MDB_dbi patterns;
             MDB_dbi archive;
             MDB_dbi idx_vectors;   // key: ko_id_t (atom_id), value: float[128]
+            MDB_dbi idx_pending;   // именованные FIFO-очереди отложенной обработки
         } hyper;
         struct {
             MDB_dbi edges_by_source;
@@ -46,7 +47,7 @@ typedef struct {
 
 extern Database db;
 
-#define LMDB_MAX_DBS      24
+#define LMDB_MAX_DBS      32
 #define LMDB_MAPSIZE_MB   100
 
 int init_lmdb(const char *db_path);

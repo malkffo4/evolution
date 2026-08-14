@@ -62,6 +62,7 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     hyper_memory_set_db_causal(worker_hmem, db.graph.hyper.idx_causal);
     hyper_memory_set_db_archive(worker_hmem, db.graph.hyper.archive);
     hyper_memory_set_db_vectors(worker_hmem, db.graph.hyper.idx_vectors);
+    hyper_memory_set_db_pending(worker_hmem, db.graph.hyper.idx_pending);
 
     VMContext ctx;
     memset(&ctx, 0, sizeof(ctx));
@@ -122,9 +123,14 @@ static int vm_worker_txn_fn(MDB_txn *txn, void *arg) {
     // (algorithm_planner.c::pick_best) никогда не увидит, что confidence
     // упала, и будет бесконечно выбирать один и тот же плохой алгоритм.
     float execution_success = (rc == VM_OK) ? 1.0f : 0.0f;
+    // Обновление базового скора (для UCB1-планировщика и интеграционных тестов)
     if (score_update(txn, ctx.hyper_mem, COGNITIVE_DOMAIN_ALGORITHM, job->algo_id, execution_success, 0, 0) != 0) {
-        LOG_ERROR("[VM_POOL] score_update failed: algo=%lu execution_success=%.1f",
-                  (unsigned long)job->algo_id, execution_success);
+        LOG_ERROR("[VM_POOL] score_update failed for ALGORITHM domain: algo=%lu", (unsigned long)job->algo_id);
+    }
+
+    // Новая многомерная ось (для аналитики и расширения архитектуры)
+    if (score_update(txn, ctx.hyper_mem, COGNITIVE_AXIS_EXEC_SUCCESS, job->algo_id, execution_success, 0, 0) != 0) {
+        LOG_ERROR("[VM_POOL] score_update failed for EXEC_SUCCESS axis: algo=%lu", (unsigned long)job->algo_id);
     }
     // TODO. Добавить verification_score, result_validity, потом именно result_validity должен определять обучение алгоритма.
 

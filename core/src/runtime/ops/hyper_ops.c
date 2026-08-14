@@ -392,3 +392,44 @@ int vm_op_current_episode(VMContext *ctx, const Instruction *ins) {
     ctx->reg[dst].i = (int64_t)ctx->current_episode_id;
     return VM_OK;
 }
+
+// OP_ATOM_ARG: arg[0]=atom_id_reg, arg[1]=slot(imm: 0|1=args, 2=context_or_time_link),
+// arg[2]=dst_reg
+int vm_op_atom_arg(VMContext *ctx, const Instruction *ins) {
+    uint32_t r_atom = ins->arg[0], slot = ins->arg[1], r_dst = ins->arg[2];
+    if (r_atom >= VM_MAX_REGISTERS || r_dst >= VM_MAX_REGISTERS || slot > 2) return VM_INVALID_REGISTER;
+    if (!ctx->hyper_mem) return VM_ERROR;
+
+    node_id_t atom_id = (ctx->reg[r_atom].type == REG_NODE) ? ctx->reg[r_atom].node : (node_id_t)ctx->reg[r_atom].i;
+
+    MDB_val key = { sizeof(ko_id_t), &atom_id };
+    MDB_val data;
+    int rc = mdb_get(ctx->memory.txn, ctx->hyper_mem->dbi_atoms, &key, &data);
+    if (rc != MDB_SUCCESS) {
+        // Атом мог уже уйти в архив (decay) — фолбэк, тот же приём, что hyper_trace_cause().
+        if (!ctx->hyper_mem->dbi_archive ||
+            mdb_get(ctx->memory.txn, ctx->hyper_mem->dbi_archive, &key, &data) != MDB_SUCCESS)
+            return VM_NOT_FOUND;
+    }
+    if (data.mv_size != sizeof(NeuroAtom)) return VM_ERROR;
+
+    NeuroAtom atom;
+    memcpy(&atom, data.mv_data, sizeof(NeuroAtom));
+    vm_register_clear(ctx, &ctx->reg[r_dst]);
+
+    if (slot == 2) {
+        ctx->reg[r_dst].type = REG_NODE;
+        ctx->reg[r_dst].node = atom.context_or_time_link;
+        return VM_OK;
+    }
+
+    ko_id_t raw = atom.args[slot].raw;
+    if (HYPER_GET_TYPE(raw) == HYPER_TYPE_REF) {
+        ctx->reg[r_dst].type = REG_NODE;
+        ctx->reg[r_dst].node = HYPER_GET_ID(raw);
+    } else {
+        ctx->reg[r_dst].type = REG_INT;
+        ctx->reg[r_dst].i = (int64_t)HYPER_GET_ID(raw);
+    }
+    return VM_OK;
+}

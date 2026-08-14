@@ -54,6 +54,9 @@ void hyper_memory_set_db_causal(HyperMemory *mem, MDB_dbi causal) {
 void hyper_memory_set_db_vectors(HyperMemory *mem, MDB_dbi vectors) {
     if (mem) mem->dbi_idx_vectors = vectors;
 }
+void hyper_memory_set_db_pending(HyperMemory *mem, MDB_dbi pending) {
+    if (mem) mem->dbi_idx_pending = pending;
+}
 
 int hyper_find_by_process(MDB_txn *txn, HyperMemory *mem,
                           ko_id_t process_id, ko_id_t participant_id,

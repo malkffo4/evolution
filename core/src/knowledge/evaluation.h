@@ -69,6 +69,18 @@ typedef enum {
     COGNITIVE_DOMAIN_HYPOTHESIS = 4,
     COGNITIVE_DOMAIN_PREDICTION = 5,
     COGNITIVE_DOMAIN_CLAIM      = 6,  // достоверность извлечённого факта/связи
+
+    // --- Многомерная оценка. subject_id ТОТ ЖЕ, что у "родительского"
+    // домена — просто ещё одна независимая Beta-Bayesian свёртка того же
+    // субъекта по другой оси. ---
+    COGNITIVE_AXIS_EXEC_SUCCESS       = 101,
+    COGNITIVE_AXIS_RESULT_VALIDITY    = 102,
+    COGNITIVE_AXIS_VERIFIER_AGREEMENT = 103,
+    COGNITIVE_AXIS_INVARIANT_SCORE    = 104,
+    COGNITIVE_AXIS_REPRODUCIBILITY    = 105,
+    COGNITIVE_AXIS_NOVELTY            = 106,
+    COGNITIVE_AXIS_USEFULNESS         = 107,
+    COGNITIVE_AXIS_SAFETY             = 108,
 } CognitiveDomain;
 
 // Записывает одно неизменяемое наблюдение. outcome в [0..1] — не только

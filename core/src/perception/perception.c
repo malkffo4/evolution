@@ -16,6 +16,7 @@
 #include "runtime/logging/logging.h"
 #include "runtime/operator/operator.h"
 #include "knowledge/claim_validator.h"
+#include "knowledge/event_queue.h"
 
 static float clampf(float v, float lo, float hi) {
     if (v < lo) return lo;
@@ -306,6 +307,13 @@ int perceive_hyper_json(const char *json_str, MDB_txn *txn, HyperMemory *hmem) {
                 MDB_val v_rev = { sizeof(ko_id_t), &atom.id };
                 mdb_put(txn, db.graph.hyper.idx_causal_rev, &k_rev, &v_rev, 0);
             }
+        }
+
+        cJSON *enqueue_json = cJSON_GetObjectItem(atom_item, "enqueue");
+        if (cJSON_IsString(enqueue_json)) {
+            ko_id_t queue_id = djb2_hash(enqueue_json->valuestring);
+            add_string_to_pool(txn, enqueue_json->valuestring);
+            event_queue_push(txn, hmem, queue_id, atom.id);
         }
 
         cJSON *embed_json = cJSON_GetObjectItem(atom_item, "embedding");
