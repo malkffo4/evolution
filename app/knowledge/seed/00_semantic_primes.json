@@ -1,0 +1,81 @@
+{
+  "atoms": [
+    {"process": "IS_A", "kind": "relation", "args": ["I", "Substantive"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["You", "Substantive"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Someone", "Substantive"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Something", "Substantive"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["People", "Substantive"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Body", "Substantive"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Kind", "RelationalSubstantive"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Part", "RelationalSubstantive"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["This", "Determiner"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Same", "Determiner"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Other", "Determiner"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["One", "Quantifier"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Two", "Quantifier"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Some", "Quantifier"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["All", "Quantifier"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Much", "Quantifier"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Little", "Quantifier"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Good", "Evaluator"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Bad", "Evaluator"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Big", "Descriptor"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Small", "Descriptor"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Think", "MentalPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Know", "MentalPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Want", "MentalPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Feel", "MentalPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["See", "MentalPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Hear", "MentalPredicate"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Say", "SpeechPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Words", "SpeechPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["True", "SpeechPredicate"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Do", "ActionPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Happen", "EventPredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Move", "ActionPredicate"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Be", "ExistencePredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Have", "ExistencePredicate"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Live", "LifePredicate"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Die", "LifePredicate"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["When", "Time"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Now", "Time"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Before", "Time"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["After", "Time"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["LongTime", "Time"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["ShortTime", "Time"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["ForSomeTime", "Time"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Moment", "Time"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Where", "Space"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Here", "Space"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Above", "Space"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Below", "Space"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Far", "Space"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Near", "Space"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Side", "Space"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Inside", "Space"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Touch", "Space"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Not", "LogicalConnective"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Maybe", "LogicalConnective"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Can", "Modal"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["Because", "LogicalConnective"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["If", "LogicalConnective"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Very", "Augmentor"], "confidence": 1.0},
+    {"process": "IS_A", "kind": "relation", "args": ["More", "Augmentor"], "confidence": 1.0},
+
+    {"process": "IS_A", "kind": "relation", "args": ["Like", "Similarity"], "confidence": 1.0}
+  ]
+}

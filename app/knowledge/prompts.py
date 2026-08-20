@@ -66,3 +66,15 @@ EXTRACTION_PROMPT = """Ты — когнитивный экстрактор зн
 Текст:
 \"\"\"{chunk}\"\"\"
 """
+
+PRIME_EXPLICATION_PROMPT = """Ты — семантический толкователь. Тебе дано новое
+понятие. Разложи его смысл через уже известные примитивы: {known_primes}.
+
+Понятие: "{concept}"
+
+Верни атомы вида:
+EXPLICATED_AS(concept, "someone Want something because...")
+COMPOSED_OF(concept, prime1)
+COMPOSED_OF(concept, prime2)
+IS_A(concept, category_among_known_primitives_or_concepts)
+"""
