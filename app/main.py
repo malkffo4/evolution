@@ -14,6 +14,7 @@ if sys.stderr.encoding.lower() not in ('utf-8', 'utf8'):
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
 from core.manager import EvolutionManager
+from core.sdk import djb2_hash
 
 class NeuroCoreShell(cmd.Cmd):
     intro = "\n" + "="*60 + "\n  NeuroCore Interactive Shell\n  Введите '?' или 'help' для списка команд.\n  ВНИМАНИЕ: Сначала введите 'start' для запуска C-ядра.\n" + "="*60 + "\n"
@@ -125,6 +126,29 @@ class NeuroCoreShell(cmd.Cmd):
         """Выйти из оболочки (Ctrl+D)."""
         print()
         return True
+
+    def do_recon(self, arg):
+        """recon <domain.com>
+        Запустить автоматический сбор поддоменов (SSL) и поиск уязвимостей."""
+        if not arg:
+            print("Usage: recon <domain.com>")
+            return
+
+        domain = arg.strip()
+        goal_id = f"Recon_{djb2_hash(domain)}"
+
+        # Создаем цель в LMDB и привязываем к ней домен
+        self.manager.core_client.learn({"atoms": [{
+            "id": goal_id,
+            "process": "IS_A",
+            "args": [goal_id, "ReconGoal"],
+            "properties": {"target": domain}
+        }]})
+
+        # Активируем цель — планировщик C-ядра сам кинет её в очередь Recon Worker'а
+        self.manager.core_client.activate_goal(goal_id, utility=0.9)
+        self.manager.core_client.think()
+        print(f"[*] Цель разведки создана для {domain}. Воркеры начали работу в фоне.")
 
     def default(self, line):
         """If command is not recognized, treat it as a chat message for MindAgent."""

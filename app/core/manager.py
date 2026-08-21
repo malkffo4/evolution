@@ -129,6 +129,16 @@ class EvolutionManager:
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
+            # Запуск Recon Worker
+            self.recon_process = subprocess.Popen(
+                [sys.executable, "-u", str(self.root / "app" / "services" / "recon_worker.py")],
+                cwd=self.root, start_new_session=True
+            )
+            # Запуск Security Worker
+            self.sec_process = subprocess.Popen(
+                [sys.executable, "-u", str(self.root / "app" / "services" / "security_worker.py")],
+                cwd=self.root, start_new_session=True
+            )
             time.sleep(0.3)
         except Exception as e:
             self._stop_research_worker(force=True)
