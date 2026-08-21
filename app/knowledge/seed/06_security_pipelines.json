@@ -1,9 +1,21 @@
 {
   "atoms": [
+    {"process": "IS_A", "kind": "relation", "args": ["ReconAlgo", "Algorithm"], "confidence": 1.0},
+    {"process": "SOLVES", "kind": "relation", "args": ["ReconAlgo", "ReconGoal"], "confidence": 1.0},
     {"process": "IS_A", "kind": "relation", "args": ["CheckIdorAlgo", "Algorithm"], "confidence": 1.0},
     {"process": "SOLVES", "kind": "relation", "args": ["CheckIdorAlgo", "idor_candidate"], "confidence": 1.0}
   ],
   "pipelines": [
+    {
+      "type": "pipeline",
+      "algo_name": "ReconAlgo",
+      "code": [
+        {"operator_id": "load_const", "arg": [10, 0, 0, 0, 0, 0]},
+        {"operator_id": "queue_push", "arg": [10, 63, 0, 0, 0, 0]},
+        {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
+      ],
+      "constants": {"int_consts": ["@hash:cybersec::recon"]}
+    },
     {
       "type": "pipeline",
       "algo_name": "CheckIdorAlgo",
@@ -12,9 +24,7 @@
         {"operator_id": "queue_push", "arg": [10, 63, 0, 0, 0, 0]},
         {"operator_id": "halt", "arg": [0, 0, 0, 0, 0, 0]}
       ],
-      "constants": {
-        "int_consts": ["@hash:cybersec::idor_check"]
-      }
+      "constants": {"int_consts": ["@hash:cybersec::idor_check"]}
     }
   ]
 }
